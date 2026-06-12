@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>横盘爆量首板 批量回测</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Microsoft YaHei",sans-serif;background:#0d1117;color:#c9d1d9;padding:20px}
+  h1{font-size:20px;color:#58a6ff;margin-bottom:6px}
+  .meta{font-size:13px;color:#8b949e;margin-bottom:16px}
+  .params{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:10px 16px;margin-bottom:20px;font-size:13px;color:#8b949e}
+  .params span{color:#e3b341;margin-right:20px}
+  h2{font-size:15px;color:#79c0ff;margin:20px 0 10px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px}
+  th{background:#21262d;color:#8b949e;padding:8px 10px;text-align:center;border-bottom:1px solid #30363d}
+  td{padding:7px 10px;text-align:center;border-bottom:1px solid #21262d}
+  tr:hover td{background:#161b22}
+  .pos{color:#3fb950}.neg{color:#f85149}.na{color:#484f58}
+  .signal-card{background:#161b22;border:1px solid #30363d;border-radius:8px;margin-bottom:28px;padding:16px}
+  .card-header{display:flex;align-items:baseline;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+  .card-title{font-size:15px;color:#e6edf3;font-weight:bold}
+  .badge{font-size:12px;padding:2px 8px;border-radius:4px;background:#1f6feb;color:#fff}
+  .card-meta{font-size:12px;color:#8b949e}
+  .chart-box{width:100%;height:400px}
+  .section-title{font-size:16px;color:#58a6ff;border-bottom:1px solid #30363d;padding-bottom:6px;margin:28px 0 14px}
+</style>
+</head>
+<body>
+
+<h1>横盘爆量首板 — 批量回测</h1>
+<div class="meta" id="meta-bar"></div>
+<div class="params" id="params-bar"></div>
+
+<div class="section-title">汇总统计</div>
+<div id="summary"></div>
+
+<div class="section-title">信号明细</div>
+<div id="signals"></div>
+
+<!-- ── 注入数据（由 Python 替换此占位符）──────────────────────────────────
+     生成内容：
+       const signals    = [...];
+       const TRACK_DAYS = [...];
+       const META       = {...};   // gen_time, total_scanned, hit_stocks, total_signals
+       const CONFIG     = {...};   // 所有回测参数
+// __INJECT_DATA__ -->
+<script>// __INJECT_DATA__</script>
+
+<script>
+// ── 初始化页头信息 ────────────────────────────────────────────────────────
+document.getElementById('meta-bar').innerHTML =
+  `生成时间：${META.gen_time} &nbsp;|&nbsp;
+   扫描股票：${META.total_scanned} 只 &nbsp;|&nbsp;
+   有信号股票：${META.hit_stocks} 只 &nbsp;|&nbsp;
+   信号总数：${META.total_signals} 个`;
+
+document.getElementById('params-bar').innerHTML = [
+  `市值模式：${CONFIG.mv_mode} (${CONFIG.mv_range})`,
+  `横盘：${CONFIG.sideways_days}日内振幅≤${CONFIG.sideways_range_pct}%`,
+  `爆量：≥${CONFIG.volume_surge_ratio}x (${CONFIG.volume_ma_period}日均量)`,
+  `爆量涨幅：≥${CONFIG.limit_up_pct}%`,
+  `中证1000 ${CONFIG.csi1000_ma_period}日均线向上或持平`,
+  `第二基准：开盘价×(1+${CONFIG.bench_percent})`,
+  `止损：开盘价下跌>${CONFIG.stop_loss_pct}%触发`,
+  `止盈：${CONFIG.take_profit_enabled?'开启':'关闭'} 持有≥${CONFIG.take_profit_hold_days}日且累计收益>${CONFIG.take_profit_pct}%触发`,
+  `跟踪：[${CONFIG.track_days.join(', ')}] 交易日`,
+].map(s => `<span>${s}</span>`).join('');
+
+// ── 工具函数 ──────────────────────────────────────────────────────────────
+function fmtRet(v){
+  if(v===null||v===undefined||isNaN(v)) return '<span class="na">N/A</span>';
+  const cls=v>0?'pos':v<0?'neg':'';
+  return `<span class="${cls}">${v>0?'+':''}${v.toFixed(1)}%</span>`;
+}
+
+// ── 统计工具 ──────────────────────────────────────────────────────────────
+function statsRow(label,sigs,retKey,excKey,d){
+  const vals=sigs.map(s=>s[retKey][d]).filter(v=>v!==null&&!isNaN(v));
+  if(!vals.length) return `<tr><td>${label}</td><td colspan="5" class="na">无数据</td></tr>`;
+  const avg=vals.reduce((a,v)=>a+v,0)/vals.length;
+  const wins=vals.filter(v=>v>0).length;
+  const mx=Math.max(...vals),mn=Math.min(...vals);
+  const excVals=sigs.map(s=>s[excKey][d]).filter(v=>v!==null&&!isNaN(v));
+  const excAvg=excVals.length?excVals.reduce((a,v)=>a+v,0)/excVals.length:null;
+  return `<tr>
+    <td>${label}</td>
+    <td>${fmtRet(+avg.toFixed(1))}</td>
+    <td class="${wins/vals.length>=0.5?'pos':'neg'}">${wins}/${vals.length} (${(wins/vals.length*100).toFixed(0)}%)</td>
+    <td class="pos">+${mx.toFixed(1)}%</td>
+    <td class="neg">${mn.toFixed(1)}%</td>
+    <td>${excAvg!==null?fmtRet(+excAvg.toFixed(1)):'<span class="na">-</span>'}</td>
+    <td>${vals.length}</td>
+  </tr>`;
+}
+
+function buildSummary(){
+  const bases=[
+    {label:'基准 = 首板收盘价',retKey:'ret_base1',excKey:'exc_base1'},
+    {label:`基准 = 首板开盘价×(1+${CONFIG.bench_percent})`,retKey:'ret_base2',excKey:'exc_base2'},
+  ];
+  const years=[...new Set(signals.map(s=>s.year))].sort();
+  let html='';
+  for(const b of bases){
+    html+=`<h2>${b.label}</h2>`;
+    html+=`<table><tr><th>节点</th><th>平均收益</th><th>胜率</th><th>最大</th><th>最小</th><th>平均超额收益</th><th>信号数</th></tr>`;
+    for(const d of TRACK_DAYS) html+=statsRow('全部',signals,b.retKey,b.excKey,d);
+    html+='</table>';
+    html+=`<details style="margin:8px 0 20px"><summary style="cursor:pointer;color:#79c0ff;font-size:13px">▶ 按年度展开</summary>
+    <table style="margin-top:8px">
+      <tr><th>年份/节点</th><th>平均收益</th><th>胜率</th><th>最大</th><th>最小</th><th>平均超额收益</th><th>信号数</th></tr>`;
+    for(const y of years){
+      const ySigs=signals.filter(s=>s.year===y);
+      for(const d of TRACK_DAYS) html+=statsRow(`${y} · ${d}日后`,ySigs,b.retKey,b.excKey,d);
+    }
+    html+='</table></details>';
+  }
+  document.getElementById('summary').innerHTML=html;
+}
+
+// ── 构建单张卡片 DOM ──────────────────────────────────────────────────────
+function buildCard(sig,i){
+  const card=document.createElement('div');
+  card.className='signal-card';
+  const retHtml=`<table style="margin-bottom:12px">
+    <tr><th>基准</th>${TRACK_DAYS.map(d=>`<th>${d}日后</th>`).join('')}</tr>
+    <tr><td>收盘价 ${sig.close}</td>${TRACK_DAYS.map(d=>`<td>${fmtRet(sig.ret_base1[d])}</td>`).join('')}</tr>
+    <tr><td>开盘价×(1+${CONFIG.bench_percent}) ${sig.open_price}</td>${TRACK_DAYS.map(d=>`<td>${fmtRet(sig.ret_base2[d])}</td>`).join('')}</tr>
+  </table>`;
+  card.innerHTML=`
+    <div class="card-header">
+      <span class="card-title">#${i+1} ${sig.code} ${sig.name}</span>
+      <span class="badge">首板 +${sig.pct_chg}%</span>
+      <span class="card-meta">${sig.date} &nbsp;|&nbsp; 量比 ${sig.vol_ratio}x &nbsp;|&nbsp; 横盘振幅 ${sig.amplitude}% &nbsp;|&nbsp; 横盘区间 ${sig.sideways_low}~${sig.sideways_high} &nbsp;|&nbsp; 止损价 ${sig.stop_price} &nbsp;|&nbsp; ${sig.exit_reason!==null?'<span style="color:#f85149">⚡ '+sig.exit_reason+' 第'+sig.exit_day+'日 @'+sig.exit_price+'</span>':'<span style="color:#3fb950">持有至期末</span>'}</span>
+    </div>
+    ${retHtml}
+    <div class="chart-box" data-sig-index="${i}"></div>`;
+  return card;
+}
+
+// ── ECharts 初始化 ────────────────────────────────────────────────────────
+const _charts=[];
+window.addEventListener('resize',()=>_charts.forEach(c=>c.resize()));
+
+function initChart(div,sig){
+  const chart=echarts.init(div,'dark');
+  _charts.push(chart);
+  const kdata=sig.kdata;
+  const dates=kdata.map(d=>d.date);
+  const ohlc=kdata.map(d=>[d.open,d.close,d.low,d.high]);
+  const vols=kdata.map(d=>d.volume);
+  const si=sig.signal_idx;
+  const markLines=[{xAxis:dates[si],name:'首板',lineStyle:{color:'#f0a500',width:2,type:'solid'}}];
+  for(const d of TRACK_DAYS){
+    const ti=si+parseInt(d);
+    if(ti<dates.length)
+      markLines.push({xAxis:dates[ti],name:`${d}日`,lineStyle:{color:'#58a6ff',width:1,type:'dashed'}});
+  }
+  if(sig.exit_day!==null){
+    const eti=si+sig.exit_day;
+    if(eti<dates.length)
+      markLines.push({xAxis:dates[eti],name:sig.exit_reason,lineStyle:{color:sig.exit_reason==='止损'?'#ff0000':'#ff6600',width:2,type:'solid'}});
+  }
+  chart.setOption({
+    backgroundColor:'#161b22',animation:false,
+    tooltip:{trigger:'axis',axisPointer:{type:'cross'}},
+    axisPointer:{link:[{xAxisIndex:'all'}]},
+    grid:[{left:60,right:20,top:20,height:'58%'},{left:60,right:20,top:'72%',height:'20%'}],
+    xAxis:[
+      {type:'category',data:dates,gridIndex:0,axisLabel:{fontSize:11},boundaryGap:true},
+      {type:'category',data:dates,gridIndex:1,axisLabel:{show:false}},
+    ],
+    yAxis:[
+      {scale:true,gridIndex:0,splitLine:{lineStyle:{color:'#21262d'}}},
+      {scale:true,gridIndex:1,splitLine:{show:false},axisLabel:{formatter:v=>(v/10000).toFixed(0)+'万'}},
+    ],
+    series:[
+      {
+        type:'candlestick',data:ohlc,xAxisIndex:0,yAxisIndex:0,
+        itemStyle:{color:'#f85149',color0:'#3fb950',borderColor:'#f85149',borderColor0:'#3fb950'},
+        markLine:{symbol:'none',label:{position:'insideEndTop',fontSize:11},data:markLines},
+      },
+      {
+        type:'bar',data:vols,xAxisIndex:1,yAxisIndex:1,
+        itemStyle:{color:p=>kdata[p.dataIndex].close>=kdata[p.dataIndex].open?'#f85149':'#3fb950'},
+      },
+    ],
+  });
+}
+
+// ── 图表懒初始化 ──────────────────────────────────────────────────────────
+const _chartObserver=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting&&!e.target._inited){
+      e.target._inited=true;
+      initChart(e.target,signals[+e.target.dataset.sigIndex]);
+      _chartObserver.unobserve(e.target);
+    }
+  });
+},{rootMargin:'400px'});
+
+// ── 卡片分批加载 ──────────────────────────────────────────────────────────
+const BATCH=10;
+let _rendered=0;
+const _sentinel=document.createElement('div');
+_sentinel.style.cssText='text-align:center;color:#484f58;padding:16px;font-size:13px;';
+
+function loadMore(){
+  const sec=document.getElementById('signals');
+  const end=Math.min(_rendered+BATCH,signals.length);
+  for(let i=_rendered;i<end;i++){
+    const card=buildCard(signals[i],i);
+    sec.insertBefore(card,_sentinel);
+    _chartObserver.observe(card.querySelector('[data-sig-index]'));
+  }
+  _rendered=end;
+  if(_rendered>=signals.length){
+    _sentinel.textContent=`— 已加载全部 ${signals.length} 个信号 —`;
+    _sentinelObserver.unobserve(_sentinel);
+  } else {
+    _sentinel.textContent=`已加载 ${_rendered} / ${signals.length} 个，向下滚动加载更多...`;
+  }
+}
+
+const _sentinelObserver=new IntersectionObserver(entries=>{
+  if(entries[0].isIntersecting) loadMore();
+},{rootMargin:'300px'});
+
+document.getElementById('signals').appendChild(_sentinel);
+_sentinelObserver.observe(_sentinel);
+buildSummary();
+loadMore();
+</script>
+</body>
+</html>

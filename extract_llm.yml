@@ -1,0 +1,4 @@
+type: llm
+provider: "openai/gpt-4o-mini"
+api_token: "sk-你的AiHubMix密钥"
+instruction: "Extract all api docs"

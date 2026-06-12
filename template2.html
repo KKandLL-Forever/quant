@@ -1,0 +1,138 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>A股巨无霸IPO对指数及个股影响研究 v2</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<style>
+*{box-sizing:border-box}body{font-family:-apple-system,"Microsoft YaHei",sans-serif;margin:0;background:#f5f6fa;color:#222;line-height:1.7}
+.wrap{max-width:1140px;margin:0 auto;padding:30px 20px}
+h1{font-size:26px;margin:0 0 6px}.sub{color:#888;font-size:13px;margin-bottom:24px}
+.card{background:#fff;border-radius:12px;padding:22px 24px;margin-bottom:22px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+h2{font-size:18px;border-left:4px solid #2d6cdf;padding-left:10px;margin:0 0 14px}
+h3{font-size:15px;margin:18px 0 8px;color:#444}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;text-align:center;border-bottom:1px solid #eee}
+th{background:#fafbfd;color:#555;font-weight:600}
+td.name{text-align:left;font-weight:600}
+.pos{color:#d62728}.neg{color:#2ca02c}
+.chart{width:100%;height:300px}
+.kpi{display:flex;gap:14px;flex-wrap:wrap}
+.kpibox{flex:1;min-width:150px;border-radius:10px;padding:14px;text-align:center}
+.kpibox .v{font-size:22px;font-weight:700}.kpibox .l{font-size:12px;color:#888;margin-top:4px}
+.bull{background:#fdeeee}.bear{background:#eef7ef}.range{background:#f3f1fb}
+.note{font-size:13px;color:#555;background:#fffaf0;border-left:3px solid #f0a020;padding:10px 14px;border-radius:0 6px 6px 0;margin-top:12px}
+.badge{display:inline-block;font-size:11px;padding:1px 8px;border-radius:10px;color:#fff}
+.b-bull{background:#d62728}.b-bear{background:#2ca02c}.b-range{background:#7e6cd0}
+select{padding:6px 10px;border-radius:6px;border:1px solid #ccc;font-size:14px}
+.tabs{display:flex;gap:8px;margin-bottom:12px}
+.tab{padding:5px 14px;border-radius:16px;background:#eef0f5;cursor:pointer;font-size:13px}
+.tab.on{background:#2d6cdf;color:#fff}
+</style></head><body><div class="wrap">
+<h1>A股巨无霸 IPO 对大盘指数及个股的影响研究 <span style="font-size:14px;color:#999">v2</span></h1>
+<div class="sub">样本：2018–2022 年 8 家大额融资知名公司 · 指数=上证综指(000001.SH) + 创业板指(399006.SZ) · 按市场环境(牛市高位/震荡市/熊市低位)分组 · 数据源 tushare(本地)</div>
+
+<div class="card">
+<h2>市场环境划分口径</h2>
+<p style="font-size:13.5px">以上市当日上证综指收盘价在<b>过去 250 个交易日区间内的分位数</b>客观划分：<b>≥75% 记为「牛市高位」、≤15% 记为「熊市低位」、其余为「震荡市」</b>。</p>
+<table id="regtbl"></table>
+<div class="note" id="kcb">⚠️ 关于科创板指数：库内唯一的科创板指数为科创综指(000680.SH)，<b>2025-01-17 才有数据</b>，无法覆盖 2018–2022 的上市事件，故本研究的指数影响以<b>上证综指</b>(沪市)与<b>创业板指</b>(深市成长板)两条曲线呈现；科创板个股(中芯国际)仍单列其个股走势。</div>
+</div>
+
+<div class="card">
+<h2>① 分市场环境：上市后指数平均表现</h2>
+<div class="tabs"><span class="tab on" data-i="sse" onclick="setIdx('sse')">上证综指</span><span class="tab" data-i="cyb" onclick="setIdx('cyb')">创业板指</span></div>
+<div id="regagg"></div>
+<div id="regchart" class="chart" style="height:330px"></div>
+<div class="note" id="regnote"></div>
+</div>
+
+<div class="card">
+<h2>② 双指数明细：上市后各窗口涨跌幅 (%)</h2>
+<p style="font-size:13px;color:#666">每家公司上 = 上证综指，下 = 创业板指。颜色：红涨绿跌。</p>
+<table id="dtbl"></table>
+</div>
+
+<div class="card">
+<h2>③ 个股走势 (首日收盘=100) 及与双指数叠加</h2>
+<select id="pick" onchange="drawStk()"></select> <span id="picktag"></span>
+<div id="stkchart" class="chart" style="height:340px"></div>
+<table id="stbl" style="margin-top:14px"></table>
+</div>
+
+<div class="sub">说明：个股涨幅以上市首日收盘价为基准；首日涨幅相对发行价。指数曲线均以上市日=100 归一。本研究为历史统计，不构成投资建议。</div>
+</div>
+<script>
+var DATA=__DATA__;
+var REG={'牛市高位':'b-bull','震荡市':'b-range','熊市低位':'b-bear'};
+var BG={'牛市高位':'bull','震荡市':'range','熊市低位':'bear'};
+var offs=[-60,-20,-5,5,20,60,120];
+var curIdx='sse';
+function cls(v){return v==null?'':(v>=0?'pos':'neg')}
+function fmt(v){return v==null?'-':(v>0?'+':'')+v}
+function avg(a){return a.length?+(a.reduce(function(x,y){return x+y})/a.length).toFixed(2):null}
+
+// regime table
+var groups={'牛市高位':[],'震荡市':[],'熊市低位':[]};
+DATA.forEach(function(r){groups[r.regime].push(r)});
+var rt='<tr><th>市场环境</th><th>公司</th><th>上市日</th><th>融资(亿)</th><th>上证当日分位</th></tr>';
+['牛市高位','震荡市','熊市低位'].forEach(function(g){
+ groups[g].forEach(function(r,j){
+  rt+='<tr>'+(j==0?'<td rowspan="'+groups[g].length+'"><span class="badge '+REG[g]+'">'+g+'</span></td>':'')+
+  '<td class="name">'+r.name+'</td><td>'+r.list_date+'</td><td>'+r.fin+'</td><td>'+r.idx.sse.pctile+'%</td></tr>'})});
+document.getElementById('regtbl').innerHTML=rt;
+
+var rc=echarts.init(document.getElementById('regchart'));
+function setIdx(i){curIdx=i;document.querySelectorAll('.tab').forEach(function(t){t.classList.toggle('on',t.dataset.i==i)});drawReg()}
+function drawReg(){
+ var xoff=[-60,-40,-20,-5,0,5,20,60,120];
+ function gavg(g,o){var vs=groups[g].map(function(r){var s=r.idx[curIdx].series.find(function(p){return p[0]==o});return s?s[1]-100:null}).filter(function(v){return v!=null});return avg(vs)}
+ var colors={'牛市高位':'#d62728','震荡市':'#7e6cd0','熊市低位':'#2ca02c'};
+ var series=['牛市高位','震荡市','熊市低位'].map(function(g){return {name:g,type:'line',smooth:true,symbolSize:6,data:xoff.map(function(o){return gavg(g,o)}),lineStyle:{width:3,color:colors[g]},itemStyle:{color:colors[g]}}});
+ rc.setOption({tooltip:{trigger:'axis'},legend:{top:0},grid:{left:50,right:30,top:34,bottom:40},
+  title:{text:'上市后 '+(curIdx=='sse'?'上证综指':'创业板指')+' 平均累计涨跌',textStyle:{fontSize:14},left:'center'},
+  xAxis:{type:'category',data:xoff,name:'交易日偏移',axisLine:{onZero:false}},
+  yAxis:{type:'value',axisLabel:{formatter:'{value}%'}},series:series,
+  markLine:{}});
+ // agg boxes
+ function gw(g,o){var vs=groups[g].map(function(r){return r.idx[curIdx].pct[o]}).filter(function(v){return v!=null});return {a:avg(vs),neg:vs.filter(function(v){return v<0}).length,n:vs.length}}
+ var html='<div class="kpi">';
+ ['牛市高位','震荡市','熊市低位'].forEach(function(g){var w=gw(g,20);
+  html+='<div class="kpibox '+BG[g]+'"><div class="v '+cls(w.a)+'">'+fmt(w.a)+'%</div><div class="l"><b>'+g+'</b><br>上市后20日均值 · 跌'+w.neg+'/'+w.n+'家</div></div>'});
+ html+='</div>';document.getElementById('regagg').innerHTML=html;
+ document.getElementById('regnote').innerHTML=
+  '<b>'+(curIdx=='sse'?'上证综指':'创业板指')+'：</b>'+(curIdx=='sse'?
+   '牛市高位上市的巨无霸，上市后指数明显走弱(京沪高铁遇疫情、中国移动逢2022杀跌)——高位发行+情绪见顶共振，回调概率最大；熊市低位上市反而多数随大盘见底回升(中国海油、中国人保)；震荡市影响最小。说明指数方向主要由上市时所处的市场位置决定，"抽血"只是短期扰动。':
+   '创业板指与上证同向但弹性更大：牛市高位发行后创业板回撤更深(成长股估值更敏感)，熊市低位则反弹更猛。即便上市公司在主板，对创业板情绪与资金面同样有传导。')
+}
+setIdx('sse');
+
+// detail table dual index
+var dh='<tr><th>公司</th><th>环境</th><th>指数</th>'+offs.map(function(o){return '<th>'+(o<0?'前':'后')+Math.abs(o)+'日</th>'}).join('')+'</tr>';
+var db='';
+DATA.forEach(function(r){
+ [['sse','上证'],['cyb','创业板']].forEach(function(ix,k){
+  var c=offs.map(function(o){var v=r.idx[ix[0]].pct[o];return '<td class="'+cls(v)+'">'+fmt(v)+'</td>'}).join('');
+  db+='<tr>'+(k==0?'<td rowspan="2" class="name">'+r.name+'</td><td rowspan="2"><span class="badge '+REG[r.regime]+'">'+r.regime+'</span></td>':'')+'<td>'+ix[1]+'</td>'+c+'</tr>'})});
+document.getElementById('dtbl').innerHTML=dh+db;
+
+// stock
+var pk=document.getElementById('pick');
+DATA.forEach(function(r,i){var o=document.createElement('option');o.value=i;o.text=r.name+' ('+r.regime+')';pk.add(o)});
+var sc=echarts.init(document.getElementById('stkchart'));
+function drawStk(){
+ var r=DATA[+pk.value];
+ document.getElementById('picktag').innerHTML='<span class="badge '+REG[r.regime]+'">'+r.regime+'</span> 行业:'+r.industry+' 融资'+r.fin+'亿';
+ var ix1=r.idx.sse.series.filter(function(p){return p[0]>=0&&p[0]<=120});
+ var ix2=r.idx.cyb.series.filter(function(p){return p[0]>=0&&p[0]<=120});
+ sc.setOption({tooltip:{trigger:'axis'},legend:{top:0,data:[r.name,'上证综指','创业板指']},grid:{left:50,right:30,top:34,bottom:40},
+  title:{text:r.name+' 上市后 vs 双指数 (上市日=100)',textStyle:{fontSize:14},left:'center'},
+  xAxis:{type:'category',data:r.stk_series.map(function(p){return p[0]}),name:'上市后交易日'},
+  yAxis:{type:'value',scale:true},
+  series:[{name:r.name,type:'line',data:r.stk_series.map(function(p){return p[1]}),smooth:true,showSymbol:false,lineStyle:{width:2.8,color:'#d62728'}},
+   {name:'上证综指',type:'line',data:ix1.map(function(p){return p[1]}),smooth:true,showSymbol:false,lineStyle:{width:2,color:'#2d6cdf'}},
+   {name:'创业板指',type:'line',data:ix2.map(function(p){return p[1]}),smooth:true,showSymbol:false,lineStyle:{width:2,color:'#f0a020'}}]});
+ var s=r.stk;
+ document.getElementById('stbl').innerHTML='<tr><th>首日收盘</th><th>首日涨幅(对发行价)</th><th>后20日</th><th>后60日</th><th>后120日</th><th>区间最大涨幅</th></tr>'+
+  '<tr><td>'+s.first_close+'</td><td class="pos">+'+s.first_day_pct+'%</td><td class="'+cls(s.d20)+'">'+fmt(s.d20)+'%</td><td class="'+cls(s.d60)+'">'+fmt(s.d60)+'%</td><td class="'+cls(s.d120)+'">'+fmt(s.d120)+'%</td><td class="pos">+'+s.max_gain+'%</td></tr>';
+}
+drawStk();
+window.addEventListener('resize',function(){rc.resize();sc.resize()});
+</script></body></html>

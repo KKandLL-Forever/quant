@@ -1,0 +1,45 @@
+# ===== 敏感信息（务必忽略，含 token 和数据库密码）=====
+.pyenv.local
+.env
+*.env
+
+# ===== 本地数据库（4GB+，不入库）=====
+*.duckdb
+*.duckdb.wal
+*.db
+
+# ===== 缓存（信号缓存、特征缓存等，任意层级的 cache/ 目录）=====
+cache/
+.cache/
+*.pkl
+
+# ===== 模型产物（pkl 已被上面覆盖；这里管 SHAP 图、特征矩阵、OOS 明细）=====
+model/
+feature_matrix*.csv
+oos_predictions*.csv
+shap_summary*.png
+
+# ===== HTML 输出（任意层级的 html_output/ 目录）=====
+html_output/
+
+# ===== 损坏快照 / 日志 =====
+_corrupt_snapshot/
+logs/
+*.log
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+env/
+
+# ===== OS / 编辑器 =====
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

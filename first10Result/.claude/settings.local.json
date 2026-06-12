@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk 'NR==57' \"D:/code/quart/first10Result/batch_20260501_000546.html\")",
+      "Read(//tmp/**)",
+      "Bash(python3 *)",
+      "Bash(python *)",
+      "PowerShell($env:PYTHONIOENCODING='utf-8'; python \"D:\\\\code\\\\quart\\\\first10Result\\\\_analyze.py\")"
+    ]
+  }
+}
