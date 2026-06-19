@@ -43,3 +43,10 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# ===== generated html outputs =====
+*.html
+!templates/*.html
+!template2.html
+!template3.html
+first10Result/
