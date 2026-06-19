@@ -247,6 +247,11 @@ def train():
     test_auc = _eval_block(test_proba, y_test, f"★ 测试集评估（{TEST_START}~，干净成绩单）")
     _eval_by_year(test_proba, test_df, y_test)
 
+    train_auc = roc_auc_score(y_train, model.predict_proba(X_train)[:, 1])
+    print(f"\n=== 过拟合体检 ===")
+    print(f"  训练集 AUC={train_auc:.4f}  测试集 AUC={test_auc:.4f}  "
+          f"gap={train_auc-test_auc:+.4f}（<0.05健康 / 0.05~0.10可接受 / >0.15警惕）")
+
     tier_proba = np.concatenate([val_proba, test_proba])
     tier_y = pd.concat([y_val, y_test], ignore_index=True)
     tiers = _compute_tiers(tier_proba, tier_y)

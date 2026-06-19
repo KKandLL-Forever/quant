@@ -1,10 +1,10 @@
 """
-ml_train_2lb_v5.py — XGBoost 训练：二板→三板 晋升概率模型 v5（walk-forward 滚动前推回测）
+ml_train_1to2_v2.py — XGBoost 训练：首板→二板 晋升概率模型 v2（walk-forward 滚动前推）
 
-与 v3/v4 的区别只在「评估方式」，特征完全沿用 ml_features_2lb_v3。
-v4 是单一切分（train≤2023 / val2024 / test2025+），测试集只有 ~2700 样本、只覆盖一段行情。
-v5 改用滚动前推：每个测试年都由「它之前的全部历史」训练 + 前一年早停，逐年样本外预测，
-合并后得到 2022~2026 一条零泄漏、跨熊牛、约 7900 样本的诚实业绩曲线。
+与 v1 的区别只在「评估方式」，特征完全沿用 ml_features_1to2_v1（34 特征）。
+v1 是单一切分（train≤2023 / test≥2024），且把测试集直接拿来早停，存在轻度泄漏、测试集偏小。
+v2 改用滚动前推：每个测试年都由「它之前的全部历史」训练 + 前一年早停，逐年样本外预测，
+合并后得到 2022~2026 一条零泄漏、跨熊牛的诚实业绩曲线。
 
 各折（train 用各自全部过去 / val 选轮数 / test 干净样本外）：
   ≤2020 / 2021 / 2022
@@ -12,19 +12,20 @@ v5 改用滚动前推：每个测试年都由「它之前的全部历史」训�
   ≤2022 / 2023 / 2024
   ≤2023 / 2024 / 2025~2026
 
-信号：limit_list_d.limit_times = 2（非 ST，剔除 创业/科创/北交所）
-label：T+1 pct_chg >= 9.8（次日封板=3 板成功，二分类）
+信号：limit_list_d.limit_times = 1（首板，非 ST，剔除 创业/科创/北交所）
+label：T+1 pct_chg >= 9.8（次日封板=2 板成功，二分类）
 
 产出：
-  model/xgb_2lb_3lb_v5.pkl     —— 保存「最后一折」模型（≤2023 训练，最新、用数据最多），
-                                   分位档切点用全部样本外预测（2022~2026）合并标定，跨行情更耐用。
-  model/shap_summary_2lb_v5.png
-  model/oos_predictions_2lb_v5.csv —— 每年样本外 proba+label，供进一步分析。
+  model/xgb_1lb_2lb_v2.pkl       —— 保存「最后一折」模型（≤2023 训练，最新、用数据最多），
+                                     分位档切点用全部样本外预测（2022~2026）合并标定，跨行情更耐用。
+  model/shap_summary_1to2_v2.png
+  model/oos_predictions_1to2_v2.csv —— 每年样本外 proba+label，供进一步分析。
 
 进出场假设：T 日盘后选 → T+1 开盘买 → T+1 收盘看是否封板。
 依赖：先用 cache_tushare.py 补齐 stk_auction_o / stk_auction_c 历史数据。
 
-部署提示：上实盘的模型应另用「≤今天全部数据 + 锁定轮数（取最后一折 best_iter）」重训，不在本文件内。
+部署提示：上实盘的模型应另用「≤今天全部数据 + 锁定轮数（取最后一折 best_iter）」重训，
+见 1to2_model_v2_deploy.py，不在本文件内。
 """
 
 import os
@@ -56,9 +57,9 @@ from sklearn.metrics import roc_auc_score
 
 
 MODEL_DIR  = os.path.join(os.path.dirname(__file__), "model")
-MODEL_PATH = os.path.join(MODEL_DIR, "xgb_2lb_3lb_v5.pkl")
-SHAP_IMG   = os.path.join(MODEL_DIR, "shap_summary_2lb_v5.png")
-OOS_CSV    = os.path.join(MODEL_DIR, "oos_predictions_2lb_v5.csv")
+MODEL_PATH = os.path.join(MODEL_DIR, "xgb_1lb_2lb_v2.pkl")
+SHAP_IMG   = os.path.join(MODEL_DIR, "shap_summary_1to2_v2.png")
+OOS_CSV    = os.path.join(MODEL_DIR, "oos_predictions_1to2_v2.csv")
 
 FOLDS = [
     {"train_end": "20201231", "val": ("20210101", "20211231"), "test": ("20220101", "20221231")},
@@ -79,7 +80,7 @@ FROM limit_list_d l
 LEFT JOIN stock_st st
                  ON st.ts_code = l.ts_code AND st.trade_date = l.trade_date
 WHERE l.limit_type   = 'U'
-  AND l.limit_times  = 2
+  AND l.limit_times  = 1
   AND l.ts_code NOT LIKE '688%'
   AND l.ts_code NOT LIKE '30%'
   AND l.ts_code NOT LIKE '%.BJ'
@@ -89,7 +90,7 @@ ORDER BY l.trade_date, l.ts_code
 
 
 def _get_signals():
-    """扫描 2 板信号（limit_times=2，非 ST，剔除 创业/科创/北交所），按日期缓存。"""
+    """扫描全部 1 板信号（limit_times=1，非 ST，剔除 创业/科创/北交所），按日期缓存。"""
     import duckdb as _duckdb
     from db_loader import _ENV
     duck_path = _ENV.get("LOCAL_DUCKDB_PATH", "stock_data_tushare.duckdb")
@@ -99,7 +100,7 @@ def _get_signals():
         latest = con.execute(
             "SELECT strftime(MAX(trade_date), '%Y%m%d') FROM daily"
         ).fetchone()[0]
-        cache_path = os.path.join(CACHE_DIR, f"signals_2lb_{latest}.pkl")
+        cache_path = os.path.join(CACHE_DIR, f"signals_1to2_{latest}.pkl")
 
         if os.path.exists(cache_path):
             t = time.time()
@@ -108,14 +109,14 @@ def _get_signals():
             return df
 
         t = time.time()
-        print(f"扫描 2 板信号（limit_times=2，非 ST，非创业/科创/北交所）...", flush=True)
+        print(f"扫描 1 板信号（limit_times=1，非 ST，非创业/科创/北交所）...", flush=True)
         signal_df = con.execute(_SIGNAL_SQL).df()
         print(f"  [signals] SQL: {time.time()-t:.2f}s, {len(signal_df)} 个信号", flush=True)
     finally:
         con.close()
 
     if signal_df.empty:
-        raise RuntimeError("未找到任何 2 板信号。")
+        raise RuntimeError("未找到任何 1 板信号。")
 
     signal_df.to_pickle(cache_path)
     return signal_df
@@ -149,7 +150,7 @@ def _clean(feat_df):
 
 
 def _make_model(pos_ratio):
-    """构造与 v4 同参的 XGBClassifier，单线程保证可复现。"""
+    """构造与 v1 同参的 XGBClassifier，单线程保证可复现。"""
     return xgb.XGBClassifier(
         n_estimators=650,
         max_depth=4,
@@ -180,11 +181,11 @@ def _topn_line(proba, y):
 
 def train():
     """walk-forward 训练入口：逐折训练 → 汇总样本外成绩 → 合并标定切点 → 保存最后一折模型 + SHAP。"""
-    from ml_features_2lb_v3 import build_feature_matrix, FEATURE_COLS, FEATURE_CN
+    from ml_features_1to2_v1 import build_feature_matrix, FEATURE_COLS, FEATURE_CN
 
     t_total = time.time()
 
-    print("=== 获取 2 板信号 ===")
+    print("=== 获取 1 板信号 ===")
     signal_df = _get_signals()
     print(f"共 {len(signal_df)} 个信号"
           f"（{signal_df['trade_date'].min()} ~ {signal_df['trade_date'].max()}）")

@@ -1,14 +1,31 @@
 """
-screen_2lb_top1_t7_v3.py — 2板→3板模型(v3·含集合竞价) 分位档历史选股 + T+7 收益统计
+screen_2lb_top1_t7.py — 2板→3板模型 分位档历史选股 + T+7 收益统计（支持 v2/v3/v5/v6）
 
-模型用 xgb_2lb_3lb_v3.pkl、特征用 ml_features_2lb_v3（v2 + 开盘/尾盘集合竞价）。
+模型版本（--model-version，默认 v3）：
+  v3    = xgb_2lb_3lb_v3.pkl + ml_features_2lb_v3（34 特征，含开盘/尾盘集合竞价）
+  v5    = xgb_2lb_3lb_v5.pkl + ml_features_2lb_v3（31 特征，walk-forward 评估版，切点跨熊牛标定）
+  v5d   = xgb_2lb_3lb_v5_deploy.pkl + ml_features_2lb_v3（31 特征，v5 实盘部署版·全量数据+锁定轮数）
+  v6    = xgb_2lb_v6.pkl        + ml_features_2lb_v3（v6 评估版，目标=2进4·到4板分类，切点为 proba）
+  v6d   = xgb_2lb_v6_deploy.pkl + ml_features_2lb_v3（v6 实盘部署版·全量数据+锁定轮数）
+  v2    = xgb_2lb_3lb_v2.pkl    + ml_features_2lb_v2（32 特征，旧版无竞价）
+
+注：v6 为 walk-forward【评估版】（最后一折 ≤2023 训练），对 2022~ 是干净样本外，可放心看历史。
+⚠️ v6d 同 v5d：是 ≤今天全量数据训练的【实盘部署模型】，对任何历史区间都数据穿越、收益虚高，
+   不能用来评估真实表现；看可信历史成绩用 v6，v6d 只用于 ml_score_2lb_v6.py 当日实盘打分。
+
+⚠️ 历史选股口径警告：v5d 是用 ≤今天全量数据训练的【实盘部署模型】，对任何历史区间都存在
+   数据穿越（训练时已见过该区间样本），T+7 收益/胜率会系统性虚高，不能用来评估真实表现。
+   看可信历史成绩请用 v5（评估版，只到 ≤2023，2024~ 对它是干净样本外）。
+   v5d 仅用于 ml_score_2lb_v5.py 的「当日/最新交易日」实盘打分（预测未来、无穿越）。
 
 用法：
-  python first10/screen_2lb_top1_t7_v3.py                      # 默认 Top 1%
-  python first10/screen_2lb_top1_t7_v3.py --tier 5             # Top 5%
-  python first10/screen_2lb_top1_t7_v3.py --tier 10 --start 20250101
-  python first10/screen_2lb_top1_t7_v3.py --tier 10 --tier-top 5  # 只取 Top10%~Top5% 之间
-  python first10/screen_2lb_top1_t7_v3.py --proba 0.60 --proba-hi 0.66  # 手动区间切点
+  python first10/screen_2lb_top1_t7.py                      # 默认 v3、Top 1%
+  python first10/screen_2lb_top1_t7.py --model-version v5d  # v5 实盘部署模型
+  python first10/screen_2lb_top1_t7.py --model-version v5   # walk-forward 评估版 v5
+  python first10/screen_2lb_top1_t7.py --tier 5             # Top 5%
+  python first10/screen_2lb_top1_t7.py --tier 10 --start 20250101
+  python first10/screen_2lb_top1_t7.py --tier 10 --tier-top 5  # 只取 Top10%~Top5% 之间
+  python first10/screen_2lb_top1_t7.py --proba 0.60 --proba-hi 0.66  # 手动区间切点
 
 口径：
   信号日 = 2板日（模型于 2板日盘后打分）
@@ -22,7 +39,7 @@ screen_2lb_top1_t7_v3.py — 2板→3板模型(v3·含集合竞价) 分位档历
   筛选：proba >= 所选分位档切点（从 pkl tiers 自动读取，--tier 选 1/5/10/20）
 
 产出：
-  first10/html_output/screen_2lb_top{tier}_t7_v3.html（自动打开）
+  first10/html_output/screen_2lb_top{tier}_t7_{version}.html（自动打开）
 """
 
 import argparse
@@ -42,9 +59,17 @@ sys.stdout.reconfigure(encoding="utf-8")
 import duckdb as _duckdb
 from db_loader import _ENV
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model", "xgb_2lb_3lb_v3.pkl")
+_MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
 DUCK_PATH  = _ENV.get("LOCAL_DUCKDB_PATH", "stock_data_tushare.duckdb")
-OUT_HTML   = os.path.join(os.path.dirname(__file__), "html_output", "screen_2lb_top1_t7_v3.html")
+
+MODEL_VERSIONS = {
+    "v2": ("xgb_2lb_3lb_v2.pkl", "ml_features_2lb_v2", "v2·无竞价"),
+    "v3": ("xgb_2lb_3lb_v3.pkl", "ml_features_2lb_v3", "v3·含竞价"),
+    "v5": ("xgb_2lb_3lb_v5.pkl", "ml_features_2lb_v3", "v5·walk-forward"),
+    "v5d": ("xgb_2lb_3lb_v5_deploy.pkl", "ml_features_2lb_v3", "v5·部署"),
+    "v6": ("xgb_2lb_v6.pkl", "ml_features_2lb_v3", "v6·2进4"),
+    "v6d": ("xgb_2lb_v6_deploy.pkl", "ml_features_2lb_v3", "v6·2进4·部署"),
+}
 
 FALLBACK_TIERS = [
     {"q": 0.01, "label": "Top 1%",  "proba": 0.7112},
@@ -55,12 +80,20 @@ FALLBACK_TIERS = [
 TIER_INDEX = {1: 0, 5: 1, 10: 2, 20: 3}
 
 
-def _load_model():
-    """加载 2板→3板模型，并返回 pkl 内的分位档列表（无则回退 FALLBACK_TIERS）。"""
-    with open(MODEL_PATH, "rb") as f:
+def _resolve_version(version: str):
+    """按版本返回 (model, feat_cols, tiers, build_feature_matrix, ver_label, is_reg)。"""
+    if version not in MODEL_VERSIONS:
+        raise ValueError(f"未知模型版本 {version}，可选 {list(MODEL_VERSIONS)}")
+    pkl_name, feat_mod, ver_label = MODEL_VERSIONS[version]
+    with open(os.path.join(_MODEL_DIR, pkl_name), "rb") as f:
         b = pickle.load(f)
     tiers = b.get("tiers") or FALLBACK_TIERS
-    return b["model"], b["feature_cols"], tiers
+    for t in tiers:
+        if "proba" not in t and "cut" in t:
+            t["proba"] = t["cut"]
+    is_reg = bool(b.get("is_reg", False))
+    build_feature_matrix = __import__(feat_mod).build_feature_matrix
+    return b["model"], b["feature_cols"], tiers, build_feature_matrix, ver_label, is_reg
 
 
 def _attach_prices(con, signal_df: pd.DataFrame) -> pd.DataFrame:
@@ -189,7 +222,7 @@ def _get_names(con, ts_codes):
     return dict(rows)
 
 
-def _render_html(rows, start, proba_thr, tier_label) -> str:
+def _render_html(rows, start, proba_thr, tier_label, ver_label="v3·含竞价", is_reg=False) -> str:
     """渲染选股 + T+7 收益 HTML 报告（antd Table 组件）。"""
     n = len(rows)
 
@@ -334,7 +367,8 @@ def _render_html(rows, start, proba_thr, tier_label) -> str:
 
     payload = {
         "data": data, "start": start, "proba_thr": round(proba_thr, 4),
-        "tier_label": tier_label, "n": n, "kpis": kpis,
+        "tier_label": tier_label, "ver_label": ver_label, "is_reg": is_reg,
+        "n": n, "kpis": kpis,
         "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "summary": summary, "boards_dist": boards_dist, "boards_n": hb,
         "daily_dist": daily_dist, "daily_stats": daily_stats,
@@ -429,9 +463,12 @@ var columns=[
      if(v===null||v===undefined) return "-";
      var c = v>=5?"#c00":(v>=3?"#d46b08":"#555");
      return e("span",{style:{color:c,fontWeight:700}},v+"连板");}},
-  {title:"proba",dataIndex:"proba",width:88,align:"right",
+  {title:P.is_reg?"模型分":"proba",dataIndex:"proba",width:88,align:"right",
    sorter:function(a,b){return a.proba-b.proba;},defaultSortOrder:"descend",
-   render:function(v){return e("span",{style:{color:"#c00",fontWeight:700}},(v*100).toFixed(1)+"%");}},
+   render:function(v){
+     if(v===null||v===undefined) return "-";
+     var txt = P.is_reg ? Number(v).toFixed(3) : (v*100).toFixed(1)+"%";
+     return e("span",{style:{color:"#c00",fontWeight:700}},txt);}},
   {title:"智能止盈",dataIndex:"ret_real",width:100,align:"right",
    sorter:function(a,b){return (a.ret_real||-99)-(b.ret_real||-99);},render:retCell},
   {title:"次日跌停",dataIndex:"next_dn",width:88,align:"center",
@@ -455,7 +492,7 @@ var columns=[
 ];
 function App(){
   return e("div",null,
-    e("h1",null,"2板→3板模型 v3·含竞价 · "+P.tier_label+" 档（proba ≥ "+P.proba_thr.toFixed(4)+"）历史选股"),
+    e("h1",null,"2板→3板模型 "+P.ver_label+" · "+P.tier_label+" 档（"+(P.is_reg?"模型分":"proba")+" ≥ "+P.proba_thr.toFixed(4)+"）历史选股"),
     e("div",{className:"meta"},"统计区间："+P.start+" 起 · 共 "+P.n+" 只（按 2 板信号日）· 收益均从 2板次日开盘买点起算 · 生成 "+P.now),
     e("div",{className:"kpi"},P.kpis.map(function(k,i){
       return e("div",{className:"box",key:i},
@@ -502,9 +539,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(e(App));
 
 
 def run(start: str, tier_pct: int = 1, proba_thr: float = None,
-        tier_top: int = None, proba_hi: float = None):
+        tier_top: int = None, proba_hi: float = None, version: str = "v3"):
     """主流程：扫 2板信号 → 打分 → 按分位档[下限,上限)筛 → 附价 → 算 T+7 收益 → HTML。"""
-    model, feat_cols, tiers = _load_model()
+    model, feat_cols, tiers, build_feature_matrix, ver_label, is_reg = _resolve_version(version)
     ti = TIER_INDEX[tier_pct]
     tier_label = tiers[ti]["label"]
     if proba_thr is None:
@@ -523,10 +560,10 @@ def run(start: str, tier_pct: int = 1, proba_thr: float = None,
     sig = sig[sig["trade_date"] >= start].reset_index(drop=True)
     print(f"  2 板信号数：{len(sig)}")
 
-    from ml_features_2lb_v3 import build_feature_matrix
     feat = build_feature_matrix(sig[["ts_code", "trade_date"]], require_label=False)
     feat = feat.dropna(subset=feat_cols, how="all").copy()
-    feat["proba"] = model.predict_proba(feat[feat_cols])[:, 1]
+    feat["proba"] = model.predict(feat[feat_cols]) if is_reg \
+        else model.predict_proba(feat[feat_cols])[:, 1]
 
     mask = feat["proba"] >= proba_thr
     if upper is not None:
@@ -585,9 +622,9 @@ def run(start: str, tier_pct: int = 1, proba_thr: float = None,
                 r[k] = None
         r["boards"] = None if pd.isna(r.get("boards")) else int(r["boards"])
 
-    html = _render_html(rows, start, proba_thr, tier_label)
+    html = _render_html(rows, start, proba_thr, tier_label, ver_label, is_reg)
     out_html = os.path.join(os.path.dirname(__file__), "html_output",
-                            f"screen_2lb_top{tier_pct}_t7_v3.html")
+                            f"screen_2lb_top{tier_pct}_t7_{version}.html")
     os.makedirs(os.path.dirname(out_html), exist_ok=True)
     with open(out_html, "w", encoding="utf-8") as f:
         f.write(html)
@@ -618,5 +655,7 @@ if __name__ == "__main__":
                    help="手动指定 proba 下限切点，覆盖 --tier")
     p.add_argument("--proba-hi", type=float, default=None,
                    help="手动指定 proba 上限切点（不含），覆盖 --tier-top")
+    p.add_argument("--model-version", default="v3", choices=list(MODEL_VERSIONS),
+                   help="模型版本（v3 默认 / v5 评估 / v5d 部署 / v6 评估·2进4 / v6d 部署 / v2 旧版）")
     args = p.parse_args()
-    run(args.start, args.tier, args.proba, args.tier_top, args.proba_hi)
+    run(args.start, args.tier, args.proba, args.tier_top, args.proba_hi, args.model_version)

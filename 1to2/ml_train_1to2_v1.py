@@ -217,6 +217,12 @@ def train():
 
     proba = _evaluate(model, X_test, y_test, FEATURE_COLS, test_df)
 
+    train_auc = roc_auc_score(y_train, model.predict_proba(X_train[FEATURE_COLS])[:, 1])
+    test_auc = roc_auc_score(y_test, proba)
+    print(f"\n=== 过拟合体检 ===")
+    print(f"  训练集 AUC={train_auc:.4f}  测试集 AUC={test_auc:.4f}  "
+          f"gap={train_auc-test_auc:+.4f}（<0.05健康 / 0.05~0.10可接受 / >0.15警惕）")
+
     tiers = _compute_tiers(proba, y_test)
     meta = {"auc": float(roc_auc_score(y_test, proba)),
             "base": float(y_test.mean()),

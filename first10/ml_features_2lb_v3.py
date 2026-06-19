@@ -373,6 +373,7 @@ def build_feature_matrix(signal_df: pd.DataFrame, stock_dict=None,
 
     t0 = time.time()
     con = _duckdb.connect(_DUCKDB_PATH, read_only=True)
+    con.execute("SET threads TO 1")  # WHY: 多线程下浮点聚合求和顺序不固定，特征值会逐次微变，破坏可复现
     print(f"  [features_2lb_v3] DuckDB connect: {time.time()-t0:.2f}s", flush=True)
     try:
         t1 = time.time()

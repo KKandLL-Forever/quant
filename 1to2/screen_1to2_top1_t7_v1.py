@@ -1,10 +1,19 @@
 """
-screen_1to2_top1_t7_v1.py — 首板→2板模型(v1·含集合竞价) 分位档历史选股 + T+7 收益统计
+screen_1to2_top1_t7_v1.py — 首板→2板模型 分位档历史选股 + T+7 收益统计（支持 v1/v2/v2d）
 
-模型用 xgb_1lb_2lb_v1.pkl、特征用 ml_features_1to2_v1（35 个，含 4 技术面因子）。
+模型版本（--model-version，默认 v1，特征统一 ml_features_1to2_v1·34特征）：
+  v1  = xgb_1lb_2lb_v1.pkl（单切分原版）
+  v2  = xgb_1lb_2lb_v2.pkl（walk-forward 评估版，只到 ≤2023，切点跨熊牛标定）
+  v2d = xgb_1lb_2lb_v2_deploy.pkl（v2 实盘部署版·全量数据+锁定轮数）
+
+⚠️ 历史选股口径警告：v2d 是用 ≤今天全量数据训练的【实盘部署模型】，对任何历史区间都存在
+   数据穿越（训练时已见过该区间样本），T+7 收益/胜率会系统性虚高，不能用来评估真实表现。
+   看可信历史成绩请用 v2（评估版，2024~ 对它是干净样本外）。
+   v2d 仅用于 ml_score_1to2_v2.py 的「当日/最新交易日」实盘打分（预测未来、无穿越）。
 
 用法：
-  python 1to2/screen_1to2_top1_t7_v1.py                     # 默认 Top 1%
+  python 1to2/screen_1to2_top1_t7_v1.py                     # 默认 v1、Top 1%
+  python 1to2/screen_1to2_top1_t7_v1.py --model-version v2  # walk-forward 评估版
   python 1to2/screen_1to2_top1_t7_v1.py --tier 5            # Top 5%
   python 1to2/screen_1to2_top1_t7_v1.py --tier 10 --start 20250101
   python 1to2/screen_1to2_top1_t7_v1.py --tier 10 --tier-top 5  # 只取 Top10%~Top5% 之间
@@ -42,9 +51,14 @@ sys.stdout.reconfigure(encoding="utf-8")
 import duckdb as _duckdb
 from db_loader import _ENV
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "model", "xgb_1lb_2lb_v1.pkl")
+_MODEL_DIR = os.path.join(os.path.dirname(__file__), "model")
 DUCK_PATH  = _ENV.get("LOCAL_DUCKDB_PATH", "stock_data_tushare.duckdb")
-OUT_HTML   = os.path.join(os.path.dirname(__file__), "html_output", "screen_1to2_top1_t7_v1.html")
+
+MODEL_VERSIONS = {
+    "v1":  ("xgb_1lb_2lb_v1.pkl", "ml_features_1to2_v1", "v1·原版"),
+    "v2":  ("xgb_1lb_2lb_v2.pkl", "ml_features_1to2_v1", "v2·walk-forward"),
+    "v2d": ("xgb_1lb_2lb_v2_deploy.pkl", "ml_features_1to2_v1", "v2·部署"),
+}
 
 FALLBACK_TIERS = [
     {"q": 0.01, "label": "Top 1%",  "proba": 0.7112},
@@ -55,12 +69,16 @@ FALLBACK_TIERS = [
 TIER_INDEX = {1: 0, 5: 1, 10: 2, 20: 3}
 
 
-def _load_model():
-    """加载 首板→2板模型，并返回 pkl 内的分位档列表（无则回退 FALLBACK_TIERS）。"""
-    with open(MODEL_PATH, "rb") as f:
+def _resolve_version(version: str):
+    """按版本返回 (model, feat_cols, tiers, build_feature_matrix, ver_label)。"""
+    if version not in MODEL_VERSIONS:
+        raise ValueError(f"未知模型版本 {version}，可选 {list(MODEL_VERSIONS)}")
+    pkl_name, feat_mod, ver_label = MODEL_VERSIONS[version]
+    with open(os.path.join(_MODEL_DIR, pkl_name), "rb") as f:
         b = pickle.load(f)
     tiers = b.get("tiers") or FALLBACK_TIERS
-    return b["model"], b["feature_cols"], tiers
+    build_feature_matrix = __import__(feat_mod).build_feature_matrix
+    return b["model"], b["feature_cols"], tiers, build_feature_matrix, ver_label
 
 
 def _attach_prices(con, signal_df: pd.DataFrame) -> pd.DataFrame:
@@ -189,7 +207,7 @@ def _get_names(con, ts_codes):
     return dict(rows)
 
 
-def _render_html(rows, start, proba_thr, tier_label) -> str:
+def _render_html(rows, start, proba_thr, tier_label, ver_label="v1·原版") -> str:
     """渲染选股 + T+7 收益 HTML 报告（antd Table 组件）。"""
     n = len(rows)
 
@@ -334,7 +352,7 @@ def _render_html(rows, start, proba_thr, tier_label) -> str:
 
     payload = {
         "data": data, "start": start, "proba_thr": round(proba_thr, 4),
-        "tier_label": tier_label, "n": n, "kpis": kpis,
+        "tier_label": tier_label, "ver_label": ver_label, "n": n, "kpis": kpis,
         "now": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "summary": summary, "boards_dist": boards_dist, "boards_n": hb,
         "daily_dist": daily_dist, "daily_stats": daily_stats,
@@ -455,7 +473,7 @@ var columns=[
 ];
 function App(){
   return e("div",null,
-    e("h1",null,"首板→2板模型 v1·含竞价 · "+P.tier_label+" 档（proba ≥ "+P.proba_thr.toFixed(4)+"）历史选股"),
+    e("h1",null,"首板→2板模型 "+P.ver_label+" · "+P.tier_label+" 档（proba ≥ "+P.proba_thr.toFixed(4)+"）历史选股"),
     e("div",{className:"meta"},"统计区间："+P.start+" 起 · 共 "+P.n+" 只（按 首板信号日）· 收益均从 首板次日开盘买点起算 · 生成 "+P.now),
     e("div",{className:"kpi"},P.kpis.map(function(k,i){
       return e("div",{className:"box",key:i},
@@ -502,9 +520,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(e(App));
 
 
 def run(start: str, tier_pct: int = 1, proba_thr: float = None,
-        tier_top: int = None, proba_hi: float = None):
+        tier_top: int = None, proba_hi: float = None, version: str = "v1"):
     """主流程：扫 首板信号 → 打分 → 按分位档[下限,上限)筛 → 附价 → 算 T+7 收益 → HTML。"""
-    model, feat_cols, tiers = _load_model()
+    model, feat_cols, tiers, build_feature_matrix, ver_label = _resolve_version(version)
     ti = TIER_INDEX[tier_pct]
     tier_label = tiers[ti]["label"]
     if proba_thr is None:
@@ -523,7 +541,6 @@ def run(start: str, tier_pct: int = 1, proba_thr: float = None,
     sig = sig[sig["trade_date"] >= start].reset_index(drop=True)
     print(f"  首板信号数：{len(sig)}")
 
-    from ml_features_1to2_v1 import build_feature_matrix
     feat = build_feature_matrix(sig[["ts_code", "trade_date"]], require_label=False)
     feat = feat.dropna(subset=feat_cols, how="all").copy()
     feat["proba"] = model.predict_proba(feat[feat_cols])[:, 1]
@@ -585,9 +602,9 @@ def run(start: str, tier_pct: int = 1, proba_thr: float = None,
                 r[k] = None
         r["boards"] = None if pd.isna(r.get("boards")) else int(r["boards"])
 
-    html = _render_html(rows, start, proba_thr, tier_label)
+    html = _render_html(rows, start, proba_thr, tier_label, ver_label)
     out_html = os.path.join(os.path.dirname(__file__), "html_output",
-                            f"screen_1to2_top{tier_pct}_t7_v1.html")
+                            f"screen_1to2_top{tier_pct}_t7_{version}.html")
     os.makedirs(os.path.dirname(out_html), exist_ok=True)
     with open(out_html, "w", encoding="utf-8") as f:
         f.write(html)
@@ -618,5 +635,7 @@ if __name__ == "__main__":
                    help="手动指定 proba 下限切点，覆盖 --tier")
     p.add_argument("--proba-hi", type=float, default=None,
                    help="手动指定 proba 上限切点（不含），覆盖 --tier-top")
+    p.add_argument("--model-version", default="v1", choices=list(MODEL_VERSIONS),
+                   help="模型版本（v1 默认 / v2 评估 / v2d 实盘部署，v2d 回测有穿越）")
     args = p.parse_args()
-    run(args.start, args.tier, args.proba, args.tier_top, args.proba_hi)
+    run(args.start, args.tier, args.proba, args.tier_top, args.proba_hi, args.model_version)

@@ -61,10 +61,8 @@ cache_tushare.py — Tushare A股日线数据缓存到 ClickHouse
   trade_cal    交易日历      （SSE，全量，每次 update 重拉）
   stock_st     ST股票日列表  （主键 ts_code+trade_date）
   st           ST风险变更记录（事件型，全量，每次 update 重拉）
-  kpl_list     涨停榜单（21 字段，主键 ts_code+trade_date+tag）
-                 tag ∈ {涨停, 竞价, 炸板}，每天三 tag 合并入库
   limit_list_d Tushare 涨跌停/炸板（18 字段，主键 ts_code+trade_date+limit_type）
-                 limit_type ∈ {U,D,Z}，2020 起每日全市场，比 kpl_list 覆盖更完整
+                 limit_type ∈ {U,D,Z}，2020 起每日全市场
   ths_index    同花顺概念指数列表（type=N 概念，~270 个，主键 ts_code）
                  ts_code 形如 885728.TI，与 limit_cpt_list 对齐
   ths_member   同花顺概念成分（主键 ts_code+con_code，静态映射）
@@ -163,7 +161,6 @@ CLOUD_ENABLED = True
 
 # 各接口的真实数据起始日（由实际 MIN(trade_date) 反推，避免每次 --update 都重试拉空的早期日期）
 TABLE_START = {
-    "kpl_list":       "20180101",
     "limit_list_d":   "20200101",
     "stock_st":       "20160801",
     "limit_step":     "20231101",
@@ -172,7 +169,6 @@ TABLE_START = {
     "stk_auction_c":  "20180101",
     "stk_factor_pro":     "20200101",
 }
-KPL_START = TABLE_START["kpl_list"]   # 兼容旧引用
 
 # 全局停止信号 —— 主线程收到 Ctrl+C 时 set，worker 通过它中断 sleep
 STOP_EVENT = threading.Event()
@@ -363,33 +359,6 @@ DDL = {
         ) ENGINE = ReplacingMergeTree
         ORDER BY (ts_code, pub_date)
     """,
-    "kpl_list": """
-        CREATE TABLE IF NOT EXISTS kpl_list (
-            ts_code        LowCardinality(String),
-            trade_date     Date,
-            tag            LowCardinality(String),
-            name           String,
-            lu_desc        String,
-            theme          String,
-            status         String,
-            lu_time        String,
-            net_change     Float64,
-            bid_amount     Float64,
-            bid_change     Float64,
-            bid_turnover   Float64,
-            lu_bid_vol     Float64,
-            pct_chg        Float32,
-            bid_pct_chg    Float32,
-            rt_pct_chg     Float32,
-            limit_order    Float64,
-            amount         Float64,
-            turnover_rate  Float32,
-            free_float     Float64,
-            lu_limit_order Float64
-        ) ENGINE = ReplacingMergeTree
-        PARTITION BY toYYYYMM(trade_date)
-        ORDER BY (ts_code, trade_date, tag)
-    """,
     "moneyflow": """
         CREATE TABLE IF NOT EXISTS moneyflow (
             ts_code         LowCardinality(String),
@@ -548,10 +517,6 @@ COLUMNS = {
     "trade_cal":   ["exchange","cal_date","is_open","pretrade_date"],
     "stock_st":    ["ts_code","name","trade_date","st_type","type_name"],
     "st":          ["ts_code","name","pub_date","imp_date","st_type","st_reason","st_explain"],
-    "kpl_list":    ["ts_code","trade_date","tag","name","lu_desc","theme","status","lu_time",
-                    "net_change","bid_amount","bid_change","bid_turnover","lu_bid_vol",
-                    "pct_chg","bid_pct_chg","rt_pct_chg","limit_order","amount",
-                    "turnover_rate","free_float","lu_limit_order"],
     "moneyflow":   ["ts_code","trade_date",
                     "buy_sm_vol","buy_sm_amount","sell_sm_vol","sell_sm_amount",
                     "buy_md_vol","buy_md_amount","sell_md_vol","sell_md_amount",
@@ -586,7 +551,6 @@ STRING_COLS = {
     "trade_cal":   ["exchange","pretrade_date"],
     "stock_st":    ["name","st_type","type_name"],
     "st":          ["name","pub_date","imp_date","st_type","st_reason","st_explain"],
-    "kpl_list":    ["name","lu_desc","theme","status","lu_time"],
     "moneyflow":   [],
     "limit_cpt_list": ["name","up_stat"],
     "limit_list_d": ["limit_type","industry","name","first_time","last_time","up_stat"],
@@ -610,9 +574,6 @@ FLOAT_COLS = {
     "trade_cal":   [],
     "stock_st":    [],
     "st":          [],
-    "kpl_list":    ["net_change","bid_amount","bid_change","bid_turnover","lu_bid_vol",
-                    "pct_chg","bid_pct_chg","rt_pct_chg","limit_order","amount",
-                    "turnover_rate","free_float","lu_limit_order"],
     "moneyflow":   ["buy_sm_amount","sell_sm_amount",
                     "buy_md_amount","sell_md_amount",
                     "buy_lg_amount","sell_lg_amount",
@@ -789,18 +750,6 @@ _DUCK_DDL = {
             imp_date VARCHAR, st_type VARCHAR,
             st_reason VARCHAR, st_explain VARCHAR,
             PRIMARY KEY (ts_code, pub_date)
-        )""",
-    "kpl_list": """
-        CREATE TABLE IF NOT EXISTS kpl_list (
-            ts_code VARCHAR, trade_date DATE, tag VARCHAR,
-            name VARCHAR, lu_desc VARCHAR, theme VARCHAR,
-            status VARCHAR, lu_time VARCHAR,
-            net_change DOUBLE, bid_amount DOUBLE, bid_change DOUBLE,
-            bid_turnover DOUBLE, lu_bid_vol DOUBLE,
-            pct_chg FLOAT, bid_pct_chg FLOAT, rt_pct_chg FLOAT,
-            limit_order DOUBLE, amount DOUBLE,
-            turnover_rate FLOAT, free_float DOUBLE, lu_limit_order DOUBLE,
-            PRIMARY KEY (ts_code, trade_date, tag)
         )""",
     "moneyflow": """
         CREATE TABLE IF NOT EXISTS moneyflow (
@@ -1552,14 +1501,15 @@ def _quarter_end_periods(start: str, end: str) -> list[str]:
     return out
 
 
-TOP10_MIN_STOCKS = 4000
+TOP10_MIN_STOCKS = 3000
 
 
 def _top10_missing_periods(ck: Client, start: str = TOP10_PERIOD_START) -> list[str]:
-    """需要拉取的季度末：尚未落地、或落地个股数不足全市场（曾因未翻页被截断）。
+    """需要拉取的季度末：尚未落地、或落地个股数不足（曾因未翻页被截断）。
 
-    # WHY: 旧逻辑只看 end_date 是否存在，导致每季被截断到 ~600 只后永不重抓；
-    #      改为按已落库个股数判断，低于 TOP10_MIN_STOCKS 视为不完整需重拉。
+    # WHY: 旧逻辑只看 end_date 是否存在，导致每季被截断到 ~600 只后永不重抓；改按落库个股数判断。
+    #      阈值取 3000：被截断的脏数据约 600，而真实最少的季度(2018Q1)也有 3565 只，3000 落在二者
+    #      之间的空档；早年季度个股数只增不减，故 3000 不会误判已拉全的旧季度为不完整(原 4000 会)。
     """
     end = datetime.today().strftime("%Y%m%d")
     candidates = _quarter_end_periods(start, end)
@@ -1579,12 +1529,43 @@ def _top10_missing_periods(ck: Client, start: str = TOP10_PERIOD_START) -> list[
     return out
 
 
-def _cyq_update_start(ck: Client) -> str:
-    """取 cyq_perf 表最新日期，增量从该日期起拉（没有数据则从 DEFAULT_START）。"""
-    rows = ck.execute("SELECT MAX(trade_date) FROM cyq_perf")
-    d = rows[0][0] if rows and rows[0][0] else None
+CYQ_MIN_STOCKS = 5000
+
+
+def _cyq_update_start(ck: Client, all_dates: list[str]) -> str | None:
+    """增量起点：取「最后一个完整覆盖日(>=CYQ_MIN_STOCKS 只)」的下一个交易日。
+
+    # WHY: 旧逻辑起点=MAX(trade_date) 且 fetcher 的 start_date 含当天，导致每次 --update 都把
+    #      已存的最新一天全市场重拉一遍（5800 次空调用）。改为「最后完整日的下一交易日」：
+    #      无新交易日 → 返回 None（跳过，不空拉）；最新日残缺 → 从残缺日重拉补全（自愈）；
+    #      完整日不再重复拉。云/本地各读自身 ck，落后的源仍能从自己最后完整日续上、不留洞。
+    #      覆盖统计只扫最近 ~90 交易日窗口（COUNT(DISTINCT) 全表扫会让远端 CH OOM/EOF）；
+    #      查询失败或窗口内无完整日时，回退到轻量 MAX(trade_date) 的下一交易日。
+    """
+    if not all_dates:
+        return DEFAULT_START
+    floor = all_dates[-90] if len(all_dates) > 90 else all_dates[0]
+    floor_dash = f"{floor[:4]}-{floor[4:6]}-{floor[6:8]}"
+    try:
+        rows = ck.execute(
+            f"SELECT trade_date, COUNT(DISTINCT ts_code) FROM cyq_perf "
+            f"WHERE trade_date >= '{floor_dash}' GROUP BY trade_date"
+        )
+    except Exception:
+        rows = None
+    if rows:
+        covered = {d.strftime("%Y%m%d") for d, n in rows
+                   if d and d != _EPOCH and n >= CYQ_MIN_STOCKS}
+        if covered:
+            last_complete = max(covered)
+            nxt = [d for d in all_dates if d > last_complete]
+            return nxt[0] if nxt else None
+    r2 = ck.execute("SELECT MAX(trade_date) FROM cyq_perf")
+    d = r2[0][0] if r2 and r2[0][0] else None
     if d and d != _EPOCH:
-        return d.strftime("%Y%m%d")
+        mx = d.strftime("%Y%m%d")
+        nxt = [x for x in all_dates if x > mx]
+        return nxt[0] if nxt else None
     return DEFAULT_START
 
 
@@ -1639,34 +1620,6 @@ def fetch_and_write_cb_basic(pro, ck: Client, limiter, duck_writer=None) -> None
         duck_writer.put("cb_basic", df)
     print(f"{n} 条")
 
-
-KPL_FIELDS = (
-    "ts_code,trade_date,tag,name,lu_desc,theme,status,lu_time,"
-    "net_change,bid_amount,bid_change,bid_turnover,lu_bid_vol,"
-    "pct_chg,bid_pct_chg,rt_pct_chg,limit_order,amount,"
-    "turnover_rate,free_float,lu_limit_order"
-)
-KPL_COLS = KPL_FIELDS.split(",")
-
-
-def fetch_kpl_df(pro, limiter, trade_date):
-    """一日 kpl_list = 涨停 + 竞价 + 炸板 三 tag 合并。"""
-    frames = []
-    for tag in ("涨停", "竞价", "炸板"):
-        df = _retry_call(
-            pro.kpl_list, limiter, f"kpl {trade_date} tag={tag}",
-            trade_date=trade_date, tag=tag, fields=KPL_FIELDS,
-        )
-        if df is not None and not df.empty:
-            frames.append(df)
-    if not frames:
-        return None
-    merged = pd.concat(frames, ignore_index=True)
-    for col in KPL_COLS:
-        if col not in merged.columns:
-            merged[col] = None
-    merged = merged[KPL_COLS].drop_duplicates(subset=["ts_code", "trade_date", "tag"])
-    return merged
 
 # ── 并发执行器 ───────────────────────────────────────────────────────────────
 
@@ -1793,6 +1746,242 @@ def _all_codes(ck: Client) -> list[str]:
     rows = ck.execute("SELECT DISTINCT ts_code FROM stock_meta ORDER BY ts_code")
     return [r[0] for r in rows]
 
+# ── 财务/参考数据（13 接口，配置驱动）────────────────────────────────────────
+# period_vip：三大报表/指标等按报告期 vip 批量（一次一季全市场，无 6000 截断）
+# period    ：按报告期/披露期，走 _fetch_paged 翻页（top10_holders >6000 必翻页）
+# anndate   ：事件型，按公告日逐日抓（share_float / stk_holdertrade）
+# dividend  ：特殊，同日同时按 ann_date(预案) + imp_ann_date(实施) 抓后去重
+# 所有日期类字段一律存字符串 YYYYMMDD（与 top10_floatholders 一致），数值存 DOUBLE/Float64。
+FINA_START = "20100101"
+
+_FINA_CFG = [
+    dict(table="income", api="income", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date", "report_type"],
+         cols="ts_code,ann_date,f_ann_date,end_date,report_type,comp_type,end_type,basic_eps,diluted_eps,total_revenue,revenue,int_income,prem_earned,comm_income,n_commis_income,n_oth_income,n_oth_b_income,prem_income,out_prem,une_prem_reser,reins_income,n_sec_tb_income,n_sec_uw_income,n_asset_mg_income,oth_b_income,fv_value_chg_gain,invest_income,ass_invest_income,forex_gain,total_cogs,oper_cost,int_exp,comm_exp,biz_tax_surchg,sell_exp,admin_exp,fin_exp,assets_impair_loss,prem_refund,compens_payout,reser_insur_liab,div_payt,reins_exp,oper_exp,compens_payout_refu,insur_reser_refu,reins_cost_refund,other_bus_cost,operate_profit,non_oper_income,non_oper_exp,nca_disploss,total_profit,income_tax,n_income,n_income_attr_p,minority_gain,oth_compr_income,t_compr_income,compr_inc_attr_p,compr_inc_attr_m_s,ebit,ebitda,insurance_exp,undist_profit,distable_profit,rd_exp,fin_exp_int_exp,fin_exp_int_inc,transfer_surplus_rese,transfer_housing_imprest,transfer_oth,adj_lossgain,withdra_legal_surplus,withdra_legal_pubfund,withdra_biz_devfund,withdra_rese_fund,withdra_oth_ersu,workers_welfare,distr_profit_shrhder,prfshare_payable_dvd,comshare_payable_dvd,capit_comstock_div,update_flag".split(","),
+         strs="ann_date,f_ann_date,end_date,report_type,comp_type,end_type,update_flag".split(",")),
+    dict(table="balancesheet", api="balancesheet", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date", "report_type"],
+         cols="ts_code,ann_date,f_ann_date,end_date,report_type,comp_type,end_type,total_share,cap_rese,undistr_porfit,surplus_rese,special_rese,money_cap,trad_asset,notes_receiv,accounts_receiv,oth_receiv,prepayment,div_receiv,int_receiv,inventories,amor_exp,nca_within_1y,sett_rsrv,loanto_oth_bank_fi,premium_receiv,reinsur_receiv,reinsur_res_receiv,pur_resale_fa,oth_cur_assets,total_cur_assets,fa_avail_for_sale,htm_invest,lt_eqt_invest,invest_real_estate,time_deposits,oth_assets,lt_rec,fix_assets,cip,const_materials,fixed_assets_disp,produc_bio_assets,oil_and_gas_assets,intan_assets,r_and_d,goodwill,lt_amor_exp,defer_tax_assets,decr_in_disbur,oth_nca,total_nca,cash_reser_cb,depos_in_oth_bfi,prec_metals,deriv_assets,rr_reins_une_prem,rr_reins_outstd_cla,rr_reins_lins_liab,rr_reins_lthins_liab,refund_depos,ph_pledge_loans,refund_cap_depos,indep_acct_assets,client_depos,client_prov,transac_seat_fee,invest_as_receiv,total_assets,lt_borr,st_borr,cb_borr,depos_ib_deposits,loan_oth_bank,trading_fl,notes_payable,acct_payable,adv_receipts,sold_for_repur_fa,comm_payable,payroll_payable,taxes_payable,int_payable,div_payable,oth_payable,acc_exp,deferred_inc,st_bonds_payable,payable_to_reinsurer,rsrv_insur_cont,acting_trading_sec,acting_uw_sec,non_cur_liab_due_1y,oth_cur_liab,total_cur_liab,bond_payable,lt_payable,specific_payables,estimated_liab,defer_tax_liab,defer_inc_non_cur_liab,oth_ncl,total_ncl,depos_oth_bfi,deriv_liab,depos,agency_bus_liab,oth_liab,prem_receiv_adva,depos_received,ph_invest,reser_une_prem,reser_outstd_claims,reser_lins_liab,reser_lthins_liab,indept_acc_liab,pledge_borr,indem_payable,policy_div_payable,total_liab,treasury_share,ordin_risk_reser,forex_differ,invest_loss_unconf,minority_int,total_hldr_eqy_exc_min_int,total_hldr_eqy_inc_min_int,total_liab_hldr_eqy,lt_payroll_payable,oth_comp_income,oth_eqt_tools,oth_eqt_tools_p_shr,lending_funds,acc_receivable,st_fin_payable,payables,hfs_assets,hfs_sales,cost_fin_assets,fair_value_fin_assets,contract_assets,contract_liab,accounts_receiv_bill,accounts_pay,oth_rcv_total,fix_assets_total,cip_total,oth_pay_total,long_pay_total,debt_invest,oth_debt_invest,update_flag".split(","),
+         strs="ann_date,f_ann_date,end_date,report_type,comp_type,end_type,update_flag".split(",")),
+    dict(table="cashflow", api="cashflow", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date", "report_type"],
+         cols="ts_code,ann_date,f_ann_date,end_date,comp_type,report_type,end_type,net_profit,finan_exp,c_fr_sale_sg,recp_tax_rends,n_depos_incr_fi,n_incr_loans_cb,n_inc_borr_oth_fi,prem_fr_orig_contr,n_incr_insured_dep,n_reinsur_prem,n_incr_disp_tfa,ifc_cash_incr,n_incr_disp_faas,n_incr_loans_oth_bank,n_cap_incr_repur,c_fr_oth_operate_a,c_inf_fr_operate_a,c_paid_goods_s,c_paid_to_for_empl,c_paid_for_taxes,n_incr_clt_loan_adv,n_incr_dep_cbob,c_pay_claims_orig_inco,pay_handling_chrg,pay_comm_insur_plcy,oth_cash_pay_oper_act,st_cash_out_act,n_cashflow_act,oth_recp_ral_inv_act,c_disp_withdrwl_invest,c_recp_return_invest,n_recp_disp_fiolta,n_recp_disp_sobu,stot_inflows_inv_act,c_pay_acq_const_fiolta,c_paid_invest,n_disp_subs_oth_biz,oth_pay_ral_inv_act,n_incr_pledge_loan,stot_out_inv_act,n_cashflow_inv_act,c_recp_borrow,proc_issue_bonds,oth_cash_recp_ral_fnc_act,stot_cash_in_fnc_act,free_cashflow,c_prepay_amt_borr,c_pay_dist_dpcp_int_exp,incl_dvd_profit_paid_sc_ms,oth_cashpay_ral_fnc_act,stot_cashout_fnc_act,n_cash_flows_fnc_act,eff_fx_flu_cash,n_incr_cash_cash_equ,c_cash_equ_beg_period,c_cash_equ_end_period,c_recp_cap_contrib,incl_cash_rec_saims,uncon_invest_loss,prov_depr_assets,depr_fa_coga_dpba,amort_intang_assets,lt_amort_deferred_exp,decr_deferred_exp,incr_acc_exp,loss_disp_fiolta,loss_scr_fa,loss_fv_chg,invest_loss,decr_def_inc_tax_assets,incr_def_inc_tax_liab,decr_inventories,decr_oper_payable,incr_oper_payable,others,im_net_cashflow_oper_act,conv_debt_into_cap,conv_copbonds_due_within_1y,fa_fnc_leases,im_n_incr_cash_equ,net_dism_capital_add,net_cash_rece_sec,credit_impa_loss,use_right_asset_dep,oth_loss_asset,end_bal_cash,beg_bal_cash,end_bal_cash_equ,beg_bal_cash_equ,update_flag".split(","),
+         strs="ann_date,f_ann_date,end_date,comp_type,report_type,end_type,update_flag".split(",")),
+    dict(table="forecast", api="forecast", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date", "ann_date"],
+         cols="ts_code,ann_date,end_date,type,p_change_min,p_change_max,net_profit_min,net_profit_max,last_parent_net,first_ann_date,summary,change_reason,update_flag".split(","),
+         strs="ann_date,end_date,type,first_ann_date,summary,change_reason,update_flag".split(",")),
+    dict(table="express", api="express", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date"],
+         cols="ts_code,ann_date,end_date,revenue,operate_profit,total_profit,n_income,total_assets,total_hldr_eqy_exc_min_int,diluted_eps,diluted_roe,yoy_net_profit,bps,open_net_assets,open_bps,perf_summary,update_flag".split(","),
+         strs="ann_date,end_date,perf_summary,update_flag".split(",")),
+    dict(table="fina_indicator", api="fina_indicator", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date"],
+         cols="ts_code,ann_date,end_date,eps,dt_eps,total_revenue_ps,revenue_ps,capital_rese_ps,surplus_rese_ps,undist_profit_ps,extra_item,profit_dedt,gross_margin,current_ratio,quick_ratio,cash_ratio,ar_turn,ca_turn,fa_turn,assets_turn,op_income,ebit,ebitda,fcff,fcfe,current_exint,noncurrent_exint,interestdebt,netdebt,tangible_asset,working_capital,networking_capital,invest_capital,retained_earnings,diluted2_eps,bps,ocfps,retainedps,cfps,ebit_ps,fcff_ps,fcfe_ps,netprofit_margin,grossprofit_margin,cogs_of_sales,expense_of_sales,profit_to_gr,saleexp_to_gr,adminexp_of_gr,finaexp_of_gr,impai_ttm,gc_of_gr,op_of_gr,ebit_of_gr,roe,roe_waa,roe_dt,roa,npta,roic,roe_yearly,roa2_yearly,debt_to_assets,assets_to_eqt,dp_assets_to_eqt,ca_to_assets,nca_to_assets,tbassets_to_totalassets,int_to_talcap,eqt_to_talcapital,currentdebt_to_debt,longdeb_to_debt,ocf_to_shortdebt,debt_to_eqt,eqt_to_debt,eqt_to_interestdebt,tangibleasset_to_debt,tangasset_to_intdebt,tangibleasset_to_netdebt,ocf_to_debt,turn_days,roa_yearly,roa_dp,fixed_assets,profit_to_op,q_saleexp_to_gr,q_gc_to_gr,q_roe,q_dt_roe,q_npta,q_ocf_to_sales,basic_eps_yoy,dt_eps_yoy,cfps_yoy,op_yoy,ebt_yoy,netprofit_yoy,dt_netprofit_yoy,ocf_yoy,roe_yoy,bps_yoy,assets_yoy,eqt_yoy,tr_yoy,or_yoy,q_sales_yoy,q_op_qoq,equity_yoy,update_flag".split(","),
+         strs="ann_date,end_date,update_flag".split(",")),
+    dict(table="fina_mainbz", api="fina_mainbz", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date", "bz_item"],
+         cols="ts_code,end_date,bz_item,bz_code,bz_sales,bz_profit,bz_cost,curr_type".split(","),
+         strs="end_date,bz_item,bz_code,curr_type".split(",")),
+    dict(table="fina_audit", api="fina_audit", dim="period_vip", datecol="end_date",
+         keys=["ts_code", "end_date"],
+         cols="ts_code,ann_date,end_date,audit_result,audit_agency,audit_sign".split(","),
+         strs="ann_date,end_date,audit_result,audit_agency,audit_sign".split(",")),
+    dict(table="disclosure_date", api="disclosure_date", dim="period", param="end_date",
+         datecol="end_date", keys=["ts_code", "end_date"],
+         cols="ts_code,ann_date,end_date,pre_date,actual_date".split(","),
+         strs="ann_date,end_date,pre_date,actual_date".split(",")),
+    dict(table="top10_holders", api="top10_holders", dim="period", param="period",
+         datecol="end_date", keys=["ts_code", "end_date", "holder_name"],
+         cols="ts_code,ann_date,end_date,holder_name,hold_amount,hold_ratio,hold_float_ratio,hold_change,holder_type".split(","),
+         strs="ann_date,end_date,holder_name,holder_type".split(",")),
+    dict(table="dividend", api="dividend", dim="dividend", datecol="end_date",
+         keys=["ts_code", "end_date", "div_proc"],
+         cols="ts_code,end_date,ann_date,div_proc,stk_div,stk_bo_rate,stk_co_rate,cash_div,cash_div_tax,record_date,ex_date,pay_date,div_listdate,imp_ann_date".split(","),
+         strs="end_date,ann_date,div_proc,record_date,ex_date,pay_date,div_listdate,imp_ann_date".split(","),
+         wm_cols=["ann_date", "imp_ann_date"]),
+    dict(table="share_float", api="share_float", dim="anndate", datecol="float_date",
+         keys=["ts_code", "float_date", "holder_name"],
+         cols="ts_code,ann_date,float_date,float_share,float_ratio,holder_name,share_type".split(","),
+         strs="ann_date,float_date,holder_name,share_type".split(","),
+         wm_cols=["ann_date"]),
+    dict(table="stk_holdertrade", api="stk_holdertrade", dim="anndate", datecol="ann_date",
+         keys=["ts_code", "ann_date", "holder_name", "in_de"],
+         cols="ts_code,ann_date,holder_name,holder_type,in_de,change_vol,change_ratio,after_share,after_ratio,avg_price,total_share".split(","),
+         strs="ann_date,holder_name,holder_type,in_de".split(","),
+         wm_cols=["ann_date"]),
+]
+
+
+def _fina_register():
+    """把 13 张财务/参考表注册进 DDL/_DUCK_DDL/COLUMNS/STRING_COLS/FLOAT_COLS（自动生成 DDL）。"""
+    for c in _FINA_CFG:
+        t, cols, strs, keys = c["table"], c["cols"], c["strs"], c["keys"]
+        ch_lines, dk_lines = [], []
+        for col in cols:
+            if col == "ts_code":
+                ch_lines.append(f"{col} LowCardinality(String)"); dk_lines.append(f"{col} VARCHAR")
+            elif col in strs:
+                ch_lines.append(f"{col} String"); dk_lines.append(f"{col} VARCHAR")
+            else:
+                ch_lines.append(f"{col} Float64"); dk_lines.append(f"{col} DOUBLE")
+        DDL[t] = (f"CREATE TABLE IF NOT EXISTS {t} (\n    " + ",\n    ".join(ch_lines)
+                  + f"\n) ENGINE = ReplacingMergeTree ORDER BY ({','.join(keys)})")
+        _DUCK_DDL[t] = (f"CREATE TABLE IF NOT EXISTS {t} (" + ", ".join(dk_lines)
+                        + f", PRIMARY KEY ({','.join(keys)}))")
+        COLUMNS[t] = cols
+        STRING_COLS[t] = strs
+        FLOAT_COLS[t] = [x for x in cols if x != "ts_code" and x not in strs]
+
+
+_fina_register()
+
+
+def _fina_dedup(df, keys, datecol):
+    """去重到主键（同键保留最新：按 datecol 升序后取末条），避免单批 PK 冲突。"""
+    if df is None or df.empty:
+        return df
+    sub = [k for k in keys if k in df.columns]
+    if datecol in df.columns:
+        df = df.sort_values(datecol)
+    return df.drop_duplicates(subset=sub, keep="last") if sub else df
+
+
+def _make_fina_fetcher(cfg):
+    """按 cfg 的抓取维度返回 fetcher(pro, limiter, item) → DataFrame。"""
+    api, dim, cols = cfg["api"], cfg["dim"], cfg["cols"]
+    keys, datecol = cfg["keys"], cfg["datecol"]
+    flds = ",".join(cols)
+
+    if dim == "period_vip":
+        def f(pro, limiter, period):
+            df = _retry_call(getattr(pro, api + "_vip"), limiter, f"{api} {period}",
+                             period=period, fields=flds)
+            return _fina_dedup(df, keys, datecol)
+    elif dim == "period":
+        param = cfg["param"]
+        def f(pro, limiter, period):
+            df = _fetch_paged(getattr(pro, api), limiter, f"{api} {period}",
+                              fields=flds, **{param: period})
+            return _fina_dedup(df, keys, datecol)
+    elif dim == "anndate":
+        def f(pro, limiter, d):
+            df = _fetch_paged(getattr(pro, api), limiter, f"{api} {d}",
+                              ann_date=d, fields=flds)
+            return _fina_dedup(df, keys, datecol)
+    elif dim == "dividend":
+        def f(pro, limiter, d):
+            a = _fetch_paged(pro.dividend, limiter, f"dividend ann {d}", ann_date=d, fields=flds)
+            b = _fetch_paged(pro.dividend, limiter, f"dividend imp {d}", imp_ann_date=d, fields=flds)
+            parts = [x for x in (a, b) if x is not None and not x.empty]
+            return _fina_dedup(pd.concat(parts, ignore_index=True), keys, datecol) if parts else None
+    else:
+        raise ValueError(f"未知 dim: {dim}")
+    return f
+
+
+def _existing_keycol(ck: Client, table: str, col: str) -> set[str]:
+    """返回某表 col 列已存在的去重值集合（YYYYMMDD 字符串）；表不存在返回空集。"""
+    try:
+        rows = ck.execute(f"SELECT DISTINCT {col} FROM {table}")
+    except Exception:
+        return set()
+    return {str(r[0]) for r in rows if r and r[0] not in (None, "")}
+
+
+def _fina_period_targets(ck: Client, table: str, datecol: str, full: bool) -> list[str]:
+    """需要拉取的报告期：全量=全部季末；增量=缺失季末 + 最近 2 期（重述/陆续披露）。"""
+    cands = _quarter_end_periods(FINA_START, datetime.today().strftime("%Y%m%d"))
+    if full:
+        return cands
+    have = _existing_keycol(ck, table, datecol)
+    miss = [p for p in cands if p not in have]
+    return sorted(set(miss) | set(cands[-2:]))
+
+
+def _anndate_watermark(ck: Client, table: str, wm_cols: list[str]) -> str | None:
+    """事件表已抓到的最新公告日 = wm_cols 各列 MAX 的较大者（YYYYMMDD），空表返回 None。
+
+    # WHY: 事件表绝大多数交易日没有公告(无行)，不能用"distinct ann_date 是否存在"判缺失
+    #      (会把无事件日当未抓、每次空抓一遍，dividend 曾因此每轮重拉上千天)。改用前进水位线：
+    #      只抓 MAX(已抓公告日) 之后的新日；dividend 还要并入 imp_ann_date(实施公告日)。
+    """
+    best = ""
+    for c in wm_cols:
+        try:
+            r = ck.execute(f"SELECT MAX({c}) FROM {table}")
+        except Exception:
+            continue
+        v = r[0][0] if r and r[0] else None
+        if v:
+            s = str(v).replace("-", "")[:8]
+            if s.isdigit() and s > best:
+                best = s
+    if not best:
+        return None
+    today = datetime.today().strftime("%Y%m%d")
+    return min(best, today)
+
+
+def _fina_anndate_targets(ck: Client, cfg: dict, all_dates: list[str], full: bool) -> list[str]:
+    """需要拉取的公告日：全量=全部交易日；增量=水位线之后的新交易日。"""
+    dates = [d for d in all_dates if d >= FINA_START]
+    if full:
+        return dates
+    hw = _anndate_watermark(ck, cfg["table"], cfg["wm_cols"])
+    if hw is None:
+        return dates
+    return [d for d in dates if d > hw]
+
+
+_FINA_CN = {
+    "income": "利润表", "balancesheet": "资产负债表", "cashflow": "现金流量表",
+    "forecast": "业绩预告", "express": "业绩快报", "fina_indicator": "财务指标",
+    "fina_mainbz": "主营构成", "fina_audit": "审计意见", "disclosure_date": "披露计划",
+    "top10_holders": "十大股东", "dividend": "分红送股", "share_float": "限售解禁",
+    "stk_holdertrade": "股东增减持",
+}
+
+
+def _fina_plan(ck, dates, full):
+    """算出 13 张财务/参考表各自待更新的 items，返回 [(cfg, items)]（先算后跑，便于汇总打印）。"""
+    plan = []
+    for cfg in _FINA_CFG:
+        if cfg["dim"] in ("period_vip", "period"):
+            items = _fina_period_targets(ck, cfg["table"], cfg["datecol"], full)
+        else:
+            items = _fina_anndate_targets(ck, cfg, dates, full)
+        plan.append((cfg, items))
+    return plan
+
+
+def _run_fina_plan(pro, ck, limiter, workers, duck_writer, plan):
+    """按 _fina_plan 的结果逐表抓取入库。"""
+    for cfg, items in plan:
+        if items:
+            _run_concurrent(pro, ck, cfg["table"], items, _make_fina_fetcher(cfg),
+                            cfg["table"], limiter=limiter, workers=workers, duck_writer=duck_writer)
+
+
+def _vwidth(s: str) -> int:
+    """字符串显示宽度（CJK 记 2，其余记 1），用于终端对齐。"""
+    return sum(2 if ord(c) > 0x2E7F else 1 for c in str(s))
+
+
+def _print_2col(cells: list[str], indent: str = "  ") -> None:
+    """把若干 'name=val' 单元按每行 2 个、CJK 宽度对齐打印。"""
+    if not cells:
+        return
+    w = max(_vwidth(c) for c in cells) + 2
+    lines = []
+    for i in range(0, len(cells), 2):
+        left = cells[i]
+        left += " " * max(0, w - _vwidth(left))
+        line = indent + left + (cells[i + 1] if i + 1 < len(cells) else "")
+        lines.append(line.rstrip())
+    print("\n".join(lines))
+
+
 # ── 全量拉取 ─────────────────────────────────────────────────────────────────
 
 def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> None:
@@ -1821,21 +2010,16 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     _run_concurrent(pro, ck, "daily_basic", dates, fetch_basic_date_df, "daily_basic",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
-    kpl_dates = [d for d in dates if d >= KPL_START]
-    print(f"\n[4/8] kpl_list 涨停榜单（{KPL_START} 起，{len(kpl_dates)} 天）")
-    _run_concurrent(pro, ck, "kpl_list", kpl_dates, fetch_kpl_df, "kpl_list",
-                    limiter=limiter, workers=workers, duck_writer=duck_writer)
-
-    print(f"\n[5/8] 指数日线（{len(INDEX_CODES)} 只）")
+    print(f"\n[4/8] 指数日线（{len(INDEX_CODES)} 只）")
     idx_items = [(code, start) for code in INDEX_CODES]
     _run_concurrent(pro, ck, "index_daily", idx_items, fetch_index_daily_df, "index_daily",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
-    print("\n[6/8] 连板天梯")
+    print("\n[5/8] 连板天梯")
     _run_concurrent(pro, ck, "limit_step", dates, fetch_limit_step_df, "limit_step",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
-    print(f"\n[7/8] 每日筹码及胜率（按股票逐只，限速 {CYQ_MAX_PER_MIN}/min）")
+    print(f"\n[6/8] 每日筹码及胜率（按股票逐只，限速 {CYQ_MAX_PER_MIN}/min）")
     codes = _all_codes(ck)
     _run_concurrent(pro, ck, "cyq_perf", codes, fetch_cyq_code_df, "cyq_perf",
                     limiter=RateLimiter(CYQ_MAX_PER_MIN), workers=workers, duck_writer=duck_writer)
@@ -1852,8 +2036,9 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     _run_concurrent(pro, ck, "limit_cpt_list", dates, fetch_limit_cpt_list_df, "limit_cpt_list",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
-    lld_dates = [d for d in dates if d >= KPL_START]
-    print(f"\n[11/12] limit_list_d 涨跌停/炸板（{KPL_START} 起，{len(lld_dates)} 天）")
+    lld_start = TABLE_START["limit_list_d"]
+    lld_dates = [d for d in dates if d >= lld_start]
+    print(f"\n[11/12] limit_list_d 涨跌停/炸板（{lld_start} 起，{len(lld_dates)} 天）")
     _run_concurrent(pro, ck, "limit_list_d", lld_dates, fetch_limit_list_d_df, "limit_list_d",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
@@ -1884,6 +2069,11 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     fetch_and_write_st(pro, ck, limiter, duck_writer)
     fetch_and_write_cb_basic(pro, ck, limiter, duck_writer)
 
+    fina_plan = _fina_plan(ck, dates, full=True)
+    print("\n[财务/参考数据] 全量 13 张表：")
+    _print_2col([f"{c['table']}({_FINA_CN[c['table']]})={len(it)}" for c, it in fina_plan])
+    _run_fina_plan(pro, ck, limiter, workers, duck_writer, fina_plan)
+
     print("\n全量拉取完成。")
 
 # ── 增量更新 ─────────────────────────────────────────────────────────────────
@@ -1893,12 +2083,13 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     limiter = RateLimiter(MAX_REQUESTS_PER_MIN)
 
     if date_arg:
-        miss_daily = miss_adj = miss_basic = miss_kpl = miss_stock_st = miss_limit_step = [date_arg]
+        miss_daily = miss_adj = miss_basic = miss_stock_st = miss_limit_step = [date_arg]
         miss_moneyflow = miss_cpt = miss_lld = [date_arg]
         miss_auc_o = miss_auc_c = [date_arg]
         miss_sf    = [date_arg]
         cyq_start  = date_arg
         idx_start  = date_arg
+        fina_plan  = _fina_plan(ck, [date_arg], full=True)
         print(f"指定日期更新：{date_arg}")
     else:
         print("获取交易日历...", end=" ", flush=True)
@@ -1912,7 +2103,6 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
         miss_daily      = _missing_dates(ck, "daily",       all_dates)
         miss_adj        = _missing_dates(ck, "adj_factor",  all_dates)
         miss_basic      = _missing_dates(ck, "daily_basic", all_dates)
-        miss_kpl        = _missing_dates(ck, "kpl_list",    _floor("kpl_list"))
         miss_stock_st   = _missing_dates(ck, "stock_st",    _floor("stock_st"))
         miss_limit_step = _missing_dates(ck, "limit_step",  _floor("limit_step"))
         miss_moneyflow  = _missing_dates(ck, "moneyflow",   all_dates)
@@ -1921,22 +2111,31 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
         miss_auc_o      = _missing_dates(ck, "stk_auction_o",  _floor("stk_auction_o"))
         miss_auc_c      = _missing_dates(ck, "stk_auction_c",  _floor("stk_auction_c"))
         miss_sf         = _missing_dates(ck, "stk_factor_pro",     _floor("stk_factor_pro"))
-        cyq_start       = _cyq_update_start(ck)
+        cyq_start       = _cyq_update_start(ck, all_dates)
         idx_start       = _index_daily_update_start(ck)
+        fina_plan       = _fina_plan(ck, all_dates, full=False)
 
-        print(f"\n缺失日期：daily={len(miss_daily)}  adj={len(miss_adj)}  "
-              f"basic={len(miss_basic)}  kpl={len(miss_kpl)}  "
-              f"stock_st={len(miss_stock_st)}  limit_step={len(miss_limit_step)}  "
-              f"moneyflow={len(miss_moneyflow)}  limit_cpt_list={len(miss_cpt)}  "
-              f"limit_list_d={len(miss_lld)}  "
-              f"auction_o={len(miss_auc_o)}  auction_c={len(miss_auc_c)}  "
-              f"stk_factor={len(miss_sf)}  "
-              f"cyq_perf_from={cyq_start}  index_daily_from={idx_start}\n")
+        daily_cells = [
+            f"daily(日线)={len(miss_daily)}", f"adj(复权因子)={len(miss_adj)}",
+            f"basic(每日指标)={len(miss_basic)}", f"stock_st(ST列表)={len(miss_stock_st)}",
+            f"limit_step(连板天梯)={len(miss_limit_step)}", f"moneyflow(资金流)={len(miss_moneyflow)}",
+            f"limit_cpt_list(开盘啦板块)={len(miss_cpt)}", f"limit_list_d(涨跌停/炸板)={len(miss_lld)}",
+            f"auction_o(开盘竞价)={len(miss_auc_o)}", f"auction_c(收盘竞价)={len(miss_auc_c)}",
+            f"stk_factor(技术因子)={len(miss_sf)}", f"index_daily(指数日线)起={idx_start}",
+            f"cyq_perf(筹码)起={cyq_start or '已最新'}",
+        ]
+        fina_cells = [f"{c['table']}({_FINA_CN[c['table']]})={len(it)}" for c, it in fina_plan]
+        print("\n缺失/待更新（行情类）：")
+        _print_2col(daily_cells)
+        print("缺失/待更新（财务/参考类）：")
+        _print_2col(fina_cells)
 
-    if not any([miss_daily, miss_adj, miss_basic, miss_kpl, miss_stock_st,
+    _run_fina_plan(pro, ck, limiter, workers, duck_writer, fina_plan)
+
+    if not any([miss_daily, miss_adj, miss_basic, miss_stock_st,
                 miss_limit_step, miss_moneyflow, miss_cpt, miss_lld,
                 miss_auc_o, miss_auc_c, miss_sf]):
-        print("所有表数据已是最新，无需更新。")
+        print("所有表数据已是最新（财务/参考表已在上方处理）。")
         return
 
     if miss_daily:
@@ -1947,9 +2146,6 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
                         limiter=limiter, workers=workers, duck_writer=duck_writer)
     if miss_basic:
         _run_concurrent(pro, ck, "daily_basic", miss_basic, fetch_basic_date_df, "daily_basic",
-                        limiter=limiter, workers=workers, duck_writer=duck_writer)
-    if miss_kpl:
-        _run_concurrent(pro, ck, "kpl_list", miss_kpl, fetch_kpl_df, "kpl_list",
                         limiter=limiter, workers=workers, duck_writer=duck_writer)
     if miss_stock_st:
         _run_concurrent(pro, ck, "stock_st", miss_stock_st, fetch_stock_st_df, "stock_st",
@@ -1985,15 +2181,17 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     # 为避免每次 --update 都跑这个慢步骤、且在收盘前拿到的还是昨天数据，限定 20:00 后才更新。
     # 用 --date 指定单日时不受时间限制（人工覆盖）。
     now = datetime.now()
-    if date_arg or now.hour >= 20:
-        codes = _all_codes(ck)
-        items = [(code, cyq_start) for code in codes]
-        print(f"[cyq_perf] 独立限速 {CYQ_MAX_PER_MIN}/min（避免频率报错重试）")
-        _run_concurrent(pro, ck, "cyq_perf", items, fetch_cyq_code_range_df, "cyq_perf",
-                        limiter=RateLimiter(CYQ_MAX_PER_MIN), workers=workers, duck_writer=duck_writer)
-    else:
+    if not (date_arg or now.hour >= 20):
         print(f"\n[cyq_perf] 当前 {now:%H:%M}，接口 18-19 点才更新当日数据，"
               f"已跳过；20:00 后再 --update 即可拉到最新筹码。")
+    elif cyq_start is None:
+        print("\n[cyq_perf] 已是最后完整覆盖日，无新交易日，跳过（不再重拉已存日）。")
+    else:
+        codes = _all_codes(ck)
+        items = [(code, cyq_start) for code in codes]
+        print(f"[cyq_perf] 自 {cyq_start} 起增量，独立限速 {CYQ_MAX_PER_MIN}/min（避免频率报错重试）")
+        _run_concurrent(pro, ck, "cyq_perf", items, fetch_cyq_code_range_df, "cyq_perf",
+                        limiter=RateLimiter(CYQ_MAX_PER_MIN), workers=workers, duck_writer=duck_writer)
 
     # trade_cal / st / cb_basic 是参考型，每次更新都全量重拉（数据量小，一次请求搞定）
     fetch_and_write_trade_cal(pro, ck, limiter, DEFAULT_START, duck_writer)

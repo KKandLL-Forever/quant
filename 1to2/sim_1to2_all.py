@@ -1,7 +1,16 @@
 """
 sim_1to2_all.py — 首板→2板晋级模型回测：4 种资金管理策略合并到一页（Tab 切换）
 
-模型：xgb_1lb_2lb_v1.pkl，31 特征（ml_features_1to2_v1：2lb_v3 的 34 - 3 死特征 + 4 技术面因子）。
+模型（默认 v1）：
+  v1  = xgb_1lb_2lb_v1.pkl，34 特征（ml_features_1to2_v1）；单切分原版。
+  v2  = xgb_1lb_2lb_v2.pkl，34 特征；walk-forward 评估版（只到 ≤2023），切点跨熊牛标定。
+  v2d = xgb_1lb_2lb_v2_deploy.pkl，34 特征；v2 实盘部署版（锁定轮数 + ≤今天全量数据训练）。
+
+⚠️ 回测口径警告：v2d 是用 ≤今天全量数据训练的【实盘部署模型】，回测任何历史区间都存在
+   数据穿越（训练时已见过该区间样本），收益会系统性虚高，不能用来评估真实表现。
+   看可信历史成绩请用 v2（评估版，只到 ≤2023，2024~ 对它是干净样本外）。
+   v2d 只适合在 ml_score_1to2_v2.py 里跑「当日/最新交易日」打分（预测未来、无穿越）。
+
 proba：模型对「该首板个股次日涨停、晋级 2 板」的预测概率，0~1，越高越被看好。
 分位档：按训练集 proba 分布取的高分位切点（从 pkl 的 tiers 自动读取）。
         参考值：Top1%≈proba≥0.86、Top5%≈≥0.70、Top10%≈≥0.65、Top20%≈≥0.59。
@@ -19,7 +28,8 @@ proba：模型对「该首板个股次日涨停、晋级 2 板」的预测概率
 假设、一字板按开盘价成交，故收益是理想上限，非实盘可达。
 
 用法：
-  python 1to2/sim_1to2_all.py                       # 默认 2026 起
+  python 1to2/sim_1to2_all.py                       # 默认 v1、2026 起
+  python 1to2/sim_1to2_all.py --model-version v2    # walk-forward 评估版（看可信历史成绩）
   python 1to2/sim_1to2_all.py --start 20240101 --end 20241231
   python 1to2/sim_1to2_all.py --capital 30000     # 各策略总资金均为 3w
                                                      # 排名→4账本各7500；分位档→3账户各1w
@@ -54,6 +64,8 @@ TIERS = [(1, "Top1%", 1), (5, "Top5%", 4), (10, "Top10%", 4)]
 _MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model")
 MODEL_VERSIONS = {
     "v1": ("xgb_1lb_2lb_v1.pkl", "ml_features_1to2_v1"),
+    "v2": ("xgb_1lb_2lb_v2.pkl", "ml_features_1to2_v1"),
+    "v2d": ("xgb_1lb_2lb_v2_deploy.pkl", "ml_features_1to2_v1"),
 }
 
 
@@ -435,7 +447,9 @@ def render_html(strategies, span, start, end, ver, cutoffs) -> str:
                "now": datetime.now().strftime("%Y-%m-%d %H:%M")}
     pj = json.dumps(payload, ensure_ascii=False)
     pkl = MODEL_VERSIONS[ver][0]
-    fnote = {"v1": "34 特征 · 含集合竞价（剔除对首板恒空的 d1_*）"}.get(ver, ver)
+    fnote = {"v1": "34 特征 · 单切分原版",
+             "v2": "34 特征 · walk-forward(2022~2026样本外)·切点跨熊牛标定",
+             "v2d": "34 特征 · v2部署版(锁定轮数·全量数据)·实盘用，回测有穿越"}.get(ver, ver)
     t1, t5, t10 = cutoffs
     header = (
         '<h1>首板→2板 · 4 策略现金回测对照</h1>'
@@ -614,7 +628,7 @@ def main():
     ap.add_argument("--start", default="20260101")
     ap.add_argument("--end", default="20991231")
     ap.add_argument("--model-version", default="v1", choices=list(MODEL_VERSIONS),
-                    help="模型版本（仅 v1）")
+                    help="模型版本（v1 默认 / v2 评估 / v2d 实盘部署，v2d 回测有穿越）")
     args = ap.parse_args()
     cap = args.capital
     ver = args.model_version

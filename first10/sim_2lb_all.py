@@ -2,8 +2,17 @@
 sim_2lb_all.py — 2板→3板晋级模型回测：4 种资金管理策略合并到一页（Tab 切换）
 
 模型（默认 v3）：
+  v5d= xgb_2lb_3lb_v5_deploy.pkl，31 特征；v5 实盘部署版（锁定 v5 轮数 + ≤今天全量数据训练），
+       切点沿用 v5 跨熊牛标定。实盘回测最贴近真实，--model-version v5d 启用。
+  v5 = xgb_2lb_3lb_v5.pkl，31 特征（v3 剔除 3 个死特征）；walk-forward 滚动前推训练（评估版，
+       只到 ≤2023），分位档切点基于 2022~2026 全样本外合并标定。--model-version v5 启用。
   v3 = xgb_2lb_3lb_v3.pkl，34 特征（v2 的 32 个 + 开盘/尾盘集合竞价 2 个）。
   v2 = xgb_2lb_3lb_v2.pkl，32 特征、无竞价（旧版）；用 --model-version v2 切回。
+
+⚠️ 回测口径警告：v5d 是用 ≤今天全量数据训练的【实盘部署模型】，回测任何历史区间都存在
+   数据穿越（训练时已见过该区间样本），收益会系统性虚高，不能用来评估真实表现。
+   看可信历史成绩请用 v5（评估版，只到 ≤2023，2024~ 对它是干净样本外）。
+   v5d 只适合在 ml_score_2lb_v5.py 里跑「当日/最新交易日」打分（预测未来、无穿越）。
 proba：模型对「该 2 板个股次日继续涨停、晋级 3 板」的预测概率，0~1，越高越被看好。
 分位档：按训练集 proba 分布取的高分位切点（从对应版本 pkl 的 tiers 读取，故值随版本不同）。
         参考值（v3）：Top1%≈proba≥0.71、Top5%≈≥0.66、Top10%≈≥0.60、Top20%≈≥0.51。
@@ -22,6 +31,8 @@ proba：模型对「该 2 板个股次日继续涨停、晋级 3 板」的预测
 
 用法：
   python first10/sim_2lb_all.py                       # 默认 v3、2026 起
+  python first10/sim_2lb_all.py --model-version v5    # walk-forward 的 v5 评估模型
+  python first10/sim_2lb_all.py --model-version v5d   # v5 实盘部署模型（全量数据+锁定轮数）
   python first10/sim_2lb_all.py --model-version v2    # 切回 v2 模型
   python first10/sim_2lb_all.py --start 20240101 --end 20241231
   python first10/sim_2lb_all.py --capital 30000     # 各策略总资金均为 3w
@@ -59,6 +70,8 @@ _MODEL_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model")
 MODEL_VERSIONS = {
     "v2": ("xgb_2lb_3lb_v2.pkl", "ml_features_2lb_v2"),
     "v3": ("xgb_2lb_3lb_v3.pkl", "ml_features_2lb_v3"),
+    "v5": ("xgb_2lb_3lb_v5.pkl", "ml_features_2lb_v3"),
+    "v5d": ("xgb_2lb_3lb_v5_deploy.pkl", "ml_features_2lb_v3"),
 }
 
 
@@ -87,6 +100,11 @@ def _load_trades(start: str, end: str, tier_pct: int,
     feat["proba"] = model.predict_proba(feat[feat_cols])[:, 1]
     feat = feat[feat["proba"] >= proba_thr].copy()
     picked = feat[["ts_code", "trade_date", "proba"]].copy()
+
+    if picked.empty:
+        cols = ["ts_code", "trade_date", "boards", "buy_date", "buy_open",
+                "sell_date", "sell_price", "proba", "name"]
+        return pd.DataFrame(columns=cols), proba_thr
 
     con = _duckdb.connect(S.DUCK_PATH, read_only=True)
     boards = S._attach_boards(con, picked)
@@ -440,7 +458,10 @@ def render_html(strategies, span, start, end, ver, cutoffs) -> str:
                "now": datetime.now().strftime("%Y-%m-%d %H:%M")}
     pj = json.dumps(payload, ensure_ascii=False)
     pkl = MODEL_VERSIONS[ver][0]
-    fnote = {"v2": "32 特征 · 无竞价", "v3": "34 特征 · 含开盘/尾盘集合竞价"}.get(ver, ver)
+    fnote = {"v2": "32 特征 · 无竞价",
+             "v3": "34 特征 · 含开盘/尾盘集合竞价",
+             "v5": "31 特征 · walk-forward(2022~2026样本外)·切点跨熊牛标定",
+             "v5d": "31 特征 · v5部署版(锁定轮数·全量数据训练)·实盘用"}.get(ver, ver)
     t1, t5, t10 = cutoffs
     header = (
         '<h1>2板→3板 · 4 策略现金回测对照</h1>'
@@ -619,7 +640,7 @@ def main():
     ap.add_argument("--start", default="20260101")
     ap.add_argument("--end", default="20991231")
     ap.add_argument("--model-version", default="v3", choices=list(MODEL_VERSIONS),
-                    help="模型版本（v3·含集合竞价 默认 / v2·旧版无竞价）")
+                    help="模型版本（v3 默认 / v5 评估 / v5d 实盘部署 / v2 旧版）")
     args = ap.parse_args()
     cap = args.capital
     ver = args.model_version
