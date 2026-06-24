@@ -44,6 +44,9 @@ Thumbs.db
 .vscode/
 *.swp
 
+# ===== RMI 研究生成的图（可再生，不入库）=====
+rmi_*.png
+
 # ===== generated html outputs =====
 *.html
 !templates/*.html
