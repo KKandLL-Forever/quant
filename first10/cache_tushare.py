@@ -168,6 +168,7 @@ TABLE_START = {
     "stk_auction_o":  "20180101",
     "stk_auction_c":  "20180101",
     "stk_factor_pro":     "20200101",
+    "cyq_perf":           "20200101",
 }
 
 # 全局停止信号 —— 主线程收到 Ctrl+C 时 set，worker 通过它中断 sleep
@@ -1458,14 +1459,6 @@ _CYQ_FIELDS = ("ts_code,trade_date,his_low,his_high,cost_5pct,cost_15pct,"
                "cost_50pct,cost_85pct,cost_95pct,weight_avg,winner_rate")
 
 
-def fetch_cyq_code_df(pro, limiter, ts_code):
-    """全量：拉单只股票全部历史筹码数据。"""
-    return _retry_call(
-        pro.cyq_perf, limiter, f"cyq_perf {ts_code}",
-        ts_code=ts_code, fields=_CYQ_FIELDS,
-    )
-
-
 def fetch_cyq_code_range_df(pro, limiter, item):
     """增量：拉单只股票指定起始日之后的筹码数据。"""
     ts_code, start_date = item
@@ -1543,7 +1536,7 @@ def _cyq_update_start(ck: Client, all_dates: list[str]) -> str | None:
     #      查询失败或窗口内无完整日时，回退到轻量 MAX(trade_date) 的下一交易日。
     """
     if not all_dates:
-        return DEFAULT_START
+        return TABLE_START["cyq_perf"]
     floor = all_dates[-90] if len(all_dates) > 90 else all_dates[0]
     floor_dash = f"{floor[:4]}-{floor[4:6]}-{floor[6:8]}"
     try:
@@ -1566,7 +1559,7 @@ def _cyq_update_start(ck: Client, all_dates: list[str]) -> str | None:
         mx = d.strftime("%Y%m%d")
         nxt = [x for x in all_dates if x > mx]
         return nxt[0] if nxt else None
-    return DEFAULT_START
+    return TABLE_START["cyq_perf"]
 
 
 def fetch_and_write_trade_cal(pro, ck: Client, limiter, start: str, duck_writer=None) -> None:
@@ -2019,9 +2012,9 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     _run_concurrent(pro, ck, "limit_step", dates, fetch_limit_step_df, "limit_step",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
-    print(f"\n[6/8] 每日筹码及胜率（按股票逐只，限速 {CYQ_MAX_PER_MIN}/min）")
-    codes = _all_codes(ck)
-    _run_concurrent(pro, ck, "cyq_perf", codes, fetch_cyq_code_df, "cyq_perf",
+    print(f"\n[6/8] 每日筹码及胜率（按股票逐只，自 {TABLE_START['cyq_perf']} 起，限速 {CYQ_MAX_PER_MIN}/min）")
+    items = [(code, TABLE_START["cyq_perf"]) for code in _all_codes(ck)]
+    _run_concurrent(pro, ck, "cyq_perf", items, fetch_cyq_code_range_df, "cyq_perf",
                     limiter=RateLimiter(CYQ_MAX_PER_MIN), workers=workers, duck_writer=duck_writer)
 
     print("\n[8/10] stock_st ST股票日列表")
