@@ -34,8 +34,12 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 .venv/
+.venv312/
 venv/
 env/
+
+# ===== qlib 实验记录（mlflow 输出）=====
+mlruns/
 
 # ===== OS / 编辑器 =====
 .DS_Store
