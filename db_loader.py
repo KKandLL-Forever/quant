@@ -11,7 +11,25 @@ import os
 import pandas as pd
 from clickhouse_driver import Client
 
-from data_loader import is_abnormal_stock, is_restricted_board
+_ABNORMAL_KEYWORDS = ("ST", "*ST", "PT", "退市", "退", "S ", "SST", "NST")
+_RESTRICTED_PREFIXES = ("300", "688")
+_RESTRICTED_EXCHANGES = ("BJ",)
+
+
+def is_abnormal_stock(df: pd.DataFrame) -> bool:
+    """检查股票是否为 ST/PT/退市等异常股票（任意交易日出现过即标记）。"""
+    for name in df["name"].dropna().unique():
+        if any(kw in name for kw in _ABNORMAL_KEYWORDS):
+            return True
+    return False
+
+
+def is_restricted_board(code: str) -> bool:
+    """检查是否为创业板(300)、科创板(688)或北交所(BJ)。"""
+    parts = code.split(".")
+    num = parts[0]
+    exchange = parts[1] if len(parts) > 1 else ""
+    return exchange in _RESTRICTED_EXCHANGES or any(num.startswith(p) for p in _RESTRICTED_PREFIXES)
 
 try:
     import duckdb as _duckdb
