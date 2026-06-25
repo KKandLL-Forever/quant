@@ -15,8 +15,10 @@ cache_tushare.py — Tushare A股日线数据缓存到 ClickHouse
                                                    #   需在 .pyenv.local 配置 LOCAL_DUCKDB_PATH
   python cache_tushare.py --update --cyq-rate 150  # 调低 cyq_perf 每分钟限速（频率报错多时用）
 
-  数据更新成功后会自动重建本地 DuckDB 的 market_state 表（连板生态 + 中证1000 指数位置，
-  SQL 见 _MARKET_STATE_SQL / rebuild_market_state）。
+  数据更新成功后会自动重建本地 DuckDB 的 market_state 表（连板生态 + 中证1000 指数位置
+  + 全市场抱团度 market_crowding_di）。沪深300成分(fetch_hs300_members→hs300_members 表)与
+  抱团度(_update_market_crowding→market_crowding 表)均自动增量更新，无需手工维护。
+  SQL 见 _MARKET_STATE_SQL / rebuild_market_state。
   仅在配置了 LOCAL_DUCKDB_PATH 时执行；中断（Ctrl+C）则跳过重建。
 
   Ctrl+C 中断：
@@ -88,6 +90,7 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, date
 
+import numpy as np
 import pandas as pd
 from clickhouse_driver import Client
 
@@ -1057,12 +1060,174 @@ SELECT
   m.market_2lb_rate,
   m.market_2lb_rate_ma5,
   ix.market_idx_dist_h60,
-  ix.market_idx_breakout
+  ix.market_idx_breakout,
+  last_value(mc.crowding_di IGNORE NULLS)
+    OVER (ORDER BY m.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS market_crowding_di
 FROM with_ma m
 LEFT JOIN idx_breakout ix ON ix.trade_date = m.trade_date
+LEFT JOIN market_crowding mc ON mc.trade_date = m.trade_date
 WHERE m.trade_date >= DATE '2020-01-01'
 ORDER BY m.trade_date
 """
+
+
+_CROWD_STEP = 5
+_CROWD_BINS = 7
+_CROWD_MIN_STOCKS = 30
+_CROWD_FIRST = "2020-01-01"
+_HS300_FIRST_YEAR = 2019
+
+
+def fetch_hs300_members(pro, duck_path: str) -> None:
+    """增量拉沪深300成分(index_weight 000300.SH)写入 DuckDB hs300_members 表，供抱团度用。
+
+    成分每半年调整、月度快照。表为空则从 _HS300_FIRST_YEAR 起全拉，否则只补最近年份。"""
+    con = _duckdb.connect(duck_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS hs300_members "
+                    "(con_code VARCHAR, trade_date VARCHAR, weight DOUBLE, PRIMARY KEY (con_code, trade_date))")
+        last = con.execute("SELECT MAX(trade_date) FROM hs300_members").fetchone()[0]
+        start_year = _HS300_FIRST_YEAR if last is None else int(last[:4])
+        parts = []
+        for y in range(start_year, datetime.today().year + 1):
+            s = last if (last is not None and y == int(last[:4])) else f"{y}0101"
+            try:
+                df = pro.index_weight(index_code="000300.SH", start_date=s, end_date=f"{y}1231")
+            except Exception as e:
+                print(f"[hs300] {y} 拉取失败({e})，跳过 ", end="")
+                continue
+            if df is not None and len(df):
+                parts.append(df[["con_code", "trade_date", "weight"]])
+        if parts:
+            allp = pd.concat(parts, ignore_index=True).drop_duplicates(["con_code", "trade_date"])
+            con.register("_w", allp)
+            con.execute("INSERT OR REPLACE INTO hs300_members SELECT con_code, trade_date, weight FROM _w")
+            con.unregister("_w")
+        n = con.execute("SELECT COUNT(DISTINCT trade_date) FROM hs300_members").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[hs300] 成分快照 {n} 期")
+
+
+_CROWD_WINDOW = 300
+_CROWD_SIM_PATHS = 300
+_CROWD_RHO_GRID = np.linspace(0.0, 0.985, 40)
+
+
+def _crowd_members_asof(snaps, day):
+    """取 trade_date <= day 的最近一张沪深300成分快照(con_code 集合)。"""
+    chosen = set()
+    for dt, s in snaps:
+        if dt <= day:
+            chosen = s
+        else:
+            break
+    return chosen
+
+
+def _crowd_returns_matrix(con, codes, asof):
+    """取窗口内前复权收盘价，返回对数收益率矩阵 (T×N) 与对齐后的 code 列表。"""
+    df = con.execute(
+        """
+        SELECT d.ts_code, d.trade_date, d.close * a.adj_factor AS adj_close
+        FROM daily d JOIN adj_factor a ON a.ts_code = d.ts_code AND a.trade_date = d.trade_date
+        WHERE d.ts_code IN ({}) AND d.trade_date <= ?
+        """.format(",".join(["?"] * len(codes))),
+        list(codes) + [asof],
+    ).fetch_df()
+    px = df.pivot(index="trade_date", columns="ts_code", values="adj_close").sort_index()
+    px = px.tail(_CROWD_WINDOW + 1).dropna(axis=1)
+    ret = np.log(px / px.shift(1)).iloc[1:]
+    return ret.values, list(px.columns)
+
+
+def _crowd_eqfreq(x, bins):
+    """一维序列等频分箱，返回箱号 0..bins-1。"""
+    edges = np.quantile(x, np.linspace(0, 1, bins + 1))
+    edges[0], edges[-1] = -np.inf, np.inf
+    return np.clip(np.searchsorted(edges, x, side="right") - 1, 0, bins - 1)
+
+
+def _crowd_mi(cx, cy, bins):
+    """两路箱号的经验互信息(nats)。"""
+    joint = np.bincount(cx * bins + cy, minlength=bins * bins).reshape(bins, bins).astype(float)
+    joint /= joint.sum()
+    px = joint.sum(1, keepdims=True)
+    py = joint.sum(0, keepdims=True)
+    nz = joint > 0
+    return float(np.sum(joint[nz] * np.log(joint[nz] / (px @ py)[nz])))
+
+
+def _crowd_gaussian_curve(n, bins, rng):
+    """高斯 copula 在各 ρ 下、同 n 同分箱的期望 MI 曲线(去偏基准)，返回 (rho_grid, mi)。"""
+    out = []
+    for rho in _CROWD_RHO_GRID:
+        L = np.linalg.cholesky(np.array([[1.0, rho], [rho, 1.0]]))
+        acc = sum(_crowd_mi(_crowd_eqfreq((z := rng.standard_normal((n, 2)) @ L.T)[:, 0], bins),
+                            _crowd_eqfreq(z[:, 1], bins), bins) for _ in range(_CROWD_SIM_PATHS))
+        out.append(acc / _CROWD_SIM_PATHS)
+    return _CROWD_RHO_GRID, np.array(out)
+
+
+def _crowd_value(ret, bins, curve):
+    """全市场抱团度 = 所有股票对残差互信息 ΔI(经验MI − 高斯基准)的平均。"""
+    n, N = ret.shape
+    rho = np.corrcoef(ret, rowvar=False)
+    cb = np.column_stack([_crowd_eqfreq(ret[:, k], bins) for k in range(N)])
+    gx, gy = curve
+    total, cnt = 0.0, 0
+    for i in range(N):
+        for j in range(i + 1, N):
+            base = float(np.interp(abs(rho[i, j]), gx, gy))
+            total += _crowd_mi(cb[:, i], cb[:, j], bins) - base
+            cnt += 1
+    return total / cnt if cnt else None
+
+
+def _update_market_crowding(con) -> None:
+    """增量计算全市场抱团度(PIT 沪深300成分的平均残差互信息 ΔI)写入 market_crowding。
+
+    regime/市场态信号(非横截面因子)：ΔI 高=全市场尾部同动(系统性应激)。每 _CROWD_STEP 交易日
+    采样(300日窗很平滑)，market_state 侧再向前填充成逐日。hs300_members 表为空则跳过。
+    去偏：经验 MI 减同 ρ 高斯 copula 基准(_crowd_gaussian_curve)，两者同套分箱、正偏同源抵消。"""
+    con.execute("CREATE TABLE IF NOT EXISTS market_crowding "
+                "(trade_date DATE, crowding_di DOUBLE, n_stocks INTEGER, PRIMARY KEY (trade_date))")
+    has_members = con.execute(
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='hs300_members'").fetchone()[0]
+    if not has_members:
+        return
+    mdf = con.execute("SELECT con_code, trade_date FROM hs300_members").df()
+    if mdf.empty:
+        return
+    after = con.execute("SELECT MAX(trade_date) FROM market_crowding").fetchone()[0]
+    rows = con.execute("SELECT DISTINCT trade_date FROM daily WHERE trade_date >= ? ORDER BY trade_date",
+                       [_CROWD_FIRST]).fetchall()
+    dates = [r[0] for r in rows][::_CROWD_STEP]
+    if after is not None:
+        dates = [d for d in dates if str(d) > str(after)]
+    if not dates:
+        return
+    mdf["dt"] = pd.to_datetime(mdf["trade_date"], format="%Y%m%d")
+    snaps = sorted(((dt, set(sub["con_code"])) for dt, sub in mdf.groupby("dt")), key=lambda x: x[0])
+    rng = np.random.default_rng(42)
+    curve = _crowd_gaussian_curve(_CROWD_WINDOW, _CROWD_BINS, rng)
+    out = []
+    for d in dates:
+        members = sorted(_crowd_members_asof(snaps, pd.Timestamp(str(d))))
+        if len(members) < _CROWD_MIN_STOCKS:
+            continue
+        ret, codes = _crowd_returns_matrix(con, members, str(d))
+        if ret.shape[0] < _CROWD_WINDOW - 10 or len(codes) < _CROWD_MIN_STOCKS:
+            continue
+        di = _crowd_value(ret, _CROWD_BINS, curve)
+        if di is None:
+            continue
+        out.append((str(d), di, len(codes)))
+    if out:
+        cdf = pd.DataFrame(out, columns=["trade_date", "crowding_di", "n_stocks"])
+        con.register("_crowd", cdf)
+        con.execute("INSERT OR REPLACE INTO market_crowding SELECT * FROM _crowd")
+        con.unregister("_crowd")
 
 
 def rebuild_market_state(duck_path: str) -> None:
@@ -1077,6 +1242,12 @@ def rebuild_market_state(duck_path: str) -> None:
     t = time.time()
     con = _duckdb.connect(duck_path)
     try:
+        try:
+            _update_market_crowding(con)
+        except Exception as e:
+            print(f"抱团度更新跳过({e}) ", end="")
+            con.execute("CREATE TABLE IF NOT EXISTS market_crowding "
+                        "(trade_date DATE, crowding_di DOUBLE, n_stocks INTEGER, PRIMARY KEY (trade_date))")
         con.execute(_MARKET_STATE_SQL)
         n = con.execute("SELECT COUNT(*) FROM market_state").fetchone()[0]
     finally:
@@ -2261,6 +2432,10 @@ def main() -> None:
 
     if ok and duck_writer is not None:
         print()
+        try:
+            fetch_hs300_members(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[hs300] 成分更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
 
 
