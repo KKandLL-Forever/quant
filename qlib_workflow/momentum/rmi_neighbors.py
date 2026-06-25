@@ -16,11 +16,14 @@ rmi_neighbors.py — 给定一只股票，找出与它关系最近的其他股�
 """
 
 import argparse
+import os
+import sys
 
 import duckdb
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
 from cache_tushare import DUCKDB_PATH
 from rmi_p0 import (WINDOW, LIST_MIN_DAYS, _universe, _returns_matrix,
                     _equal_freq_codes, _mi_from_codes, _gaussian_mi_curve)

@@ -26,11 +26,13 @@ rmi_p0.py — 残差互信息因子 P0：单时点跑通 + MST 可视化
 
 import argparse
 import os
+import sys
 
 import duckdb
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
 from cache_tushare import DUCKDB_PATH
 
 WINDOW = 300
