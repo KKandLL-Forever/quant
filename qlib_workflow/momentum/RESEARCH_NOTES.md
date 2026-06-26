@@ -65,6 +65,28 @@ feature importance / 单因子 IC / 训练表现 全是参考,都可能骗你(im
 > 筹码因子在事件驱动语境(如 2lb 连板)可能完全不同,勿用此否定 2lb 里的筹码用法。
 > cyq_perf 历史已用一次性脚本从 2020 全量回补(749万行,2024起覆盖5565只)。
 
+## 附:CNE6 中国风格因子库与多因子合成
+
+实现了全套 Barra CNE6 中国 16 风格因子(`cne6_factors.py`,从 DuckDB 算)。
+
+**单因子 Rank IC(HS300并集,全程/OOS)——A 股最强的几个风格(方向均符合常识):**
+- 低波动(resvol −0.029)、低换手(liquidity −0.029)、股息率(+0.020)、价值(btop +0.019)、
+  低beta(−0.018)、盈利收益率(+0.015)、盈利稳定(earnings_variability +0.015)、动量(+0.015)。
+- 弱/不稳:size、midcap、growth、leverage、profitability、investment_quality、long_term_reversal。
+
+**多因子合成(`run_cne6_combo.py`,IC 加权 + 样本外):**
+- 合成确实**提升 IC**(单因子 ~0.02 → 综合分 IS 0.072 / OOS 0.028,口径须对齐到持有周期20日,
+  否则次日IC与20日持有错配)。
+- **但 OOS 的 5 分层多空是负的(−14%)**:综合分偏防御/价值/质量,2024-2026 是 risk-on 题材牛市,
+  最低分的高波动/高换手/小盘股(Q1)暴涨 +28%,防御组合跑输。IS(含2022熊市)多空为正(+4%)。
+
+**核心结论:CNE6 是「风险模型」,不是「选股模型」。**
+- 这些是**风险/风格因子**,设计目的是**控风险、风险归因、给 alpha 做中性化**,不是直接选股。
+- 直接合成去选股 = 一篮子风格暴露押注 → regime 依赖(熊市/risk-off 占优,risk-on 跑输)。
+- **正统用法**:① 把你的 alpha 信号(Alpha158/2lb/ML)对 CNE6 风格中性化,剥掉"其实只是赌小盘/赌beta"
+  的伪 alpha;② 回测收益拆成"风格暴露贡献 vs 选股贡献"做归因;③ 单独当防御择时(配 regime 信号)。
+- 教训延续:**positive IC ≠ 能交易的价差**——必须看持有周期上的真实多空,且区分 alpha / 风险因子。
+
 ## 脚本说明(本目录)
 
 | 文件 | 作用 |
@@ -77,5 +99,7 @@ feature importance / 单因子 IC / 训练表现 全是参考,都可能骗你(im
 | `run_momentum_regime.py` | 抱团度 gate 的动量(正向/反向对比) |
 | `run_momentum_regime_oos.py` | 反向 gate 的分段(IS/OOS)一致性验证 |
 | `run_chip_step2.py` | **因子增量检验模板**(Alpha158 vs +自定义因子,换因子改几行即可复用) |
+| `cne6_factors.py` | **Barra CNE6 中国 16 风格因子库**(从 DuckDB 算,输出 (datetime,instrument),可接 qlib) |
+| `run_cne6_combo.py` | CNE6 多因子 IC 加权合成 + 20日分层回测(样本外) |
 
 > 注：cache_tushare 已内联自己的 ΔI 计算，**不依赖** `rmi_p0`;此处脚本仅为研究复现。
