@@ -1109,6 +1109,41 @@ def fetch_hs300_members(pro, duck_path: str) -> None:
     print(f"[hs300] 成分快照 {n} 期")
 
 
+def fetch_sw_members(pro, duck_path: str) -> None:
+    """全量重建申万一级行业成分(index_member_all 按31个L1分类遍历)写入 DuckDB sw_member 表。
+
+    含 in_date/out_date,供按 as-of 日做 PIT 行业归属。行业极少变动,每次全量重拉幂等覆盖。"""
+    try:
+        cls = pro.index_classify(level="L1", src="SW2021")
+    except Exception as e:
+        print(f"[sw] 取一级分类失败({e})，跳过 ")
+        return
+    parts = []
+    for code in cls["index_code"]:
+        try:
+            df = pro.index_member_all(l1_code=code)
+        except Exception as e:
+            print(f"[sw] {code} 拉取失败({e})，跳过 ", end="")
+            continue
+        if df is not None and len(df):
+            parts.append(df[["ts_code", "l1_code", "l1_name", "l2_name", "l3_name", "in_date", "out_date", "is_new"]])
+    if not parts:
+        return
+    allp = pd.concat(parts, ignore_index=True).drop_duplicates(["ts_code", "l1_code", "in_date"])
+    con = _duckdb.connect(duck_path)
+    try:
+        con.execute("DROP TABLE IF EXISTS sw_member")
+        con.execute("CREATE TABLE sw_member (ts_code VARCHAR, l1_code VARCHAR, l1_name VARCHAR, "
+                    "l2_name VARCHAR, l3_name VARCHAR, in_date VARCHAR, out_date VARCHAR, is_new VARCHAR)")
+        con.register("_sw", allp)
+        con.execute("INSERT INTO sw_member SELECT * FROM _sw")
+        con.unregister("_sw")
+        n = con.execute("SELECT COUNT(DISTINCT ts_code) FROM sw_member").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[sw] 申万一级成分 {n} 只股票")
+
+
 _CROWD_WINDOW = 300
 _CROWD_SIM_PATHS = 300
 _CROWD_RHO_GRID = np.linspace(0.0, 0.985, 40)
@@ -2436,6 +2471,10 @@ def main() -> None:
             fetch_hs300_members(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[hs300] 成分更新跳过({e})")
+        try:
+            fetch_sw_members(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[sw] 成分更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
 
 
