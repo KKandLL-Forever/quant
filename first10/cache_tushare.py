@@ -1076,6 +1076,8 @@ _CROWD_BINS = 7
 _CROWD_MIN_STOCKS = 30
 _CROWD_FIRST = "2020-01-01"
 _HS300_FIRST_YEAR = 2019
+_THS_HOT_FIRST = "2024-01-01"
+_THS_HOT_TYPES = ("热股", "概念板块", "行业板块")
 
 
 def fetch_hs300_members(pro, duck_path: str) -> None:
@@ -1142,6 +1144,60 @@ def fetch_sw_members(pro, duck_path: str) -> None:
     finally:
         con.close()
     print(f"[sw] 申万一级成分 {n} 只股票")
+
+
+def fetch_ths_hot(pro, duck_path: str) -> None:
+    """增量拉同花顺人气榜(ths_hot,只存热股/概念板块/行业板块)写入 DuckDB ths_hot 表。
+
+    数据自 2024 年起才有。按交易日(取自 daily)逐日增量,表为空则从 _THS_HOT_FIRST 起全拉。"""
+    cols = ["trade_date", "data_type", "ts_code", "ts_name", "rank", "pct_change", "current_price", "hot", "concept"]
+    con = _duckdb.connect(duck_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS ths_hot (trade_date VARCHAR, data_type VARCHAR, ts_code VARCHAR, "
+                    "ts_name VARCHAR, rank INTEGER, pct_change DOUBLE, current_price DOUBLE, hot DOUBLE, "
+                    "concept VARCHAR, PRIMARY KEY (trade_date, data_type, rank))")
+        last = con.execute("SELECT MAX(trade_date) FROM ths_hot").fetchone()[0]
+        if last is None:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE trade_date>=CAST(? AS DATE) ORDER BY d",
+                [_THS_HOT_FIRST]).fetchall()]
+        else:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE strftime(trade_date,'%Y%m%d')>? ORDER BY d",
+                [last]).fetchall()]
+    finally:
+        con.close()
+    if not days:
+        print("[ths_hot] 无新增交易日"); return
+    parts = []
+    for d in days:
+        df = None
+        for _ in range(2):
+            try:
+                df = pro.ths_hot(trade_date=d); break
+            except Exception:
+                time.sleep(1.0)
+        if df is not None and len(df):
+            sub = df[df["data_type"].isin(_THS_HOT_TYPES)][cols].copy()
+            if len(sub):
+                for oc in ("ts_code", "ts_name", "concept"):
+                    sub[oc] = sub[oc].fillna("").astype(str)
+                for nc in ("rank", "pct_change", "current_price", "hot"):
+                    sub[nc] = pd.to_numeric(sub[nc], errors="coerce")
+                parts.append(sub)
+        time.sleep(0.12)
+    if not parts:
+        print(f"[ths_hot] {len(days)} 日无榜单数据"); return
+    allp = pd.concat(parts, ignore_index=True).drop_duplicates(["trade_date", "data_type", "rank"])
+    con = _duckdb.connect(duck_path)
+    try:
+        con.register("_h", allp)
+        con.execute("INSERT OR REPLACE INTO ths_hot SELECT * FROM _h")
+        con.unregister("_h")
+        n = con.execute("SELECT COUNT(DISTINCT trade_date) FROM ths_hot").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[ths_hot] 人气榜 {n} 个交易日 (本次尝试 {len(days)} 日)")
 
 
 _CROWD_WINDOW = 300
@@ -2475,6 +2531,10 @@ def main() -> None:
             fetch_sw_members(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[sw] 成分更新跳过({e})")
+        try:
+            fetch_ths_hot(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[ths_hot] 人气榜更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
 
 
