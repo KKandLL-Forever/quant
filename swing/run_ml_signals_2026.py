@@ -69,7 +69,11 @@ def main():
         buy_lg_amount+buy_elg_amount-sell_lg_amount-sell_elg_amount AS net_lg,
         buy_sm_amount+buy_md_amount+buy_lg_amount+buy_elg_amount+sell_sm_amount+sell_md_amount+sell_lg_amount+sell_elg_amount AS tot
         FROM moneyflow WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2021-01-01", liquid]).fetch_df()
+    idx = con.execute("SELECT trade_date,close FROM index_daily WHERE ts_code='000001.SH' ORDER BY trade_date").fetch_df()
     con.close()
+    idx["trade_date"] = pd.to_datetime(idx["trade_date"]); _ima = idx["close"].rolling(60).mean()
+    regime = dict(zip(idx["trade_date"], ((idx["close"] > _ima) & (_ima > _ima.shift(10))).fillna(False)))
+    cur_mkt = "健康" if regime.get(idx["trade_date"].iloc[-1], False) else "走坏"
 
     for d in (px, db, cyq, mf):
         d["trade_date"] = pd.to_datetime(d["trade_date"])
@@ -152,7 +156,7 @@ def main():
         board = "科创" if r["ts"].startswith(("688", "689")) else "创业" if code in ("300", "301") else "主板"
         data.append({
             "date": str(r["date"].date()), "ts": r["ts"], "name": names.get(r["ts"], ""),
-            "board": board,
+            "board": board, "mkt": "健康" if regime.get(r["date"], False) else "走坏",
             "tier": r["tier"], "typ": r["typ"], "score": round(float(r["score"]), 3),
             "maxfwd": None if pd.isna(r["maxfwd"]) else round(float(r["maxfwd"]) * 100, 0),
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
@@ -166,6 +170,8 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 .note{{background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px;font-size:13px;color:#6d4c41;margin:10px 0}}</style>
 </head><body>
 <h1>ML 主升浪信号清单 — {args.start} ~ {args.end or '今'}(top{args.tier}%)</h1>
+<p style="font-size:15px">当前大盘(上证)状态:<b style="color:{'#c0392b' if cur_mkt=='健康' else '#27ae60'}">{cur_mkt}</b>
+<span style="font-size:12px;color:#999">(上证收盘&gt;MA60 且 MA60上行=健康;走坏时突破成功率显著下降,宜谨慎)</span></p>
 <p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,列出 top{args.tier}% = {len(top)} 条 |
 已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top5/top10/top20/top30</p>
 <div class=note><b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈;"启动用时"=突破后到主升浪启动点(回踩最低点)的交易日数;
@@ -185,6 +191,8 @@ var e=React.createElement;
 var cols=[
  {{title:'突破日',dataIndex:'date',defaultSortOrder:'descend',sorter:function(a,b){{return a.date<b.date?-1:1;}}}},
  {{title:'板块',dataIndex:'board',filters:[{{text:'主板',value:'主板'}},{{text:'科创',value:'科创'}},{{text:'创业',value:'创业'}}],onFilter:function(v,r){{return r.board===v;}}}},
+ {{title:'突破日大盘',dataIndex:'mkt',filters:[{{text:'健康',value:'健康'}},{{text:'走坏',value:'走坏'}}],onFilter:function(v,r){{return r.mkt===v;}},
+   render:function(v){{return e('span',{{className:v==='健康'?'pos':'neg'}},v);}}}},
  {{title:'档位',dataIndex:'tier',filters:[{{text:'top5',value:'top5'}},{{text:'top10',value:'top10'}},{{text:'top20',value:'top20'}},{{text:'top30',value:'top30'}}],onFilter:function(v,r){{return r.tier===v;}}}},
  {{title:'代码',dataIndex:'ts'}},
  {{title:'名称',dataIndex:'name'}},
