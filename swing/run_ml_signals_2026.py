@@ -1,7 +1,7 @@
 """
 run_ml_signals_2026.py — 模型 top10% 信号清单(2026-01-01 之后,不管仓位)
 
-模型(LightGBM)用 2022-2025 事件训练,对 2026-01-01 之后的 N/W 突破信号打分,取预测概率
+模型(LightGBM)用 2021-2025 事件训练,对 2026-01-01 之后的 N/W 突破信号打分,取预测概率
 top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/ML分/至今最大涨幅/状态
 (已走出主升浪≥50% / 进行中 / 未达)。产出 HTML 清单。
 
@@ -21,15 +21,36 @@ import duckdb
 import numpy as np
 import pandas as pd
 import lightgbm as lgb
+from sklearn.metrics import roc_auc_score
 
 from cache_tushare import DUCKDB_PATH
 from run_patterns import _detect
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
 DON_EXIT, COST = 20, 0.0006
-FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", "ret20", "ret60",
-         "volr", "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv"]
+SW_FIXSTOP, SW_ATRSTOP = 0.10, 1.0
+SW_FIXTP, SW_ATRTP, SW_TPFRAC = 0.10, 2.0, 0.50
+SW_TRAILACT, SW_TRAILDIST, SW_STALE = 0.03, 0.05, 20
+SW_TPFRAC_SWEEP = (0.30, 0.40, 0.50, 0.75)
+VAL_MONTHS = 12
+EVAL_FOLDS = [
+    {"train_end": "2021-06-30", "val": ("2021-07-01", "2021-12-31"), "test": ("2022-01-01", "2022-12-31")},
+    {"train_end": "2022-06-30", "val": ("2022-07-01", "2022-12-31"), "test": ("2023-01-01", "2023-12-31")},
+    {"train_end": "2023-06-30", "val": ("2023-07-01", "2023-12-31"), "test": ("2024-01-01", "2024-12-31")},
+    {"train_end": "2024-06-30", "val": ("2024-07-01", "2024-12-31"), "test": ("2025-01-01", "2025-12-31")},
+]
+LGB_PARAMS = dict(learning_rate=0.02, num_leaves=15, min_child_samples=100,
+                  subsample=0.7, colsample_bytree=0.6, reg_alpha=0.5, reg_lambda=5.0,
+                  min_split_gain=0.0, verbosity=-1)
+FEATS_ALL = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", "ret20", "ret60",
+             "volr", "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv",
+             "rs20", "rs60", "rsturn", "bregnum", "crowd", "idxdist", "lb2rate", "nlb", "upratio",
+             "sector_rs", "lianban60", "sector_heat", "roe", "npyoy", "fc_pos"]
+FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "atrp", "ret20", "ret60",
+         "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv", "rsturn",
+         "crowd", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
 OUT = os.path.expanduser("~/AI/quart/swing/ml_signals_2026.html")
+MODEL_PATH = os.path.expanduser("~/AI/quart/swing/ml_signals_2026_model.pkl")
 
 
 def _fetch_idx(pro, code, start):
@@ -69,6 +90,88 @@ def _adx(h, l, c, n=14):
     return dx.ewm(alpha=1 / n, adjust=False).mean(), atr
 
 
+def _swing_exit(cc, gd, bo, atr_e, tpfrac):
+    """论文出场(硬/ATR止损+跟踪止损+部分止盈+超时)模拟,返回(盈亏,是否持仓中,离场日)。"""
+    ep = cc[bo]
+    stop_lv = min(ep * (1 - SW_FIXSTOP), ep - SW_ATRSTOP * atr_e)
+    tp_lv = min(ep * (1 + SW_FIXTP), ep + SW_ATRTP * atr_e)
+    tp_done = False; remaining = 1.0; realized = 0.0; tract = False; hsince = 0.0
+    for t2 in range(bo + 1, len(cc)):
+        p = cc[t2]
+        if not tract and p >= ep * (1 + SW_TRAILACT):
+            tract = True; hsince = p
+        if tract:
+            hsince = max(hsince, p)
+        if p <= stop_lv or (tract and p <= hsince * (1 - SW_TRAILDIST)) or (t2 - bo) >= SW_STALE:
+            realized += remaining * (p / ep - 1)
+            return realized - 2 * COST, False, pd.Timestamp(gd[t2])
+        if not tp_done and p >= tp_lv:
+            realized += tpfrac * (p / ep - 1); remaining = 1 - tpfrac; tp_done = True
+    return realized + remaining * (cc[-1] / ep - 1) - 2 * COST, True, None
+
+
+def _fit_lgb(trf, vaf, seed):
+    """用 val 早停训练 LGB,返回(模型, best_iter, 训练AUC, valAUC);val 太小则退回固定200轮无早停。"""
+    if len(vaf) < 200 or vaf["label"].nunique() < 2:
+        m = lgb.LGBMClassifier(n_estimators=200, random_state=seed, **LGB_PARAMS)
+        m.fit(trf[FEATS], trf["label"])
+        return m, 200, None, None
+    m = lgb.LGBMClassifier(n_estimators=2000, random_state=seed, **LGB_PARAMS)
+    m.fit(trf[FEATS], trf["label"], eval_set=[(vaf[FEATS], vaf["label"])], eval_metric="auc",
+          callbacks=[lgb.early_stopping(80, verbose=False)])
+    bi = m.best_iteration_ or 200
+    tr_auc = roc_auc_score(trf["label"], m.predict_proba(trf[FEATS])[:, 1])
+    va_auc = roc_auc_score(vaf["label"], m.predict_proba(vaf[FEATS])[:, 1])
+    return m, bi, tr_auc, va_auc
+
+
+def _evaluate_wf(df, seed, tier):
+    """照 v6 的多折 train/val/test 逐年前推评估,打印各折 AUC + OOS 汇总 + 过拟合体检 + top档 lift。"""
+    lab = df[df["label"] >= 0].copy()
+    lab["d"] = lab["date"]
+    oos, metas, imps = [], [], []
+    print(f"\n=== walk-forward 逐折评估({len(FEATS)}特征,train/val/test 逐年前推)===")
+    for i, fd in enumerate(EVAL_FOLDS, 1):
+        te = pd.Timestamp(fd["train_end"])
+        v0, v1 = pd.Timestamp(fd["val"][0]), pd.Timestamp(fd["val"][1])
+        t0, t1 = pd.Timestamp(fd["test"][0]), pd.Timestamp(fd["test"][1])
+        trf = lab[lab["d"] <= te]
+        vaf = lab[(lab["d"] >= v0) & (lab["d"] <= v1)]
+        tef = lab[(lab["d"] >= t0) & (lab["d"] <= t1)]
+        if len(trf) < 500 or len(tef) < 50:
+            print(f"  折{i} 跳过(样本不足):train={len(trf)} val={len(vaf)} test={len(tef)}")
+            continue
+        m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, seed)
+        sc = m.predict_proba(tef[FEATS])[:, 1]
+        te_auc = roc_auc_score(tef["label"], sc)
+        base_f = tef["label"].mean()
+        kf = max(1, int(len(tef) * tier / 100))
+        lift_f = tef.assign(s=sc).nlargest(kf, "s")["label"].mean() / base_f if base_f > 0 else np.nan
+        part = tef[["date", "ts", "label"]].copy(); part["score"] = sc; part["fold"] = i
+        oos.append(part)
+        metas.append({"fold": i, "tr_auc": tr_auc, "te_auc": te_auc, "lift": lift_f})
+        imps.append(pd.Series(m.feature_importances_, index=FEATS))
+        gap = "" if tr_auc is None else f"  train_AUC={tr_auc:.4f} gap={tr_auc-te_auc:+.4f}"
+        print(f"  折{i}: train≤{fd['train_end']}({len(trf)}) test {fd['test'][0][:4]}({len(tef)})  "
+              f"best_iter={bi}  test_AUC={te_auc:.4f}  lift={lift_f:.2f}x{gap}")
+    if not oos:
+        print("  无可用折,评估终止"); return
+    oo = pd.concat(oos, ignore_index=True)
+    pooled = roc_auc_score(oo["label"], oo["score"])
+    mean_auc = np.mean([x["te_auc"] for x in metas])
+    mean_lift = np.nanmean([x["lift"] for x in metas])
+    mtr = np.mean([x["tr_auc"] for x in metas if x["tr_auc"] is not None]) if any(x["tr_auc"] for x in metas) else None
+    print(f"\n=== 样本外汇总({len(oo)} 样本,{len(metas)} 折)===")
+    print(f"  ★逐折均值: test_AUC={mean_auc:.4f}  top{tier}%_lift={mean_lift:.2f}x   (pooled AUC={pooled:.4f})")
+    if mtr is not None:
+        print(f"  过拟合体检:训练AUC均值 {mtr:.4f} vs 逐折测试 {mean_auc:.4f}  gap={mtr-mean_auc:+.4f}"
+              f"(<0.05健康 / 0.05~0.10可接受 / >0.15警惕)")
+    imp = pd.concat(imps, axis=1).mean(axis=1).sort_values(ascending=False)
+    print("  特征重要度(gain均值)Top15:")
+    for k2, vv in imp.head(15).items():
+        print(f"    {k2:<10}{vv:8.1f}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--thr", type=float, default=0.09)
@@ -76,6 +179,9 @@ def main():
     ap.add_argument("--start", default="20260101", help="信号起始日 YYYYMMDD")
     ap.add_argument("--end", default=None, help="信号结束日 YYYYMMDD,默认到最新")
     ap.add_argument("--tier", type=int, default=10, help="只显示 ML 评分前百分之几(如 5=top5%%、10=top10%%、100=全部)")
+    ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
+    ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
+    ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
     args = ap.parse_args()
     start_ts = pd.Timestamp(args.start)
     end_ts = pd.Timestamp(args.end) if args.end else None
@@ -87,16 +193,27 @@ def main():
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     px = con.execute("""SELECT d.ts_code,d.trade_date,d.high*a.adj_factor h,d.low*a.adj_factor l,
         d.close*a.adj_factor c,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
-        WHERE d.trade_date>=? AND d.ts_code IN (SELECT UNNEST(?))""", ["2021-01-01", liquid]).fetch_df()
-    db = con.execute("""SELECT ts_code,trade_date,pe_ttm,pb,circ_mv FROM daily_basic
-        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2021-01-01", liquid]).fetch_df()
+        WHERE d.trade_date>=? AND d.ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
+    db = con.execute("""SELECT ts_code,trade_date,pe_ttm,pb,circ_mv,turnover_rate FROM daily_basic
+        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
     cyq = con.execute("""SELECT ts_code,trade_date,winner_rate,cost_15pct,cost_50pct,cost_85pct FROM cyq_perf
-        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2021-01-01", liquid]).fetch_df()
+        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
     mf = con.execute("""SELECT ts_code,trade_date,
         buy_lg_amount+buy_elg_amount-sell_lg_amount-sell_elg_amount AS net_lg,
         buy_sm_amount+buy_md_amount+buy_lg_amount+buy_elg_amount+sell_sm_amount+sell_md_amount+sell_lg_amount+sell_elg_amount AS tot
-        FROM moneyflow WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2021-01-01", liquid]).fetch_df()
+        FROM moneyflow WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
     cr = con.execute("SELECT trade_date, market_crowding_di FROM market_state WHERE market_crowding_di IS NOT NULL ORDER BY trade_date").fetch_df()
+    ms = con.execute("""SELECT trade_date, market_idx_dist_h60 AS idxdist, market_2lb_rate_ma5 AS lb2rate,
+        market_max_lianban AS nlb, market_crowding_di AS crowd FROM market_state ORDER BY trade_date""").fetch_df()
+    breadth = con.execute("""SELECT trade_date, AVG(CASE WHEN pct_chg>0 THEN 1.0 ELSE 0.0 END) AS upratio
+        FROM daily WHERE trade_date>=? GROUP BY trade_date""", ["2020-01-01"]).fetch_df()
+    sw = dict(con.execute("SELECT ts_code, l1_name FROM sw_member").fetchall())
+    lu = con.execute("SELECT ts_code, trade_date FROM limit_list_d WHERE limit_type='U' AND trade_date>=?",
+                     ["2020-01-01"]).fetch_df()
+    fi = con.execute("""SELECT ts_code, ann_date, roe, netprofit_yoy FROM fina_indicator
+        WHERE ann_date>='20200101' AND roe IS NOT NULL""").fetch_df()
+    fc = con.execute("""SELECT ts_code, ann_date, type, p_change_min FROM forecast
+        WHERE ann_date>='20200101'""").fetch_df()
     con.close()
 
     env = os.path.expanduser("~/AI/quart/.pyenv.local")
@@ -115,8 +232,44 @@ def main():
     cr_pct = float((cr["market_crowding_di"] <= cur_cr).mean()) if len(cr) else float("nan")
     cr_label = "高(风险大)" if cr_pct > 0.7 else "低(风险小)" if cr_pct < 0.3 else "中"
 
-    for d in (px, db, cyq, mf):
+    for d in (px, db, cyq, mf, ms, breadth):
         d["trade_date"] = pd.to_datetime(d["trade_date"])
+    px = px.sort_values(["ts_code", "trade_date"]).reset_index(drop=True)
+    px["xret20"] = px.groupby("ts_code")["c"].transform(lambda s: s / s.shift(20) - 1)
+    px["xret60"] = px.groupby("ts_code")["c"].transform(lambda s: s / s.shift(60) - 1)
+    px["rs20"] = px.groupby("trade_date")["xret20"].rank(pct=True)
+    px["rs60"] = px.groupby("trade_date")["xret60"].rank(pct=True)
+    turn = db[["ts_code", "trade_date", "turnover_rate"]].copy()
+    turn["rsturn"] = turn.groupby("trade_date")["turnover_rate"].rank(pct=True)
+    px = px.merge(turn[["ts_code", "trade_date", "rsturn"]], on=["ts_code", "trade_date"], how="left")
+    px["l1"] = px["ts_code"].map(sw)
+    sec = px.groupby(["l1", "trade_date"])["xret20"].mean().reset_index(name="sret20")
+    sec["sector_rs"] = sec.groupby("trade_date")["sret20"].rank(pct=True)
+    px = px.merge(sec[["l1", "trade_date", "sector_rs"]], on=["l1", "trade_date"], how="left")
+    lu["trade_date"] = pd.to_datetime(lu["trade_date"]); lu["isU"] = 1.0
+    lu["l1"] = lu["ts_code"].map(sw)
+    px = px.merge(lu[["ts_code", "trade_date", "isU"]], on=["ts_code", "trade_date"], how="left")
+    px["isU"] = px["isU"].fillna(0.0)
+    px["lianban60"] = px.groupby("ts_code")["isU"].transform(lambda s: s.rolling(60, min_periods=1).sum())
+    alldates = pd.Index(sorted(px["trade_date"].unique()))
+    heat = lu.groupby(["l1", "trade_date"]).size().reset_index(name="uc")
+    hp = heat.pivot(index="trade_date", columns="l1", values="uc").reindex(alldates).fillna(0.0)
+    hr = hp.rolling(5, min_periods=1).sum().rank(axis=1, pct=True)
+    sheat = hr.reset_index().melt(id_vars="index", var_name="l1", value_name="sector_heat").rename(columns={"index": "trade_date"})
+    px = px.merge(sheat, on=["l1", "trade_date"], how="left")
+    px["trade_date"] = px["trade_date"].astype("datetime64[ns]")
+    fi["ann_date"] = pd.to_datetime(fi["ann_date"]).astype("datetime64[ns]"); fi = fi.sort_values("ann_date")
+    px = px.sort_values("trade_date")
+    px = pd.merge_asof(px, fi.rename(columns={"netprofit_yoy": "npyoy"}), left_on="trade_date",
+                       right_on="ann_date", by="ts_code", direction="backward")
+    fc["ann_date"] = pd.to_datetime(fc["ann_date"]).astype("datetime64[ns]")
+    fc["fc_good"] = (fc["type"].isin(["预增", "略增", "扭亏", "续盈"]) | (fc["p_change_min"] > 0)).astype(float)
+    fc = fc.sort_values("ann_date")
+    px = pd.merge_asof(px, fc[["ts_code", "ann_date", "fc_good"]].rename(columns={"ann_date": "fc_ann"}),
+                       left_on="trade_date", right_on="fc_ann", by="ts_code", direction="backward")
+    px["fc_pos"] = np.where((px["fc_good"] == 1.0) & ((px["trade_date"] - px["fc_ann"]).dt.days <= 90), 1.0, 0.0)
+    px = px.sort_values(["ts_code", "trade_date"]).reset_index(drop=True)
+    mkt = ms.merge(breadth, on="trade_date", how="left").set_index("trade_date")
     db = db.set_index(["ts_code", "trade_date"])
     cyq["cyqconc"] = (cyq["cost_85pct"] - cyq["cost_15pct"]) / cyq["cost_50pct"]
     cyq = cyq.set_index(["ts_code", "trade_date"]); mf = mf.set_index(["ts_code", "trade_date"])
@@ -126,6 +279,9 @@ def main():
         g = g.sort_values("trade_date").reset_index(drop=True)
         c, h, l, v = g["c"], g["h"], g["l"], g["v"]
         cc = c.to_numpy(); gd = g["trade_date"].to_numpy()
+        rs20a = g["rs20"].to_numpy(); rs60a = g["rs60"].to_numpy(); rsturna = g["rsturn"].to_numpy()
+        srsa = g["sector_rs"].to_numpy(); lb60a = g["lianban60"].to_numpy(); sheata = g["sector_heat"].to_numpy()
+        roea = g["roe"].to_numpy(); npyoya = g["npyoy"].to_numpy(); fcposa = g["fc_pos"].to_numpy()
         if len(cc) < 180:
             continue
         ma20, ma60 = c.rolling(20).mean(), c.rolling(60).mean()
@@ -144,7 +300,7 @@ def main():
             mf_net20 = np.full(len(cc), np.nan)
         for typ, bo, pvs in _detect(cc, args.thr, 30):
             d = pd.Timestamp(gd[bo])
-            if d.year < 2022:
+            if d.year < 2021:
                 continue
             endi = min(bo + MW_DAYS, len(cc) - 1)
             maxfwd = cc[bo + 1:endi + 1].max() / cc[bo] - 1 if endi > bo else np.nan
@@ -158,14 +314,20 @@ def main():
                     donret = cc[t2] / ep - 1 - 2 * COST; donopen = False; donexit = pd.Timestamp(gd[t2]); break
             if donret is None:
                 donret = cc[-1] / ep - 1 - 2 * COST
+            atr_e = atr.iloc[bo]
+            swret, swopen, swexit = _swing_exit(cc, gd, bo, atr_e, SW_TPFRAC)
+            swsweep = {fr: _swing_exit(cc, gd, bo, atr_e, fr)[0] for fr in SW_TPFRAC_SWEEP}
             try:
                 dbr = db.loc[(ts, d)]; cyr = cyq.loc[(ts, d)]
             except KeyError:
                 dbr = cyr = None
+            mr = mkt.loc[d] if d in mkt.index else None
             rows.append({
                 "date": d, "ts": ts, "year": d.year, "label": label, "maxfwd": maxfwd,
                 "launch": launch, "done": bo + MW_DAYS < len(cc), "typ": typ,
                 "donret": donret, "donopen": donopen, "donexit": donexit,
+                "swret": swret, "swopen": swopen, "swexit": swexit,
+                **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
                 "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
                 "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo],
                 "dma20": cc[bo] / ma20.iloc[bo] - 1, "dma60": cc[bo] / ma60.iloc[bo] - 1,
@@ -178,15 +340,54 @@ def main():
                 "pe": dbr["pe_ttm"] if dbr is not None else np.nan,
                 "pb": dbr["pb"] if dbr is not None else np.nan,
                 "lnmv": np.log(dbr["circ_mv"]) if dbr is not None and dbr["circ_mv"] > 0 else np.nan,
+                "rs20": rs20a[bo], "rs60": rs60a[bo], "rsturn": rsturna[bo],
+                "bregnum": 1.0 if breg.get(d, False) else 0.0,
+                "crowd": mr["crowd"] if mr is not None else np.nan,
+                "idxdist": mr["idxdist"] if mr is not None else np.nan,
+                "lb2rate": mr["lb2rate"] if mr is not None else np.nan,
+                "nlb": mr["nlb"] if mr is not None else np.nan,
+                "upratio": mr["upratio"] if mr is not None else np.nan,
+                "sector_rs": srsa[bo], "lianban60": lb60a[bo], "sector_heat": sheata[bo],
+                "roe": roea[bo], "npyoy": npyoya[bo], "fc_pos": fcposa[bo],
             })
     df = pd.DataFrame(rows)
+    if args.eval:
+        _evaluate_wf(df, args.seed, args.tier)
+        return
     tr = df[(df["date"] < start_ts) & (df["label"] >= 0)]
     te = df[df["date"] >= start_ts].copy()
     if end_ts is not None:
         te = te[te["date"] <= end_ts].copy()
-    m = lgb.LGBMClassifier(n_estimators=200, learning_rate=0.03, num_leaves=31, min_child_samples=40,
-                           subsample=0.8, colsample_bytree=0.8, verbosity=-1)
-    m.fit(tr[FEATS], tr["label"])
+    import pickle
+    saved = None
+    if not args.train and os.path.exists(MODEL_PATH):
+        with open(MODEL_PATH, "rb") as f:
+            saved = pickle.load(f)
+    if saved is not None:
+        m = saved["model"]
+        print(f"[模型] 加载已存盘模型(训练截止 {saved['train_cutoff']}, 训练样本 {saved['n_train']}, "
+              f"seed {saved['seed']})")
+        if saved["train_cutoff"] != args.start:
+            print(f"  ⚠️ 该模型训练截止={saved['train_cutoff']} ≠ 当前 --start={args.start};"
+                  f"若信号区间早于训练截止会有未来信息泄露,建议 --train 重训")
+    else:
+        val_cut = start_ts - pd.DateOffset(months=VAL_MONTHS)
+        trf = tr[tr["date"] < val_cut]; vaf = tr[tr["date"] >= val_cut]
+        if len(trf) < 500:
+            trf, vaf = tr, tr.iloc[0:0]
+        m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, args.seed)
+        if va_auc is not None:
+            print(f"[模型] val早停:训练{len(trf)}/val{len(vaf)}  best_iter={bi}  "
+                  f"训练AUC={tr_auc:.4f} valAUC={va_auc:.4f} gap={tr_auc-va_auc:+.4f}")
+        else:
+            print(f"[模型] val样本不足,退回固定{bi}轮无早停(训练{len(trf)})")
+        if args.train:
+            with open(MODEL_PATH, "wb") as f:
+                pickle.dump({"model": m, "train_cutoff": args.start, "n_train": len(trf),
+                             "seed": args.seed, "feats": FEATS, "best_iter": bi}, f)
+            print(f"[模型] 已训练并存盘 → {MODEL_PATH}(训练截止 {args.start}, 训练样本 {len(trf)})")
+        else:
+            print(f"[模型] 无存盘模型,本次现训现用(未存盘);加 --train 可存盘复用")
     te["score"] = m.predict_proba(te[FEATS])[:, 1]
     pct = te["score"].rank(pct=True)
     te["tier"] = np.where(pct >= 0.95, "top5", np.where(pct >= 0.90, "top10",
@@ -197,6 +398,24 @@ def main():
     hit = (done["label"] == 1).mean() if len(done) else float("nan")
     print(f"信号 {args.start}~{args.end or '今'} 共{len(te)}条 | top{args.tier}% = {len(top)}条 | "
           f"已满60日{len(done)}条 走出主升浪 {hit*100:.0f}%")
+
+    def _hold(opencol, exitcol):
+        days = []
+        for _, r in top.iterrows():
+            if r[opencol] or pd.isna(r[exitcol]):
+                continue
+            days.append(np.busday_count(r["date"].date(), r[exitcol].date()))
+        return np.mean(days) if days else float("nan")
+
+    print(f"\n{'出场方式':<16}{'平均盈亏':>9}{'中位盈亏':>9}{'胜率':>7}{'仍持仓':>7}{'平均持有日':>10}")
+    v = top["donret"].astype(float)
+    print(f"{'唐奇安20':<16}{v.mean()*100:>8.1f}%{v.median()*100:>8.1f}%{(v>0).mean()*100:>6.0f}%"
+          f"{int(top['donopen'].sum()):>7d}{_hold('donopen', 'donexit'):>9.0f}天")
+    print(f"  ── 波段止盈止损,部分止盈比例扫描(超时{SW_STALE}日,其余规则不变)──")
+    for fr in SW_TPFRAC_SWEEP:
+        v = top[f"sw{int(fr*100)}"].astype(float)
+        print(f"  {'+10%平'+str(int(fr*100))+'%':<14}{v.mean()*100:>8.1f}%{v.median()*100:>8.1f}%"
+              f"{(v>0).mean()*100:>6.0f}%{'—':>7}{'—':>9}")
 
     import json
     data = []
@@ -212,6 +431,9 @@ def main():
             "donret": None if pd.isna(r["donret"]) else round(float(r["donret"]) * 100, 0),
             "donopen": bool(r["donopen"]),
             "donexit": None if pd.isna(r["donexit"]) else str(r["donexit"].date()),
+            "swret": None if pd.isna(r["swret"]) else round(float(r["swret"]) * 100, 0),
+            "swopen": bool(r["swopen"]),
+            "swexit": None if pd.isna(r["swexit"]) else str(r["swexit"].date()),
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "status": st,
         })
@@ -260,6 +482,9 @@ var cols=[
  {{title:'唐奇安止损盈亏',dataIndex:'donret',sorter:function(a,b){{return (a.donret==null?-999:a.donret)-(b.donret==null?-999:b.donret);}},
    render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.donopen?'(持仓中)':''));}}}},
  {{title:'离场日',dataIndex:'donexit',sorter:function(a,b){{return (a.donexit||'')<(b.donexit||'')?-1:1;}},render:function(v){{return v||'持仓中';}}}},
+ {{title:'波段止盈止损盈亏',dataIndex:'swret',sorter:function(a,b){{return (a.swret==null?-999:a.swret)-(b.swret==null?-999:b.swret);}},
+   render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.swopen?'(持仓中)':''));}}}},
+ {{title:'波段离场日',dataIndex:'swexit',sorter:function(a,b){{return (a.swexit||'')<(b.swexit||'')?-1:1;}},render:function(v){{return v||'持仓中';}}}},
  {{title:'启动用时(交易日)',dataIndex:'launch',sorter:function(a,b){{return (a.launch==null?9999:a.launch)-(b.launch==null?9999:b.launch);}},
    render:function(v){{return v==null?'—':v+'天';}}}},
  {{title:'状态',dataIndex:'status',filters:[{{text:'已走出主升浪',value:'已走出主升浪'}},{{text:'未达',value:'未达'}},{{text:'进行中',value:'进行中'}}],onFilter:function(v,r){{return r.status===v;}}}}
@@ -276,6 +501,8 @@ function App(){{
  var avgfwd=fwds.length?(fwds.reduce(function(a,b){{return a+b;}},0)/fwds.length).toFixed(1)+'%':'—';
  var dons=rows.filter(function(r){{return r.donret!=null;}}).map(function(r){{return r.donret;}});
  var avgdon=dons.length?(dons.reduce(function(a,b){{return a+b;}},0)/dons.length).toFixed(1)+'%':'—';
+ var sws=rows.filter(function(r){{return r.swret!=null;}}).map(function(r){{return r.swret;}});
+ var avgsw=sws.length?(sws.reduce(function(a,b){{return a+b;}},0)/sws.length).toFixed(1)+'%':'—';
  var lc=hit.filter(function(r){{return r.launch!=null;}}).map(function(r){{return r.launch;}});
  var avglc=lc.length?(lc.reduce(function(a,b){{return a+b;}},0)/lc.length).toFixed(0)+'天':'—';
  var ongoing=rows.filter(function(r){{return r.status==='进行中';}}).length;
@@ -301,6 +528,7 @@ function App(){{
     card(succ,'成功率','已满60日的信号中,走出主升浪(≥50%)的占比 = 命中数 ÷ 已满60日数('+hit.length+'/'+done.length+')'),
     card(avgfwd,'平均最大涨幅','所有信号突破后至今(或满60日)最高浮盈的均值;非实际买卖收益'),
     card(avgdon,'平均唐奇安盈亏','每条信号从突破日入场,按唐奇安20破位或板块大盘走坏止损,到离场日盈亏的均值(扣双边费,持仓中按现价)'),
+    card(avgsw,'平均波段止盈止损盈亏','每条信号从突破日入场,按论文出场(10%硬/ATR止损、+3%激活5%跟踪止损、+10%平75%部分止盈、20日超时),到离场盈亏的均值(扣双边费,持仓中按现价)'),
     card(avglc,'平均启动用时','走出主升浪的信号,从突破日到启动点(回踩最低)的交易日均值'),
     card(ongoing,'进行中','突破不满60交易日、结果未定的条数')),
   e(antd.Table,{{columns:cols,dataSource:rows,rowKey:function(r){{return r.ts+r.date;}},size:'small',pagination:{{pageSize:30}}}})
