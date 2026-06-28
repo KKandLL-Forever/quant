@@ -9,10 +9,14 @@ fill_stock_meta.py — 一次性补全本地 DuckDB 的 stock_meta 表
 依赖：tushare、duckdb；token 与库路径复用 cache_tushare.py 的 .pyenv.local 配置。
 """
 
+import os
+import sys
+
 import duckdb
 import pandas as pd
 import tushare as ts
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cache_tushare import DUCKDB_PATH, COLUMNS, _get_token, _DUCK_DDL
 
 

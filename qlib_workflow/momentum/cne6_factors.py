@@ -30,7 +30,7 @@ cne6_factors.py — Barra CNE6 中国风格因子库(全套 16 因子,从 DuckDB
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 
 import duckdb
 import numpy as np

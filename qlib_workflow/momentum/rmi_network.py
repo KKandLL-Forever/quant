@@ -20,7 +20,7 @@ import sys
 import duckdb
 import numpy as np
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 from cache_tushare import DUCKDB_PATH
 from rmi_p0 import WINDOW, _universe, _returns_matrix, _gaussian_mi_curve, compute
 from rmi_neighbors import _pool_with_target

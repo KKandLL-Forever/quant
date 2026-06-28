@@ -18,7 +18,7 @@ import os
 import sys
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 
 import numpy as np
 import pandas as pd

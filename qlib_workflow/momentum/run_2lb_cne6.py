@@ -17,7 +17,7 @@ run_2lb_cne6.py — 用 CNE6 风格维度给 2lb(连板)做风险归因/风格�
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 
 import duckdb
 import numpy as np

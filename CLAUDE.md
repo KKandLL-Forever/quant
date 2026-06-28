@@ -32,7 +32,7 @@ A-share grid trading backtesting system using Bollinger Bands (BOLL) dynamic box
 ## Important Rules
 
 - Do NOT run tests — user runs tests themselves
-  - **例外**：每次改完 `first10/cache_tushare.py`（抓取/增量/写入逻辑）后，必须跑一遍数据正确性测试 `cd first10 && python test_cache_tushare.py`，确认全绿再交付。该测试纯本地、不连网不连库（守护翻页取尽、增量完整性、幂等去重、行数计数、列对齐、schema）。
+  - **例外**：每次改完 `cache_tushare.py`（抓取/增量/写入逻辑）后，必须跑一遍数据正确性测试 `cd quart && python test_cache_tushare.py`，确认全绿再交付。该测试纯本地、不连网不连库（守护翻页取尽、增量完整性、幂等去重、行数计数、列对齐、schema）。
 - `check_entry_safe()`: MA bearish alignment + volume surge detection (do not change unless asked)
 
 ## Code Comment Rules（重要：用户不读 Python 代码细节）

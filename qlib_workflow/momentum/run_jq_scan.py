@@ -14,7 +14,7 @@ run_jq_scan.py — 对市值残差因子的 SVR 做参数稳健性扫描(C × �
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 sys.path.insert(0, os.path.dirname(__file__))
 
 import duckdb

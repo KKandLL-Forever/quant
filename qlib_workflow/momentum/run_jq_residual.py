@@ -22,7 +22,7 @@ run_jq_residual.py — 复刻聚宽《机器学习多因子策略》的市值残
 import os
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 
 import duckdb
 import numpy as np

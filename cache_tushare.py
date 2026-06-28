@@ -102,8 +102,8 @@ except ImportError:
 
 # ── .pyenv.local 加载 ───────────────────────────────────────────────────────
 
-# .pyenv.local 在父目录 quart/
-PYENV_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".pyenv.local")
+# .pyenv.local 与本文件同目录 quart/
+PYENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".pyenv.local")
 
 
 def _load_pyenv() -> dict[str, str]:

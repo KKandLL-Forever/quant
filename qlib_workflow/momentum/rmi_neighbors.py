@@ -23,7 +23,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 from cache_tushare import DUCKDB_PATH
 from rmi_p0 import (WINDOW, LIST_MIN_DAYS, _universe, _returns_matrix,
                     _equal_freq_codes, _mi_from_codes, _gaussian_mi_curve)

@@ -25,11 +25,13 @@ qlib 不直接读 DuckDB，它用自有二进制列存(bin)。本脚本读 DuckD
 import argparse
 import os
 import struct
+import sys
 
 import duckdb
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from cache_tushare import DUCKDB_PATH
 
 DEFAULT_OUT = os.path.expanduser("~/.qlib/qlib_data/duck_cn")

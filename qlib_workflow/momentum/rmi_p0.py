@@ -32,7 +32,7 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 from cache_tushare import DUCKDB_PATH
 
 WINDOW = 300

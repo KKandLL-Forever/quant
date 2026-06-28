@@ -1,7 +1,7 @@
 """cache_tushare 数据正确性测试（纯本地，不连网/不连库）。
 
 用法：
-    cd first10
+    cd quart
     python test_cache_tushare.py          # 或 python -m unittest test_cache_tushare
 
 守护数据正确性的几条底线（每条对应一类曾发生或潜伏的 bug）：
@@ -17,12 +17,15 @@
 DuckDBWriter/系统时钟的最小接口。
 """
 import types
+import os
+import sys
 import unittest
 from datetime import date, datetime
 
 import duckdb
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cache_tushare as C
 
 
