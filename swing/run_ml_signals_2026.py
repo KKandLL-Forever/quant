@@ -218,7 +218,7 @@ def main():
         ORDER BY circ_mv DESC LIMIT ?""", [sel, args.n]).fetchall()]
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     px = con.execute("""SELECT d.ts_code,d.trade_date,d.high*a.adj_factor h,d.low*a.adj_factor l,
-        d.close*a.adj_factor c,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
+        d.close*a.adj_factor c,d.close c_raw,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
         WHERE d.trade_date>=? AND d.ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
     db = con.execute("""SELECT ts_code,trade_date,pe_ttm,pb,circ_mv,turnover_rate FROM daily_basic
         WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
@@ -304,7 +304,7 @@ def main():
     for ts, g in px.groupby("ts_code"):
         g = g.sort_values("trade_date").reset_index(drop=True)
         c, h, l, v = g["c"], g["h"], g["l"], g["v"]
-        cc = c.to_numpy(); gd = g["trade_date"].to_numpy()
+        cc = c.to_numpy(); gd = g["trade_date"].to_numpy(); craw = g["c_raw"].to_numpy()
         rs20a = g["rs20"].to_numpy(); rs60a = g["rs60"].to_numpy(); rsturna = g["rsturn"].to_numpy()
         srsa = g["sector_rs"].to_numpy(); lb60a = g["lianban60"].to_numpy(); sheata = g["sector_heat"].to_numpy()
         roea = g["roe"].to_numpy(); npyoya = g["npyoy"].to_numpy(); fcposa = g["fc_pos"].to_numpy()
@@ -363,6 +363,7 @@ def main():
                 "donret": donret, "donopen": donopen, "donexit": donexit,
                 "swret": swret, "swopen": swopen, "swexit": swexit,
                 **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
+                "price": craw[bo],
                 "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
                 "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo],
                 "dma20": cc[bo] / ma20.iloc[bo] - 1, "dma60": cc[bo] / ma60.iloc[bo] - 1,
@@ -463,8 +464,11 @@ def main():
             "date": str(r["date"].date()), "ts": r["ts"], "name": names.get(r["ts"], ""),
             "board": board, "mkt": "健康" if regs.get(BOARD_IDX.get(board, "沪深300"), {}).get(r["date"], False) else "走坏",
             "tier": r["tier"], "typ": r["typ"], "score": round(float(r["score"]), 3),
+            "price": round(float(r["price"]), 2),
             "maxfwd": None if pd.isna(r["maxfwd"]) else round(float(r["maxfwd"]) * 100, 0),
             "donret": None if pd.isna(r["donret"]) else round(float(r["donret"]) * 100, 0),
+            "donr": None if pd.isna(r["donret"]) else round(float(r["donret"]), 4),
+            "swr": None if pd.isna(r["swret"]) else round(float(r["swret"]), 4),
             "donopen": bool(r["donopen"]),
             "donexit": None if pd.isna(r["donexit"]) else str(r["donexit"].date()),
             "swret": None if pd.isna(r["swret"]) else round(float(r["swret"]) * 100, 0),
@@ -479,6 +483,10 @@ def main():
         })
     djson = json.dumps(data, ensure_ascii=False)
     latest_td = str(sel)
+    _cal = px["trade_date"].drop_duplicates()
+    _end = end_ts or pd.Timestamp(sel)
+    ntrade = int(((_cal >= start_ts) & (_cal <= _end)).sum())
+    cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
     html = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>ML top信号 2026</title>
 <link rel=stylesheet href="https://unpkg.com/antd@4.24.15/dist/antd.min.css">
 <style>body{{font-family:-apple-system,"PingFang SC",sans-serif;max-width:1850px;margin:22px auto;padding:0 18px;color:#222}}
@@ -492,6 +500,9 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 {''.join(f'<b>{nm}</b> <span style="color:{chr(35)+("c0392b" if curs[nm]=="健康" else "27ae60")}">{curs[nm]}</span>&nbsp;&nbsp;' for nm in INDEXES)}
 &nbsp;|&nbsp; 抱团度风险 <b>{cur_cr:.4f}</b> <span style="color:{'#c0392b' if cr_pct>0.7 else '#27ae60' if cr_pct<0.3 else '#888'}">{cr_label}</span>(历史分位 {cr_pct*100:.0f}%)</p>
 <p style="font-size:12px;color:#999;margin-top:0">健康=指数收盘&gt;MA60 且 MA60上行(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。</p>
+<p style="font-size:12px;color:#999;margin-top:0"><b>出场口径</b>(均从突破日入场、扣双边费):
+<b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)或所属板块大盘走坏即离场,否则一直持有(让利润奔跑);
+<b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。</p>
 <p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,列出 top{args.tier}% = {len(top)} 条 |
 已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top5/top10/top20/top30</p>
 <div class=note><b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈;"持仓时间"=唐奇安出场口径下从突破日到离场日的交易日数(仍持仓算到最新交易日);
@@ -508,7 +519,45 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 <script>
 var DATA={djson};
 var LATEST="{latest_td}";
+var NTRADE={ntrade};
+var CAL={json.dumps(cal_js)};
 var e=React.createElement;
+function portfolio(rows,exk,retk){{
+ var init=150000,nslot=4,buys={{}};
+ rows.forEach(function(r){{ if(r[retk]==null) return; var ex=r[exk]||LATEST;
+   (buys[r.date]=buys[r.date]||[]).push({{ex:ex,ret:r[retk],sc:r.score}}); }});
+ var cash=init,op=[],curve=[];
+ for(var i=0;i<CAL.length;i++){{ var d=CAL[i],keep=[];
+   for(var j=0;j<op.length;j++){{ if(op[j].ex<=d) cash+=op[j].amt*(1+op[j].ret); else keep.push(op[j]); }}
+   op=keep;
+   var bs=(buys[d]||[]).slice().sort(function(a,b){{return b.sc-a.sc;}});
+   for(var k=0;k<bs.length;k++){{ if(op.length>=nslot) break;
+     var lk=0;op.forEach(function(p){{lk+=p.amt;}}); var unit=(cash+lk)/nslot;
+     if(cash+1e-6>=unit&&unit>0){{ cash-=unit; op.push({{ex:bs[k].ex,ret:bs[k].ret,amt:unit}}); }} }}
+   var lk2=0;op.forEach(function(p){{lk2+=p.amt;}}); curve.push([d,Math.round(cash+lk2)]); }}
+ return curve;
+}}
+function svgChart(title,series,init){{
+ var W=1760,H=260,pad=52;
+ var vals=series.map(function(p){{return p[1];}});
+ var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals);
+ if(mn===mx){{mn=mn*0.99;mx=mx*1.01;}}
+ var n=series.length;
+ var X=function(i){{return pad+i*(W-2*pad)/Math.max(1,n-1);}};
+ var Y=function(v){{return H-pad-(v-mn)*(H-2*pad)/(mx-mn);}};
+ var d='';for(var i=0;i<n;i++){{d+=(i?'L':'M')+X(i).toFixed(1)+','+Y(series[i][1]).toFixed(1);}}
+ var by=Y(init);
+ var last=series[n-1][1],ret=((last/init-1)*100).toFixed(1),up=last>=init;
+ var col=up?'#c0392b':'#27ae60';
+ var lbl='<text x="'+pad+'" y="20" font-size="14" font-weight="700">'+title+'  期末 '+Math.round(last).toLocaleString()+'  ('+(up?'+':'')+ret+'%)</text>';
+ var ax='<line x1="'+pad+'" y1="'+by+'" x2="'+(W-pad)+'" y2="'+by+'" stroke="#bbb" stroke-dasharray="4 4"/>';
+ ax+='<text x="'+(W-pad+2)+'" y="'+(by+4)+'" font-size="11" fill="#999">本金'+(init/10000)+'万</text>';
+ ax+='<text x="6" y="'+(Y(mx)+4)+'" font-size="11" fill="#999">'+Math.round(mx).toLocaleString()+'</text>';
+ ax+='<text x="6" y="'+(Y(mn)+4)+'" font-size="11" fill="#999">'+Math.round(mn).toLocaleString()+'</text>';
+ ax+='<text x="'+pad+'" y="'+(H-8)+'" font-size="11" fill="#999">'+series[0][0]+'</text>';
+ ax+='<text x="'+(W-pad-60)+'" y="'+(H-8)+'" font-size="11" fill="#999">'+series[n-1][0]+'</text>';
+ return '<svg width="'+W+'" height="'+H+'" style="max-width:100%;border:1px solid #eee;border-radius:8px;background:#fff">'+lbl+ax+'<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.8"/></svg>';
+}}
 var cols=[
  {{title:'突破日',dataIndex:'date',defaultSortOrder:'descend',sorter:function(a,b){{return a.date<b.date?-1:1;}}}},
  {{title:'板块',dataIndex:'board',filters:[{{text:'主板',value:'主板'}},{{text:'科创',value:'科创'}},{{text:'创业',value:'创业'}}],onFilter:function(v,r){{return r.board===v;}}}},
@@ -519,6 +568,7 @@ var cols=[
    render:function(v,r){{return e('span',null,e('b',null,r.tier),' '+v);}}}},
  {{title:'代码',dataIndex:'ts'}},
  {{title:'名称',dataIndex:'name'}},
+ {{title:'价格',dataIndex:'price',sorter:function(a,b){{return a.price-b.price;}},render:function(v){{return v+'元';}}}},
  {{title:'形态',dataIndex:'typ',filters:[{{text:'N字型',value:'N字型'}},{{text:'W型',value:'W型'}}],onFilter:function(v,r){{return r.typ===v;}}}},
  {{title:'至今最大涨幅',dataIndex:'maxfwd',sorter:function(a,b){{return (a.maxfwd||-999)-(b.maxfwd||-999);}},
    render:function(v){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%');}}}},
@@ -533,7 +583,8 @@ function card(v,l,calc){{return e('div',{{className:'card'}},e('div',{{className
 function App(){{
  var s=React.useState(true),showKc=s[0],setKc=s[1];
  var s2=React.useState(true),showCy=s2[0],setCy=s2[1];
- var rows=DATA.filter(function(r){{return (showKc||r.board!=='科创')&&(showCy||r.board!=='创业');}});
+ var s3=React.useState(false),only50=s3[0],set50=s3[1];
+ var rows=DATA.filter(function(r){{return (showKc||r.board!=='科创')&&(showCy||r.board!=='创业')&&(!only50||r.price<=50);}});
  var done=rows.filter(function(r){{return r.status!=='进行中';}});
  var hit=done.filter(function(r){{return r.status==='已走出主升浪';}});
  var donw=rows.filter(function(r){{return r.donret!=null;}});
@@ -553,8 +604,7 @@ function App(){{
  var avgswhold=swhd.length?(swhd.reduce(function(a,b){{return a+b;}},0)/swhd.length).toFixed(0)+'天':'—';
  var donon=rows.filter(function(r){{return r.donopen;}}).length;
  var swon=rows.filter(function(r){{return r.swopen;}}).length;
- var udays={{}};rows.forEach(function(r){{udays[r.date]=1;}});var nd=Object.keys(udays).length;
- var perday=nd?(rows.length/nd).toFixed(1):'—';
+ var perday=NTRADE?(rows.length/NTRADE).toFixed(2):'—';
  var today=LATEST;
  var todays=rows.filter(function(r){{return r.date===today;}}).sort(function(a,b){{return b.score-a.score;}});
  var sells=rows.filter(function(r){{return r.donexit===today||r.swexit===today;}});
@@ -575,10 +625,12 @@ function App(){{
   e('div',{{style:{{margin:'8px 0'}}}},
     e(antd.Checkbox,{{checked:showKc,onChange:function(ev){{setKc(ev.target.checked);}}}},'显示科创板(688/689)'),
     e('span',{{style:{{marginLeft:16}}}}),
-    e(antd.Checkbox,{{checked:showCy,onChange:function(ev){{setCy(ev.target.checked);}}}},'显示创业板(300/301)')),
+    e(antd.Checkbox,{{checked:showCy,onChange:function(ev){{setCy(ev.target.checked);}}}},'显示创业板(300/301)'),
+    e('span',{{style:{{marginLeft:16}}}}),
+    e(antd.Checkbox,{{checked:only50,onChange:function(ev){{set50(ev.target.checked);}}}},'只看 ≤50元/股')),
   e('div',{{className:'cards'}},
     card(rows.length,'信号数','当前筛选下的信号条数'),
-    card(perday,'平均每日信号','信号数 ÷ 区间出现信号的不同交易日数('+rows.length+'/'+nd+')'),
+    card(perday,'平均每日信号','信号数 ÷ 区间总交易日数('+rows.length+'/'+NTRADE+')'),
     e('div',{{className:'card'}},
       e('div',{{style:{{display:'flex',gap:14}}}},
         e('div',null,e('div',{{className:'v'}},donwin),e('div',{{className:'l'}},'唐奇安胜率')),
@@ -605,6 +657,10 @@ function App(){{
         e('div',null,e('div',{{className:'v'}},donon),e('div',{{className:'l'}},'唐奇安进行中')),
         e('div',null,e('div',{{className:'v'}},swon),e('div',{{className:'l'}},'波段进行中'))),
       e('div',{{className:'calc'}},'各自出场口径下尚未离场(仍持仓)的条数'))),
+  e('div',{{style:{{margin:'10px 0 4px',fontSize:13,color:'#666'}}}},
+    '组合回测:15万本金分4份,出现信号占一份买入(每天最多4只、无空位则放弃),按对应出场法平仓,费率已计'),
+  e('div',{{style:{{marginBottom:10}}}},e('div',{{dangerouslySetInnerHTML:{{__html:svgChart('唐奇安出场',portfolio(rows,'donexit','donr'),150000)}}}})),
+  e('div',{{style:{{marginBottom:14}}}},e('div',{{dangerouslySetInnerHTML:{{__html:svgChart('波段止盈止损出场',portfolio(rows,'swexit','swr'),150000)}}}})),
   e(antd.Table,{{columns:cols,dataSource:rows,rowKey:function(r){{return r.ts+r.date;}},size:'small',pagination:{{pageSize:30}}}})
  );
 }}
