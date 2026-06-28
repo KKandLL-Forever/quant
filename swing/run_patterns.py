@@ -31,6 +31,7 @@ from run_segment_zigzag import _zigzag
 
 OUT = os.path.expanduser("~/AI/quart/swing/patterns_samples.html")
 W_TOL = 0.06
+NEWHIGH = 10
 
 
 def _pivots_typed(c, thr):
@@ -64,7 +65,7 @@ def _detect(c, thr, start_i):
         a, b, cc = prior[-3], prior[-2], prior[-1]
         if pv[a][1] and (not pv[b][1]) and pv[cc][1]:
             pa, pb, pcc = c[pidx[a]], c[pidx[b]], c[pidx[cc]]
-            if pa < pcc < pb and c[t] > pb and c[t - 1] <= pb:
+            if pa < pcc < pb and c[t] > pb and c[t - 1] <= pb and c[t] > c[max(0, t - NEWHIGH):t].max():
                 events.append(("N字型", t, [pidx[a], pidx[b], pidx[cc]]))
                 continue
         # W型: 末四个 = 高 低B 高C 低D
@@ -72,7 +73,7 @@ def _detect(c, thr, start_i):
             h0, lb, hc, ld = prior[-4], prior[-3], prior[-2], prior[-1]
             if (not pv[h0][1]) and pv[lb][1] and (not pv[hc][1]) and pv[ld][1]:
                 pB, pC, pD = c[pidx[lb]], c[pidx[hc]], c[pidx[ld]]
-                if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC:
+                if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC and c[t] > c[max(0, t - NEWHIGH):t].max():
                     events.append(("W型", t, [pidx[lb], pidx[hc], pidx[ld]]))
     return events
 

@@ -73,7 +73,7 @@ def _detect_kernel(c, h, start_i):
 
     平滑两侧核回归用到 p±3h 的数据,故枢轴 p 仅在 t≥p+lag 后才视为"已确认可用",避免未来函数。
     枢轴价用原始收盘(突破=收盘越过颈线),与 run_patterns._detect 同口径。"""
-    from run_patterns import W_TOL
+    from run_patterns import W_TOL, NEWHIGH
     pv, _ = _smoothed_pivots(c, h)
     if len(pv) < 3:
         return []
@@ -86,13 +86,13 @@ def _detect_kernel(c, h, start_i):
         a, b, cc = prior[-3], prior[-2], prior[-1]
         if pv[a][1] and (not pv[b][1]) and pv[cc][1]:
             pa, pb, pcc = c[pidx[a]], c[pidx[b]], c[pidx[cc]]
-            if pa < pcc < pb and c[t] > pb and c[t - 1] <= pb:
+            if pa < pcc < pb and c[t] > pb and c[t - 1] <= pb and c[t] > c[max(0, t - NEWHIGH):t].max():
                 events.append(("N字型", t, [pidx[a], pidx[b], pidx[cc]])); continue
         if len(prior) >= 4:
             h0, lb, hc, ld = prior[-4], prior[-3], prior[-2], prior[-1]
             if (not pv[h0][1]) and pv[lb][1] and (not pv[hc][1]) and pv[ld][1]:
                 pB, pC, pD = c[pidx[lb]], c[pidx[hc]], c[pidx[ld]]
-                if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC:
+                if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC and c[t] > c[max(0, t - NEWHIGH):t].max():
                     events.append(("W型", t, [pidx[lb], pidx[hc], pidx[ld]]))
     return events
 
@@ -148,7 +148,7 @@ def main():
 
 def _detect_with(c, pv, start_i):
     """复用 run_patterns 的 N/W 匹配逻辑,但枢轴由外部传入。"""
-    from run_patterns import W_TOL
+    from run_patterns import W_TOL, NEWHIGH
     if len(pv) < 3:
         return []
     events = []; n = len(c); pidx = [p[0] for p in pv]
@@ -159,13 +159,13 @@ def _detect_with(c, pv, start_i):
         a, b, cc = prior[-3], prior[-2], prior[-1]
         if pv[a][1] and (not pv[b][1]) and pv[cc][1]:
             pa, pb, pcc = c[pidx[a]], c[pidx[b]], c[pidx[cc]]
-            if pa < pcc < pb and c[t] > pb and c[t - 1] <= pb:
+            if pa < pcc < pb and c[t] > pb and c[t - 1] <= pb and c[t] > c[max(0, t - NEWHIGH):t].max():
                 events.append(("N字型", t, [pidx[a], pidx[b], pidx[cc]])); continue
         if len(prior) >= 4:
             h0, lb, hc, ld = prior[-4], prior[-3], prior[-2], prior[-1]
             if (not pv[h0][1]) and pv[lb][1] and (not pv[hc][1]) and pv[ld][1]:
                 pB, pC, pD = c[pidx[lb]], c[pidx[hc]], c[pidx[ld]]
-                if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC:
+                if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC and c[t] > c[max(0, t - NEWHIGH):t].max():
                     events.append(("W型", t, [pidx[lb], pidx[hc], pidx[ld]]))
     return events
 
