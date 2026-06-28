@@ -1,13 +1,22 @@
 """
-run_ml_signals_2026.py — 模型 top10% 信号清单(2026-01-01 之后,不管仓位)
+run_ml_signals_2026.py — 模型 top5% 信号清单(2026-01-01 之后,不管仓位)
 
 模型(LightGBM)用 2021-2025 事件训练,对 2026-01-01 之后的 N/W 突破信号打分,取预测概率
 top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/ML分/至今最大涨幅/状态
-(已走出主升浪≥50% / 进行中 / 未达)。产出 HTML 清单。
+(已走出主升浪 / 进行中 / 未达)。产出 HTML 清单。
 
-环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 10
+主升浪判定为时间加权动态门槛:60日内任意一天 t,累计涨幅≥MW_HURDLE_K×√t 即达标
+(快涨低门槛、慢涨高门槛,体现持仓时间成本);赢家可提前确认,输家需满60日才判负。
+
+环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
   --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
+  --mode quick/long 主升浪判定(quick=k0.06高胜率小赚 / long=k0.09默认低胜率大赚)
+  --train 训练并存盘(模型/HTML 按 mode 分文件);--eval 跑 walk-forward 诚实评估(不出 HTML)
 依赖：DuckDB(daily/daily_basic/adj_factor/cyq_perf/moneyflow);lightgbm;复用 run_patterns。
+
+关于 --start(训练/打分分界):训练用 date<start 的事件,打分用 >=start 的信号。
+  · 回测/评价某段:把 start 设到那段开头(如 20260101,用 2021~2025 训、打分 2026)
+  · 日常实盘:把 start 设到很近的日期(如今天),让训练吃满到当下、只打分最新信号
 """
 
 import argparse
@@ -15,7 +24,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.expanduser("~/AI/quart"))
 
 import duckdb
 import numpy as np
@@ -27,6 +36,7 @@ from cache_tushare import DUCKDB_PATH
 from run_patterns import _detect
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
+MW_HURDLE_K = 0.090
 DON_EXIT, COST = 20, 0.0006
 SW_FIXSTOP, SW_ATRSTOP = 0.10, 1.0
 SW_FIXTP, SW_ATRTP, SW_TPFRAC = 0.10, 2.0, 0.50
@@ -34,6 +44,7 @@ SW_TRAILACT, SW_TRAILDIST, SW_STALE = 0.03, 0.05, 20
 SW_TPFRAC_SWEEP = (0.30, 0.40, 0.50, 0.75)
 VAL_MONTHS = 12
 EVAL_FOLDS = [
+    {"train_end": "2020-06-30", "val": ("2020-07-01", "2020-12-31"), "test": ("2021-01-01", "2021-12-31")},
     {"train_end": "2021-06-30", "val": ("2021-07-01", "2021-12-31"), "test": ("2022-01-01", "2022-12-31")},
     {"train_end": "2022-06-30", "val": ("2022-07-01", "2022-12-31"), "test": ("2023-01-01", "2023-12-31")},
     {"train_end": "2023-06-30", "val": ("2023-07-01", "2023-12-31"), "test": ("2024-01-01", "2024-12-31")},
@@ -146,10 +157,15 @@ def _evaluate_wf(df, seed, tier):
         te_auc = roc_auc_score(tef["label"], sc)
         base_f = tef["label"].mean()
         kf = max(1, int(len(tef) * tier / 100))
-        lift_f = tef.assign(s=sc).nlargest(kf, "s")["label"].mean() / base_f if base_f > 0 else np.nan
+        picks = tef.assign(s=sc).nlargest(kf, "s")
+        tophit_f = picks["label"].mean()
+        lift_f = tophit_f / base_f if base_f > 0 else np.nan
+        win = picks[picks["label"] == 1]
+        med_day = win["cross_day"].median(); med_gain = win["gain_at_cross"].median()
         part = tef[["date", "ts", "label"]].copy(); part["score"] = sc; part["fold"] = i
         oos.append(part)
-        metas.append({"fold": i, "tr_auc": tr_auc, "te_auc": te_auc, "lift": lift_f})
+        metas.append({"fold": i, "tr_auc": tr_auc, "te_auc": te_auc, "lift": lift_f,
+                      "base": base_f, "tophit": tophit_f, "med_day": med_day, "med_gain": med_gain})
         imps.append(pd.Series(m.feature_importances_, index=FEATS))
         gap = "" if tr_auc is None else f"  train_AUC={tr_auc:.4f} gap={tr_auc-te_auc:+.4f}"
         print(f"  折{i}: train≤{fd['train_end']}({len(trf)}) test {fd['test'][0][:4]}({len(tef)})  "
@@ -162,7 +178,11 @@ def _evaluate_wf(df, seed, tier):
     mean_lift = np.nanmean([x["lift"] for x in metas])
     mtr = np.mean([x["tr_auc"] for x in metas if x["tr_auc"] is not None]) if any(x["tr_auc"] for x in metas) else None
     print(f"\n=== 样本外汇总({len(oo)} 样本,{len(metas)} 折)===")
-    print(f"  ★逐折均值: test_AUC={mean_auc:.4f}  top{tier}%_lift={mean_lift:.2f}x   (pooled AUC={pooled:.4f})")
+    mean_base = np.mean([x["base"] for x in metas]); mean_top = np.mean([x["tophit"] for x in metas])
+    print(f"  ★逐折均值: test_AUC={mean_auc:.4f}  基础率={mean_base:.1%}  top{tier}%命中={mean_top:.1%}  "
+          f"lift={mean_lift:.2f}x   (pooled AUC={pooled:.4f})")
+    mday = np.nanmean([x["med_day"] for x in metas]); mgain = np.nanmean([x["med_gain"] for x in metas])
+    print(f"  ★精选赢家:中位达标用时={mday:.0f}个交易日  中位兑现幅度={mgain:.1%}")
     if mtr is not None:
         print(f"  过拟合体检:训练AUC均值 {mtr:.4f} vs 逐折测试 {mean_auc:.4f}  gap={mtr-mean_auc:+.4f}"
               f"(<0.05健康 / 0.05~0.10可接受 / >0.15警惕)")
@@ -178,11 +198,17 @@ def main():
     ap.add_argument("--n", type=int, default=800)
     ap.add_argument("--start", default="20260101", help="信号起始日 YYYYMMDD")
     ap.add_argument("--end", default=None, help="信号结束日 YYYYMMDD,默认到最新")
-    ap.add_argument("--tier", type=int, default=10, help="只显示 ML 评分前百分之几(如 5=top5%%、10=top10%%、100=全部)")
+    ap.add_argument("--tier", type=int, default=5, help="只显示 ML 评分前百分之几(如 5=top5%%、10=top10%%、100=全部)")
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
+    ap.add_argument("--mode", choices=["quick", "long"], default="long",
+                    help="主升浪判定模式:quick=高胜率小赚(k=0.06)、long=低胜率大赚(k=0.09,默认)")
     args = ap.parse_args()
+    global MW_HURDLE_K, MODEL_PATH, OUT
+    MW_HURDLE_K = {"quick": 0.06, "long": 0.09}[args.mode]
+    MODEL_PATH = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_model_{args.mode}.pkl")
+    OUT = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_{args.mode}.html")
     start_ts = pd.Timestamp(args.start)
     end_ts = pd.Timestamp(args.end) if args.end else None
 
@@ -193,23 +219,23 @@ def main():
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     px = con.execute("""SELECT d.ts_code,d.trade_date,d.high*a.adj_factor h,d.low*a.adj_factor l,
         d.close*a.adj_factor c,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
-        WHERE d.trade_date>=? AND d.ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
+        WHERE d.trade_date>=? AND d.ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
     db = con.execute("""SELECT ts_code,trade_date,pe_ttm,pb,circ_mv,turnover_rate FROM daily_basic
-        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
+        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
     cyq = con.execute("""SELECT ts_code,trade_date,winner_rate,cost_15pct,cost_50pct,cost_85pct FROM cyq_perf
-        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
+        WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
     mf = con.execute("""SELECT ts_code,trade_date,
         buy_lg_amount+buy_elg_amount-sell_lg_amount-sell_elg_amount AS net_lg,
         buy_sm_amount+buy_md_amount+buy_lg_amount+buy_elg_amount+sell_sm_amount+sell_md_amount+sell_lg_amount+sell_elg_amount AS tot
-        FROM moneyflow WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2020-01-01", liquid]).fetch_df()
+        FROM moneyflow WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
     cr = con.execute("SELECT trade_date, market_crowding_di FROM market_state WHERE market_crowding_di IS NOT NULL ORDER BY trade_date").fetch_df()
     ms = con.execute("""SELECT trade_date, market_idx_dist_h60 AS idxdist, market_2lb_rate_ma5 AS lb2rate,
         market_max_lianban AS nlb, market_crowding_di AS crowd FROM market_state ORDER BY trade_date""").fetch_df()
     breadth = con.execute("""SELECT trade_date, AVG(CASE WHEN pct_chg>0 THEN 1.0 ELSE 0.0 END) AS upratio
-        FROM daily WHERE trade_date>=? GROUP BY trade_date""", ["2020-01-01"]).fetch_df()
+        FROM daily WHERE trade_date>=? GROUP BY trade_date""", ["2019-01-01"]).fetch_df()
     sw = dict(con.execute("SELECT ts_code, l1_name FROM sw_member").fetchall())
     lu = con.execute("SELECT ts_code, trade_date FROM limit_list_d WHERE limit_type='U' AND trade_date>=?",
-                     ["2020-01-01"]).fetch_df()
+                     ["2019-01-01"]).fetch_df()
     fi = con.execute("""SELECT ts_code, ann_date, roe, netprofit_yoy FROM fina_indicator
         WHERE ann_date>='20200101' AND roe IS NOT NULL""").fetch_df()
     fc = con.execute("""SELECT ts_code, ann_date, type, p_change_min FROM forecast
@@ -300,11 +326,19 @@ def main():
             mf_net20 = np.full(len(cc), np.nan)
         for typ, bo, pvs in _detect(cc, args.thr, 30):
             d = pd.Timestamp(gd[bo])
-            if d.year < 2021:
+            if d.year < 2020:
                 continue
             endi = min(bo + MW_DAYS, len(cc) - 1)
-            maxfwd = cc[bo + 1:endi + 1].max() / cc[bo] - 1 if endi > bo else np.nan
-            label = int(maxfwd >= MW_GAIN) if (bo + MW_DAYS < len(cc)) else -1
+            fwd = cc[bo + 1:endi + 1] / cc[bo] - 1
+            maxfwd = fwd.max() if len(fwd) else np.nan
+            hurdle = MW_HURDLE_K * np.sqrt(np.arange(1, len(fwd) + 1))
+            crossed = (fwd >= hurdle) if len(fwd) else np.array([False])
+            hit = bool(crossed.any())
+            full = bo + MW_DAYS < len(cc)
+            label = 1 if hit else (0 if full else -1)
+            cidx = int(np.argmax(crossed)) if hit else -1
+            cross_day = cidx + 1 if hit else np.nan
+            gain_at_cross = float(fwd[cidx]) if hit else np.nan
             seg = cc[bo:endi + 1]
             peak_off = int(seg.argmax())
             launch = int(seg[:peak_off + 1].argmin()) if peak_off > 0 else None
@@ -324,7 +358,8 @@ def main():
             mr = mkt.loc[d] if d in mkt.index else None
             rows.append({
                 "date": d, "ts": ts, "year": d.year, "label": label, "maxfwd": maxfwd,
-                "launch": launch, "done": bo + MW_DAYS < len(cc), "typ": typ,
+                "launch": launch, "done": hit or full, "typ": typ,
+                "cross_day": cross_day, "gain_at_cross": gain_at_cross,
                 "donret": donret, "donopen": donopen, "donexit": donexit,
                 "swret": swret, "swopen": swopen, "swexit": swexit,
                 **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
