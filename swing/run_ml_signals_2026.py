@@ -425,8 +425,9 @@ def main():
             print(f"[模型] 无存盘模型,本次现训现用(未存盘);加 --train 可存盘复用")
     te["score"] = m.predict_proba(te[FEATS])[:, 1]
     pct = te["score"].rank(pct=True)
-    te["tier"] = np.where(pct >= 0.95, "top5", np.where(pct >= 0.90, "top10",
-                 np.where(pct >= 0.80, "top20", np.where(pct >= 0.70, "top30", "其他"))))
+    te["tier"] = np.where(pct >= 0.99, "top1", np.where(pct >= 0.97, "top3",
+                 np.where(pct >= 0.95, "top5", np.where(pct >= 0.90, "top10",
+                 np.where(pct >= 0.80, "top20", np.where(pct >= 0.70, "top30", "其他"))))))
     top = te[pct >= 1 - args.tier / 100].sort_values("score", ascending=False)
 
     done = top[top["done"]]
@@ -470,12 +471,17 @@ def main():
             "swopen": bool(r["swopen"]),
             "swexit": None if pd.isna(r["swexit"]) else str(r["swexit"].date()),
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
+            "hold": int(np.busday_count(r["date"].date(),
+                     (r["donexit"] if not pd.isna(r["donexit"]) else pd.Timestamp(sel)).date())),
+            "swhold": int(np.busday_count(r["date"].date(),
+                     (r["swexit"] if not pd.isna(r["swexit"]) else pd.Timestamp(sel)).date())),
             "status": st,
         })
     djson = json.dumps(data, ensure_ascii=False)
+    latest_td = str(sel)
     html = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>ML top信号 2026</title>
 <link rel=stylesheet href="https://unpkg.com/antd@4.24.15/dist/antd.min.css">
-<style>body{{font-family:-apple-system,"PingFang SC",sans-serif;max-width:1400px;margin:22px auto;padding:0 18px;color:#222}}
+<style>body{{font-family:-apple-system,"PingFang SC",sans-serif;max-width:1850px;margin:22px auto;padding:0 18px;color:#222}}
 .today{{background:#eef6ff;border:1px solid #b6d4fe;border-radius:8px;padding:10px 14px;margin:10px 0}}
 .today .h{{font-weight:700;margin-bottom:6px}} .today .it{{display:inline-block;margin:3px 10px 3px 0;font-size:13px}}
 h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
@@ -488,8 +494,8 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 <p style="font-size:12px;color:#999;margin-top:0">健康=指数收盘&gt;MA60 且 MA60上行(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。</p>
 <p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,列出 top{args.tier}% = {len(top)} 条 |
 已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top5/top10/top20/top30</p>
-<div class=note><b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈;"启动用时"=突破后到主升浪启动点(回踩最低点)的交易日数;
-"进行中"=不满60日结果未定。点表头可排序。模型严格用2026前数据训练,无未来函数。</div>
+<div class=note><b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈;"持仓时间"=唐奇安出场口径下从突破日到离场日的交易日数(仍持仓算到最新交易日);
+"进行中"=该出场口径下尚未离场(仍持仓)的条数。点表头可排序。模型严格用2026前数据训练,无未来函数。</div>
 <div id=root></div>
 <script src="https://unpkg.com/react@17/umd/react.production.min.js"></script>
 <script src="https://unpkg.com/react-dom@17/umd/react-dom.production.min.js"></script>
@@ -501,28 +507,27 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 .card .calc{{font-size:11px;color:#999;margin-top:4px;line-height:1.4}}</style>
 <script>
 var DATA={djson};
+var LATEST="{latest_td}";
 var e=React.createElement;
 var cols=[
  {{title:'突破日',dataIndex:'date',defaultSortOrder:'descend',sorter:function(a,b){{return a.date<b.date?-1:1;}}}},
  {{title:'板块',dataIndex:'board',filters:[{{text:'主板',value:'主板'}},{{text:'科创',value:'科创'}},{{text:'创业',value:'创业'}}],onFilter:function(v,r){{return r.board===v;}}}},
  {{title:'突破日板块大盘',dataIndex:'mkt',filters:[{{text:'健康',value:'健康'}},{{text:'走坏',value:'走坏'}}],onFilter:function(v,r){{return r.mkt===v;}},
    render:function(v){{return e('span',{{className:v==='健康'?'pos':'neg'}},v);}}}},
- {{title:'档位',dataIndex:'tier',filters:[{{text:'top5',value:'top5'}},{{text:'top10',value:'top10'}},{{text:'top20',value:'top20'}},{{text:'top30',value:'top30'}}],onFilter:function(v,r){{return r.tier===v;}}}},
+ {{title:'档位/ML分',dataIndex:'score',defaultSortOrder:'descend',sorter:function(a,b){{return a.score-b.score;}},
+   filters:[{{text:'top1',value:'top1'}},{{text:'top3',value:'top3'}},{{text:'top5',value:'top5'}},{{text:'top10',value:'top10'}},{{text:'top20',value:'top20'}},{{text:'top30',value:'top30'}}],onFilter:function(v,r){{return r.tier===v;}},
+   render:function(v,r){{return e('span',null,e('b',null,r.tier),' '+v);}}}},
  {{title:'代码',dataIndex:'ts'}},
  {{title:'名称',dataIndex:'name'}},
  {{title:'形态',dataIndex:'typ',filters:[{{text:'N字型',value:'N字型'}},{{text:'W型',value:'W型'}}],onFilter:function(v,r){{return r.typ===v;}}}},
- {{title:'ML分',dataIndex:'score',defaultSortOrder:'descend',sorter:function(a,b){{return a.score-b.score;}}}},
  {{title:'至今最大涨幅',dataIndex:'maxfwd',sorter:function(a,b){{return (a.maxfwd||-999)-(b.maxfwd||-999);}},
    render:function(v){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%');}}}},
  {{title:'唐奇安止损盈亏',dataIndex:'donret',sorter:function(a,b){{return (a.donret==null?-999:a.donret)-(b.donret==null?-999:b.donret);}},
    render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.donopen?'(持仓中)':''));}}}},
- {{title:'离场日',dataIndex:'donexit',sorter:function(a,b){{return (a.donexit||'')<(b.donexit||'')?-1:1;}},render:function(v){{return v||'持仓中';}}}},
+ {{title:'离场日',dataIndex:'donexit',sorter:function(a,b){{return (a.donexit||'')<(b.donexit||'')?-1:1;}},render:function(v,r){{return (v||'持仓中')+'('+r.hold+'天)';}}}},
  {{title:'波段止盈止损盈亏',dataIndex:'swret',sorter:function(a,b){{return (a.swret==null?-999:a.swret)-(b.swret==null?-999:b.swret);}},
    render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.swopen?'(持仓中)':''));}}}},
- {{title:'波段离场日',dataIndex:'swexit',sorter:function(a,b){{return (a.swexit||'')<(b.swexit||'')?-1:1;}},render:function(v){{return v||'持仓中';}}}},
- {{title:'启动用时(交易日)',dataIndex:'launch',sorter:function(a,b){{return (a.launch==null?9999:a.launch)-(b.launch==null?9999:b.launch);}},
-   render:function(v){{return v==null?'—':v+'天';}}}},
- {{title:'状态',dataIndex:'status',filters:[{{text:'已走出主升浪',value:'已走出主升浪'}},{{text:'未达',value:'未达'}},{{text:'进行中',value:'进行中'}}],onFilter:function(v,r){{return r.status===v;}}}}
+ {{title:'波段离场日',dataIndex:'swexit',sorter:function(a,b){{return (a.swexit||'')<(b.swexit||'')?-1:1;}},render:function(v,r){{return (v||'持仓中')+'('+r.swhold+'天)';}}}}
 ];
 function card(v,l,calc){{return e('div',{{className:'card'}},e('div',{{className:'v'}},v),e('div',{{className:'l'}},l),e('div',{{className:'calc'}},calc));}}
 function App(){{
@@ -531,26 +536,40 @@ function App(){{
  var rows=DATA.filter(function(r){{return (showKc||r.board!=='科创')&&(showCy||r.board!=='创业');}});
  var done=rows.filter(function(r){{return r.status!=='进行中';}});
  var hit=done.filter(function(r){{return r.status==='已走出主升浪';}});
- var succ=done.length?(hit.length/done.length*100).toFixed(0)+'%':'—';
+ var donw=rows.filter(function(r){{return r.donret!=null;}});
+ var donwin=donw.length?(donw.filter(function(r){{return r.donret>0;}}).length/donw.length*100).toFixed(0)+'%':'—';
+ var sww=rows.filter(function(r){{return r.swret!=null;}});
+ var swwin=sww.length?(sww.filter(function(r){{return r.swret>0;}}).length/sww.length*100).toFixed(0)+'%':'—';
  var fwds=rows.filter(function(r){{return r.maxfwd!=null;}}).map(function(r){{return r.maxfwd;}});
  var avgfwd=fwds.length?(fwds.reduce(function(a,b){{return a+b;}},0)/fwds.length).toFixed(1)+'%':'—';
+ var avg=function(a){{return a.length?(a.reduce(function(x,y){{return x+y;}},0)/a.length).toFixed(1)+'%':'—';}};
  var dons=rows.filter(function(r){{return r.donret!=null;}}).map(function(r){{return r.donret;}});
- var avgdon=dons.length?(dons.reduce(function(a,b){{return a+b;}},0)/dons.length).toFixed(1)+'%':'—';
+ var avgdon=avg(dons); var avgdondd=avg(dons.filter(function(v){{return v<0;}}));
  var sws=rows.filter(function(r){{return r.swret!=null;}}).map(function(r){{return r.swret;}});
- var avgsw=sws.length?(sws.reduce(function(a,b){{return a+b;}},0)/sws.length).toFixed(1)+'%':'—';
- var lc=hit.filter(function(r){{return r.launch!=null;}}).map(function(r){{return r.launch;}});
- var avglc=lc.length?(lc.reduce(function(a,b){{return a+b;}},0)/lc.length).toFixed(0)+'天':'—';
- var ongoing=rows.filter(function(r){{return r.status==='进行中';}}).length;
+ var avgsw=avg(sws); var avgswdd=avg(sws.filter(function(v){{return v<0;}}));
+ var hd=rows.filter(function(r){{return r.hold!=null;}}).map(function(r){{return r.hold;}});
+ var avghold=hd.length?(hd.reduce(function(a,b){{return a+b;}},0)/hd.length).toFixed(0)+'天':'—';
+ var swhd=rows.filter(function(r){{return r.swhold!=null;}}).map(function(r){{return r.swhold;}});
+ var avgswhold=swhd.length?(swhd.reduce(function(a,b){{return a+b;}},0)/swhd.length).toFixed(0)+'天':'—';
+ var donon=rows.filter(function(r){{return r.donopen;}}).length;
+ var swon=rows.filter(function(r){{return r.swopen;}}).length;
  var udays={{}};rows.forEach(function(r){{udays[r.date]=1;}});var nd=Object.keys(udays).length;
  var perday=nd?(rows.length/nd).toFixed(1):'—';
- var alld=DATA.map(function(r){{return r.date;}}).sort();var today=alld.length?alld[alld.length-1]:null;
+ var today=LATEST;
  var todays=rows.filter(function(r){{return r.date===today;}}).sort(function(a,b){{return b.score-a.score;}});
+ var sells=rows.filter(function(r){{return r.donexit===today||r.swexit===today;}});
  var todayEl=e('div',{{className:'today'}},
-   e('div',{{className:'h'}},'当天信号('+(today||'-')+'):共 '+todays.length+' 条'),
-   todays.length? todays.map(function(r){{return e('span',{{className:'it',key:r.ts}},
-     e('b',null,r.name+'('+r.ts+')'),' ',r.tier,' ML'+r.score,' ',
-     e('span',{{className:r.mkt==='健康'?'pos':'neg'}},'['+r.board+r.mkt+']'));}})
-     : e('span',{{style:{{color:'#999'}}}},'当前筛选下无当天信号'));
+   e('div',{{className:'h'}},'最新交易日('+(today||'-')+') · 买入 '+todays.length+' 条 / 需卖出 '+sells.length+' 条'),
+   e('div',null, e('b',null,'买入:'), ' ',
+     todays.length? todays.map(function(r){{return e('span',{{className:'it',key:'b'+r.ts}},
+       e('b',null,r.name+'('+r.ts+')'),' ',r.tier,' ML'+r.score,' ',
+       e('span',{{className:r.mkt==='健康'?'pos':'neg'}},'['+r.board+r.mkt+']'));}})
+       : e('span',{{style:{{color:'#999'}}}},'无')),
+   e('div',{{style:{{marginTop:6}}}}, e('b',null,'需卖出:'), ' ',
+     sells.length? sells.map(function(r){{var t=[];if(r.donexit===today)t.push('唐奇安');if(r.swexit===today)t.push('波段');
+       return e('span',{{className:'it',key:'s'+r.ts}},
+       e('b',null,r.name+'('+r.ts+')'),' ',e('span',{{className:'neg'}},'卖出['+t.join('/')+']'));}})
+       : e('span',{{style:{{color:'#999'}}}},'无')));
  return e('div',null,
   todayEl,
   e('div',{{style:{{margin:'8px 0'}}}},
@@ -560,12 +579,32 @@ function App(){{
   e('div',{{className:'cards'}},
     card(rows.length,'信号数','当前筛选下的信号条数'),
     card(perday,'平均每日信号','信号数 ÷ 区间出现信号的不同交易日数('+rows.length+'/'+nd+')'),
-    card(succ,'成功率','已满60日的信号中,走出主升浪(≥50%)的占比 = 命中数 ÷ 已满60日数('+hit.length+'/'+done.length+')'),
+    e('div',{{className:'card'}},
+      e('div',{{style:{{display:'flex',gap:14}}}},
+        e('div',null,e('div',{{className:'v'}},donwin),e('div',{{className:'l'}},'唐奇安胜率')),
+        e('div',null,e('div',{{className:'v'}},swwin),e('div',{{className:'l'}},'波段止盈止损胜率'))),
+      e('div',{{className:'calc'}},'各自出场口径下盈亏>0 的占比(含持仓中按现价);唐奇安='+donw.length+'条,波段='+sww.length+'条')),
     card(avgfwd,'平均最大涨幅','所有信号突破后至今(或满60日)最高浮盈的均值;非实际买卖收益'),
-    card(avgdon,'平均唐奇安盈亏','每条信号从突破日入场,按唐奇安20破位或板块大盘走坏止损,到离场日盈亏的均值(扣双边费,持仓中按现价)'),
-    card(avgsw,'平均波段止盈止损盈亏','每条信号从突破日入场,按论文出场(10%硬/ATR止损、+3%激活5%跟踪止损、+10%平75%部分止盈、20日超时),到离场盈亏的均值(扣双边费,持仓中按现价)'),
-    card(avglc,'平均启动用时','走出主升浪的信号,从突破日到启动点(回踩最低)的交易日均值'),
-    card(ongoing,'进行中','突破不满60交易日、结果未定的条数')),
+    e('div',{{className:'card'}},
+      e('div',{{style:{{display:'flex',gap:14}}}},
+        e('div',null,e('div',{{className:'v pos'}},avgdon),e('div',{{className:'l'}},'平均盈亏')),
+        e('div',null,e('div',{{className:'v neg'}},avgdondd),e('div',{{className:'l'}},'平均回撤'))),
+      e('div',{{className:'calc'}},'唐奇安出场:平均盈亏=所有信号均值(红);平均回撤=亏损信号的平均亏幅(绿)。扣双边费,持仓中按现价')),
+    e('div',{{className:'card'}},
+      e('div',{{style:{{display:'flex',gap:14}}}},
+        e('div',null,e('div',{{className:'v pos'}},avgsw),e('div',{{className:'l'}},'平均盈亏')),
+        e('div',null,e('div',{{className:'v neg'}},avgswdd),e('div',{{className:'l'}},'平均回撤'))),
+      e('div',{{className:'calc'}},'波段止盈止损出场:平均盈亏=所有信号均值(红);平均回撤=亏损信号的平均亏幅(绿)。扣双边费,持仓中按现价')),
+    e('div',{{className:'card'}},
+      e('div',{{style:{{display:'flex',gap:14}}}},
+        e('div',null,e('div',{{className:'v'}},avghold),e('div',{{className:'l'}},'唐奇安持仓')),
+        e('div',null,e('div',{{className:'v'}},avgswhold),e('div',{{className:'l'}},'波段持仓'))),
+      e('div',{{className:'calc'}},'各自出场口径下从突破日到离场日的交易日均值(仍持仓算到最新交易日)')),
+    e('div',{{className:'card'}},
+      e('div',{{style:{{display:'flex',gap:14}}}},
+        e('div',null,e('div',{{className:'v'}},donon),e('div',{{className:'l'}},'唐奇安进行中')),
+        e('div',null,e('div',{{className:'v'}},swon),e('div',{{className:'l'}},'波段进行中'))),
+      e('div',{{className:'calc'}},'各自出场口径下尚未离场(仍持仓)的条数'))),
   e(antd.Table,{{columns:cols,dataSource:rows,rowKey:function(r){{return r.ts+r.date;}},size:'small',pagination:{{pageSize:30}}}})
  );
 }}
