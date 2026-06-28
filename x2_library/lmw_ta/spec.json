@@ -1,0 +1,327 @@
+{
+  "paper_title": "lo mamaysky wang 2000 foundations TA",
+  "num_detected": 1,
+  "strategies": [
+    {
+      "strategy_name": "Technical Chart Pattern Trading Strategy (Foundations of Technical Analysis)",
+      "strategy_type": "technical",
+      "asset_class": [
+        "equity"
+      ],
+      "description": "The strategy exploits the predictive power of 10 classical chart formations (e.g., Head-and-Shoulders, Double Tops/Bottoms, Triangles). When a pattern is completed as determined by a nonparametric kernel regression of daily closing prices and an extremum-based recognition algorithm, a one-day position is taken in the direction implied by the pattern (long for bullish reversals, short for bearish). The aim is to capture statistically significant conditional 1-day normalized returns.",
+      "plan_id": null,
+      "strategy_id": null,
+      "backtest_id": null,
+      "price_data": true,
+      "volume_data": false,
+      "fundamental_data": [],
+      "alternative_data": [],
+      "lookback_period": null,
+      "data_frequency": "daily",
+      "data_source": "CRSP (inferred)",
+      "time_period": "1962-1996",
+      "universe_assets": [
+        "NYSE/AMEX common stocks",
+        "NASDAQ common stocks"
+      ],
+      "universe_selection_criteria": "All common stocks on NYSE/AMEX and NASDAQ; sorted into market-cap quintiles at the beginning of each 5-year subperiod; within each quintile-subperiod combination, exactly 10 stocks are randomly selected that have at least 80% non-missing daily prices during that subperiod.",
+      "expected_sharpe": null,
+      "expected_return": null,
+      "max_drawdown": null,
+      "expected_performance": {},
+      "indicators": [
+        {
+          "indicator_id": "smoothed_close",
+          "name": "Smoothed Daily Closing Price",
+          "category": "technical",
+          "formula": "Apply nonparametric kernel regression to the daily closing price series. A Gaussian kernel is used, and the bandwidth is selected via cross-validation to minimize the average squared error. The smoothed price at time t is the weighted average of neighboring closing prices, with weights determined by the Gaussian kernel.",
+          "latex": "\\hat{p}_t = \\frac{\\sum_{i=1}^{T} K\\left(\\frac{t-i}{h}\\right) p_i}{\\sum_{i=1}^{T} K\\left(\\frac{t-i}{h}\\right)}, \\quad K(u)=\\frac{1}{\\sqrt{2\\pi}} e^{-u^2/2}",
+          "inputs": [
+            "close"
+          ],
+          "parameters": {
+            "kernel": "gaussian",
+            "bandwidth_selection": "cross-validated (minimizing CV error)"
+          },
+          "scope": "time_series",
+          "output_type": "series",
+          "data_semantics": "price_series",
+          "executable_explanation": "Inputs are the daily closing prices of a stock. Apply a Gaussian kernel smoother to produce a noise-reduced price series. The resulting smoothed close is used as the basis for extremum detection and pattern recognition."
+        },
+        {
+          "indicator_id": "hs_top_signal",
+          "name": "Head-and-Shoulders Top Pattern Completion",
+          "category": "technical",
+          "formula": "Identify local extrema from the smoothed close series. A Head-and-Shoulders Top is detected when three peaks appear, with the middle peak (head) higher than the left and right shoulders, the two troughs between them forming a neckline at approximately the same level, and the price closes below the neckline (completion). The signal is boolean: true on the day of the neckline breakdown close.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "From the smoothed price, local maxima and minima are sequentially identified. A completed HS top occurs on the day the price violates the neckline (line connecting the two troughs) to the downside. The signal is True only on that completion day."
+        },
+        {
+          "indicator_id": "ihs_bottom_signal",
+          "name": "Inverse Head-and-Shoulders Bottom Pattern Completion",
+          "category": "technical",
+          "formula": "Mirror image of HS: three troughs with the middle (head) lowest, two peaks forming a neckline. Completion occurs on a close above the neckline. Signal true on that day.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Inverted HS bottom pattern signal. True when price breaks above the neckline after the formation of three troughs with the middle being the deepest."
+        },
+        {
+          "indicator_id": "btop_signal",
+          "name": "Broadening Top Pattern Completion",
+          "category": "technical",
+          "formula": "Identified by a sequence of alternating peaks and troughs that diverge (broaden), with higher highs and lower lows. Completion is defined by a close below the most recent confirmed trough or trendline. Signal true on the breakdown day.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Broadening top detection relies on a diverging price formation. The signal is triggered when the price closes below a critical support level or trendline that defines the broadening pattern."
+        },
+        {
+          "indicator_id": "bbot_signal",
+          "name": "Broadening Bottom Pattern Completion",
+          "category": "technical",
+          "formula": "Diverging formation with lower lows and higher highs. Completion on a close above the most recent confirmed peak or trendline resistance. Signal true on that breakout day.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Broadening bottom is the bullish counterpart. Completion is signaled when price breaks upward out of the broadening range."
+        },
+        {
+          "indicator_id": "ttop_signal",
+          "name": "Triangle Top Pattern Completion",
+          "category": "technical",
+          "formula": "A converging price pattern with lower highs and higher lows. Top triangle (bearish) is completed when price closes below the lower converging trendline. Signal true on that breakdown.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "For a triangle top, the signal fires on a downside breakout from the converging triangle formation."
+        },
+        {
+          "indicator_id": "tbot_signal",
+          "name": "Triangle Bottom Pattern Completion",
+          "category": "technical",
+          "formula": "Converging triangle with lower highs and higher lows. Bottom triangle (bullish) completion on a close above the upper trendline. Signal true on that breakout.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Triangle bottom pattern breakout to the upside triggers the bullish signal."
+        },
+        {
+          "indicator_id": "rtop_signal",
+          "name": "Rectangle Top Pattern Completion",
+          "category": "technical",
+          "formula": "A horizontal trading range with parallel support and resistance. Top rectangle (bearish) completion on a close below support. Signal true on that breakdown.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Rectangle top signal: a downside break of the horizontal range floor."
+        },
+        {
+          "indicator_id": "rbot_signal",
+          "name": "Rectangle Bottom Pattern Completion",
+          "category": "technical",
+          "formula": "Horizontal range; bullish completion on a close above resistance. Signal true on breakout.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Rectangle bottom signal: an upside break of the horizontal range ceiling."
+        },
+        {
+          "indicator_id": "dtop_signal",
+          "name": "Double Top Pattern Completion",
+          "category": "technical",
+          "formula": "Two peaks of similar height separated by a trough. Completion on a close below the trough low (valley). Signal true on that breakdown.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Double top is confirmed when price falls below the valley between the two peaks."
+        },
+        {
+          "indicator_id": "dbot_signal",
+          "name": "Double Bottom Pattern Completion",
+          "category": "technical",
+          "formula": "Two troughs of similar depth separated by a peak. Completion on a close above the peak high. Signal true on breakout.",
+          "latex": null,
+          "inputs": [
+            "smoothed_close"
+          ],
+          "parameters": null,
+          "scope": "time_series",
+          "output_type": "boolean",
+          "data_semantics": null,
+          "executable_explanation": "Double bottom is confirmed when price exceeds the high between the two troughs."
+        }
+      ],
+      "logic_pipeline": [
+        {
+          "step_id": "step1",
+          "description": "Aggregate all bullish reversal pattern completion signals (IHS, BBOT, TBOT, RBOT, DBOT) into a single composite bullish flag.",
+          "function": "condition",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "ihs_bottom_signal",
+            "bbot_signal",
+            "tbot_signal",
+            "rbot_signal",
+            "dbot_signal"
+          ],
+          "parameters": {},
+          "expression": "bullish_flag = ihs_bottom_signal OR bbot_signal OR tbot_signal OR rbot_signal OR dbot_signal",
+          "output": "bullish_flag",
+          "output_type": "boolean",
+          "executable_explanation": "For each stock and each time point, take the five boolean indicator series and apply a logical OR across them. Result is a boolean time series indicating if any bullish pattern was completed on that day."
+        },
+        {
+          "step_id": "step2",
+          "description": "Aggregate all bearish reversal pattern completion signals (HS, BTOP, TTOP, RTOP, DTOP) into a single composite bearish flag.",
+          "function": "condition",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "hs_top_signal",
+            "btop_signal",
+            "ttop_signal",
+            "rtop_signal",
+            "dtop_signal"
+          ],
+          "parameters": {},
+          "expression": "bearish_flag = hs_top_signal OR btop_signal OR ttop_signal OR rtop_signal OR dtop_signal",
+          "output": "bearish_flag",
+          "output_type": "boolean",
+          "executable_explanation": "For each stock and each time point, take the five boolean indicator series and apply a logical OR across them. Result is a boolean time series indicating if any bearish pattern was completed on that day."
+        },
+        {
+          "step_id": "step3",
+          "description": "Generate final trade signal: long if only bullish patterns triggered, short if only bearish patterns triggered, otherwise hold/neutral.",
+          "function": "condition",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "bullish_flag",
+            "bearish_flag"
+          ],
+          "parameters": {},
+          "expression": "IF bullish_flag = True AND bearish_flag = False THEN trade_signal = 'long' ELSE IF bearish_flag = True AND bullish_flag = False THEN trade_signal = 'short' ELSE trade_signal = 'hold'",
+          "output": "trade_signal",
+          "output_type": "label",
+          "executable_explanation": "For each stock and day, evaluate the two boolean flags. Assign 'long' if only bullish patterns are present, 'short' if only bearish patterns are present, and 'hold' otherwise (including cases where both are True, neither is True, or the stock has no signals). This produces a per-asset categorical signal with possible values: long, short, hold."
+        }
+      ],
+      "execution_plan": [
+        {
+          "plan_id": "exec_1",
+          "description": "Technical chart pattern trading strategy: daily signal generation from 10 classical patterns aggregated into a single long/short/hold signal, executed at next close with a 1-day holding period and equal-weighted positions across all active signals",
+          "trigger": {
+            "trigger_type": "signal_driven",
+            "frequency": "daily",
+            "signal_lookup": "trade_signal",
+            "delay_bars": 1,
+            "price_type": "close"
+          },
+          "action": {
+            "signal_source": "trade_signal",
+            "logic": "WHEN 'long': LONG; WHEN 'short': SHORT",
+            "default_action": "hold"
+          },
+          "position_sizing": {
+            "method": "equal_weight",
+            "max_position_pct": null,
+            "total_exposure": null,
+            "long_short": "long_short",
+            "steps": [
+              {
+                "step_id": "sizing_step1",
+                "description": "Allocate equal weight to each stock with a long or short signal each day",
+                "scope": "cross_sectional",
+                "group_by": null,
+                "inputs": [
+                  "trade_signal"
+                ],
+                "parameters": {},
+                "expression": "IF trade_signal == 'long' THEN weight = 1 / n_long; IF trade_signal == 'short' THEN weight = -1 / n_short; ELSE weight = 0",
+                "output": "order_weights",
+                "output_type": "vector",
+                "executable_explanation": "Daily cross‐section: for each stock, if signal is 'long', set target weight = 1/n_long, where n_long is the number of stocks with a long signal that day; if 'short', target weight = -1/n_short; otherwise zero. Weights are target fractions for order_target_percent."
+              }
+            ],
+            "executable_explanation": "Equal-weight across all stocks with a valid signal on a given day; no volatility scaling or capital constraints beyond making each side long/short fully invested relative to signal count. Long and short legs are treated separately, summing to 100% exposure each if signals exist."
+          },
+          "executable_explanation": "This plan consumes the final trade_signal (long/short/hold) generated from aggregated bullish/bearish pattern flags. A signal of 'long' triggers a long position at the next bar's close with equal weight among all long stocks, 'short' triggers a short position with equal weight among all short stocks, and 'hold' keeps the stock out of the portfolio. Positions are held for exactly one bar (from entry close to next close) and then rebalanced daily."
+        }
+      ],
+      "risk_management": [
+        "No explicit stop-loss, position limits, drawdown constraints, or other risk management rules are mentioned in the paper."
+      ],
+      "executable_explanation": "Daily, for each stock, aggregate completed bullish and bearish chart pattern flags into a composite long/short/hold signal. On the next day's close, enter equal-weighted long positions in all stocks with a 'long' signal and equal-weighted short positions in all stocks with a 'short' signal, hold for one day (until the next close), then rebalance.",
+      "risk_management_executable_explanation": "No explicit risk rules are present; none are specified in the paper.",
+      "needs_human_review": [
+        {
+          "field_path": "execution_plan.trigger.delay_bars",
+          "label": "Lookahead bias adjustment",
+          "reason": "The paper assumes trade entry at the close of the signal day, which is not feasible without lookahead. The plan introduces a 1-day delay to avoid lookahead, but this shifts the return distribution by one day and may affect statistical conclusions.",
+          "questions": [
+            "Does the 1-day delay significantly alter the pattern's predictive power?",
+            "Should the entry price be next open instead, to more closely approximate the paper's 1-day close-to-close return with only an intraday lag?"
+          ]
+        },
+        {
+          "field_path": "execution_plan.position_sizing.method",
+          "label": "Portfolio weighting scheme",
+          "reason": "The paper does not explicitly define a portfolio construction method; it treats each pattern-stock independently for statistical tests. The plan assumes equal-weight across all signal stocks each day, which is a reasonable interpretation but may not reflect the original analysis's per-pattern approach.",
+          "questions": [
+            "Should the strategy be implemented separately for each pattern type, or combined as done here?",
+            "Is equal-weight across stocks correct, or should each stock receive a position size relative to market cap or another factor?"
+          ]
+        }
+      ]
+    }
+  ]
+}
