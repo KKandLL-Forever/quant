@@ -10,6 +10,7 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
 
 环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
   --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
+  --pivot kernel/zigzag 枢轴检测(kernel=核平滑LMW默认,识别更干净更准 / zigzag=固定9%阈值);--h 核带宽默认4
   --mode quick/long 主升浪判定(quick=k0.06默认高胜率小赚 / long=k0.09低胜率大赚)
   --train 训练并存盘(模型/HTML 按 mode 分文件);--eval 跑 walk-forward 诚实评估(不出 HTML)
 依赖：DuckDB(daily/daily_basic/adj_factor/cyq_perf/moneyflow);lightgbm;复用 run_patterns。
@@ -34,6 +35,7 @@ from sklearn.metrics import roc_auc_score
 
 from cache_tushare import DUCKDB_PATH
 from run_patterns import _detect
+from kernel_pivots import _detect_kernel
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
 MW_HURDLE_K = 0.090
@@ -202,13 +204,16 @@ def main():
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
+    ap.add_argument("--pivot", choices=["zigzag", "kernel"], default="kernel",
+                    help="枢轴检测:kernel=核平滑(LMW,带因果滞后,默认)、zigzag=固定%%阈值")
+    ap.add_argument("--h", type=float, default=4.0, help="核平滑带宽(仅 --pivot kernel,默认4)")
     ap.add_argument("--mode", choices=["quick", "long"], default="quick",
                     help="主升浪判定模式:quick=高胜率小赚(k=0.06,默认)、long=低胜率大赚(k=0.09)")
     args = ap.parse_args()
     global MW_HURDLE_K, MODEL_PATH, OUT
     MW_HURDLE_K = {"quick": 0.06, "long": 0.09}[args.mode]
-    MODEL_PATH = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_model_{args.mode}.pkl")
-    OUT = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_{args.mode}.html")
+    MODEL_PATH = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_model_{args.mode}_{args.pivot}.pkl")
+    OUT = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_{args.mode}_{args.pivot}.html")
     start_ts = pd.Timestamp(args.start)
     end_ts = pd.Timestamp(args.end) if args.end else None
 
@@ -324,7 +329,8 @@ def main():
             mf_net20 = (mfg["net_lg"].rolling(20).sum() / mfg["tot"].rolling(20).sum().abs()).values
         except KeyError:
             mf_net20 = np.full(len(cc), np.nan)
-        for typ, bo, pvs in _detect(cc, args.thr, 30):
+        dets = _detect_kernel(cc, args.h, 30) if args.pivot == "kernel" else _detect(cc, args.thr, 30)
+        for typ, bo, pvs in dets:
             d = pd.Timestamp(gd[bo])
             if d.year < 2020:
                 continue
