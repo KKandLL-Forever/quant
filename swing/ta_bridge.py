@@ -80,9 +80,47 @@ def get_china_stock_data_unified(ticker, start_date=None, end_date=None, *a, **k
             f"(收盘在MA20{pos})\n\n## 近30个交易日明细\n{tbl}\n")
 
 
+def _make_news_tool(toolkit=None):
+    """构造统一新闻工具(普通函数,与原版一致:可直接调用也可 bind_tools),底层走 a-stock-data(东财新闻+研报)。"""
+    import astock_news
+
+    def get_stock_news_unified(stock_code: str, max_news: int = 10, model_info: str = "") -> str:
+        """获取个股近期新闻 + 研报(机构/评级,东财数据源),返回带日期的中文摘要,用于消息面分析。"""
+        code = str(stock_code).split(".")[0]
+        try:
+            news = astock_news.stock_news(code)[:max_news]
+        except Exception:
+            news = []
+        try:
+            reps = astock_news.stock_reports(code)[:8]
+        except Exception:
+            reps = []
+        try:
+            anns = astock_news.stock_announcements(code)[:12]
+        except Exception:
+            anns = []
+        at = "\n".join(f"- {a['date']} {a['title']}" for a in anns) or "(无公告)"
+        nt = "\n".join(f"- {n['time'][:16]} {n['source']}: {n['title']}" for n in news) or "(无新闻)"
+        rt = "\n".join(f"- {r['date']} {r['org']} 评级{r['rating']}: {r['title']}" for r in reps) or "(无研报)"
+        return (f"# {code} 消息面\n\n## 官方公告(巨潮,利空/利好催化最关键)\n{at}\n\n"
+                f"## 个股新闻(东财)\n{nt}\n\n## 研报评级(东财)\n{rt}\n")
+
+    get_stock_news_unified.name = "get_stock_news_unified"
+    get_stock_news_unified.description = "获取个股近期新闻与研报(东财),返回带日期的中文摘要,用于消息面分析"
+    return get_stock_news_unified
+
+
 def apply():
-    """对 tradingagents.dataflows.interface 打补丁,使上述两接口走本地 DuckDB。"""
+    """patch TA-CN:行情/资料走本地 DuckDB,新闻工具走 a-stock-data(东财)。"""
     from tradingagents.dataflows import interface
     interface.get_china_stock_info_unified = get_china_stock_info_unified
     interface.get_china_stock_data_unified = get_china_stock_data_unified
+    import tradingagents.tools.unified_news_tool as unt
+    unt.create_unified_news_tool = _make_news_tool
+    from tradingagents.agents.analysts import news_analyst
+    news_analyst.create_unified_news_tool = _make_news_tool
+    # WHY: news 分析师靠 "DeepSeek" in 类名 触发"预抓新闻直喂LLM"(避开 deepseek 不可靠的 tool-loop),
+    # 但 TA-CN 把 deepseek 包装成 NormalizedChatOpenAI(不含该字样)→ 预抓不触发 → 报告空。改名强制触发。
+    from tradingagents.llm_clients.openai_client import NormalizedChatOpenAI
+    NormalizedChatOpenAI.__name__ = "DeepSeekNormalizedChatOpenAI"
     return True
