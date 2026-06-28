@@ -6,13 +6,12 @@ cache_tushare.py — Tushare A股日线数据缓存到 ClickHouse
 ═══════════════════════════════════════════════════════════════════════════════
 
   python cache_tushare.py --full                   # 首次全量拉取（DEFAULT_START → 今天）
-  python cache_tushare.py --full --start 20200101  # 全量拉取指定起始日
-  python cache_tushare.py --update                 # 增量更新（自动扫描并补齐缺失日期）
+  python cache_tushare.py --full --start 20200101  # 全量拉取指定起始日（默认只写本地 DuckDB）
+  python cache_tushare.py --update                 # 增量更新（默认只写本地 DuckDB，自动补齐缺失日期）
   python cache_tushare.py --update --date 20240515 # 只更新指定单日（所有表）
   python cache_tushare.py --update --workers 8     # 自定义并发数
-  python cache_tushare.py --update --no-cloud      # 跳过云端 ClickHouse，只更新本地 DuckDB
-                                                   #   （网络连云不稳时用；缺失日期改从本地 DuckDB 推算）
-                                                   #   需在 .pyenv.local 配置 LOCAL_DUCKDB_PATH
+  python cache_tushare.py --update --cloud         # 同时上传云端 ClickHouse（默认不上云,只写本地 DuckDB）
+                                                   #   本地模式需在 .pyenv.local 配置 LOCAL_DUCKDB_PATH
   python cache_tushare.py --update --cyq-rate 150  # 调低 cyq_perf 每分钟限速（频率报错多时用）
 
   数据更新成功后会自动重建本地 DuckDB 的 market_state 表（连板生态 + 中证1000 指数位置
@@ -159,7 +158,7 @@ WORKERS              = 8
 COMMIT_EVERY         = 100
 INSERT_SETTINGS      = {'max_partitions_per_insert_block': 2000}
 
-# --no-cloud 时置 False：跳过云端 ClickHouse 写入，读查询改走本地 DuckDB（见 _DuckReadAdapter）
+# 默认 False(只写本地 DuckDB)；加 --cloud 时置 True 才写云端 ClickHouse（见 _DuckReadAdapter）
 CLOUD_ENABLED = True
 
 # 各接口的真实数据起始日（由实际 MIN(trade_date) 反推，避免每次 --update 都重试拉空的早期日期）
@@ -658,7 +657,7 @@ class _DuckReadAdapter:
 
     def __init__(self, path: str):
         if not _DUCKDB_AVAILABLE:
-            raise RuntimeError("duckdb 未安装，--no-cloud 需要本地 DuckDB。pip install duckdb")
+            raise RuntimeError("duckdb 未安装，本地模式需要本地 DuckDB。pip install duckdb")
         self._con = _duckdb.connect(path)
 
     def execute(self, query, params=None, **kwargs):
@@ -2306,7 +2305,7 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
     sf_dates = [d for d in dates if d >= TABLE_START["stk_factor_pro"]]
-    print(f"\n[11d] stk_factor_pro 技术面因子（1进2 用，{TABLE_START['stk_factor']} 起，{len(sf_dates)} 天）")
+    print(f"\n[11d] stk_factor_pro 技术面因子（1进2 用，{TABLE_START['stk_factor_pro']} 起，{len(sf_dates)} 天）")
     _run_concurrent(pro, ck, "stk_factor_pro", sf_dates, fetch_stk_factor_df, "stk_factor_pro",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
@@ -2478,8 +2477,8 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=WORKERS, help=f"并发数（默认 {WORKERS}）")
     parser.add_argument("--cyq-rate", type=int, default=CYQ_MAX_PER_MIN,
                         help=f"cyq_perf 独立每分钟限速（默认 {CYQ_MAX_PER_MIN}，频率报错多则调小）")
-    parser.add_argument("--no-cloud", action="store_true",
-                        help="跳过云端 ClickHouse，只更新本地 DuckDB（网络不稳时用）")
+    parser.add_argument("--cloud", action="store_true",
+                        help="同时上传到云端 ClickHouse（默认只写本地 DuckDB）")
     args = parser.parse_args()
 
     _install_sigint_handler()
@@ -2490,21 +2489,21 @@ def main() -> None:
     pro = ts.pro_api()
 
     CYQ_MAX_PER_MIN = args.cyq_rate
-    if args.no_cloud:
-        if not DUCKDB_PATH:
-            raise RuntimeError("--no-cloud 需要本地 DuckDB：请在 .pyenv.local 设置 LOCAL_DUCKDB_PATH")
-        CLOUD_ENABLED = False
-        duck_writer = init_duckdb()
-        if duck_writer is None:
-            raise RuntimeError("--no-cloud 模式下本地 DuckDB 初始化失败。")
-        print(f"[--no-cloud] 跳过云端 ClickHouse，只更新本地 DuckDB: {DUCKDB_PATH}")
-        ck = _DuckReadAdapter(DUCKDB_PATH)
-    else:
+    if args.cloud:
         print(f"连接 ClickHouse {CH_HOST}:{CH_PORT}/{CH_DATABASE}")
         ck = init_db()
         duck_writer = init_duckdb()
         if duck_writer is not None:
             print(f"本地 DuckDB 已就绪: {DUCKDB_PATH}")
+    else:
+        if not DUCKDB_PATH:
+            raise RuntimeError("默认只写本地 DuckDB：请在 .pyenv.local 设置 LOCAL_DUCKDB_PATH（上云请加 --cloud）")
+        CLOUD_ENABLED = False
+        duck_writer = init_duckdb()
+        if duck_writer is None:
+            raise RuntimeError("本地 DuckDB 初始化失败。")
+        print(f"[本地模式] 只更新本地 DuckDB: {DUCKDB_PATH}（加 --cloud 可同时上传云端）")
+        ck = _DuckReadAdapter(DUCKDB_PATH)
 
     ok = False
     try:
