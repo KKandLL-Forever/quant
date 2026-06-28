@@ -10,7 +10,7 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
 
 环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
   --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
-  --mode quick/long 主升浪判定(quick=k0.06高胜率小赚 / long=k0.09默认低胜率大赚)
+  --mode quick/long 主升浪判定(quick=k0.06默认高胜率小赚 / long=k0.09低胜率大赚)
   --train 训练并存盘(模型/HTML 按 mode 分文件);--eval 跑 walk-forward 诚实评估(不出 HTML)
 依赖：DuckDB(daily/daily_basic/adj_factor/cyq_perf/moneyflow);lightgbm;复用 run_patterns。
 
@@ -102,11 +102,11 @@ def _adx(h, l, c, n=14):
 
 
 def _swing_exit(cc, gd, bo, atr_e, tpfrac):
-    """论文出场(硬/ATR止损+跟踪止损+部分止盈+超时)模拟,返回(盈亏,是否持仓中,离场日)。"""
+    """论文出场(硬/ATR止损+跟踪止损+部分止盈+超时)模拟,返回(盈亏,是否持仓中,清仓日,部分止盈日)。"""
     ep = cc[bo]
     stop_lv = min(ep * (1 - SW_FIXSTOP), ep - SW_ATRSTOP * atr_e)
     tp_lv = min(ep * (1 + SW_FIXTP), ep + SW_ATRTP * atr_e)
-    tp_done = False; remaining = 1.0; realized = 0.0; tract = False; hsince = 0.0
+    tp_done = False; remaining = 1.0; realized = 0.0; tract = False; hsince = 0.0; tp_dt = None
     for t2 in range(bo + 1, len(cc)):
         p = cc[t2]
         if not tract and p >= ep * (1 + SW_TRAILACT):
@@ -115,10 +115,10 @@ def _swing_exit(cc, gd, bo, atr_e, tpfrac):
             hsince = max(hsince, p)
         if p <= stop_lv or (tract and p <= hsince * (1 - SW_TRAILDIST)) or (t2 - bo) >= SW_STALE:
             realized += remaining * (p / ep - 1)
-            return realized - 2 * COST, False, pd.Timestamp(gd[t2])
+            return realized - 2 * COST, False, pd.Timestamp(gd[t2]), tp_dt
         if not tp_done and p >= tp_lv:
-            realized += tpfrac * (p / ep - 1); remaining = 1 - tpfrac; tp_done = True
-    return realized + remaining * (cc[-1] / ep - 1) - 2 * COST, True, None
+            realized += tpfrac * (p / ep - 1); remaining = 1 - tpfrac; tp_done = True; tp_dt = pd.Timestamp(gd[t2])
+    return realized + remaining * (cc[-1] / ep - 1) - 2 * COST, True, None, tp_dt
 
 
 def _fit_lgb(trf, vaf, seed):
@@ -202,8 +202,8 @@ def main():
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
-    ap.add_argument("--mode", choices=["quick", "long"], default="long",
-                    help="主升浪判定模式:quick=高胜率小赚(k=0.06)、long=低胜率大赚(k=0.09,默认)")
+    ap.add_argument("--mode", choices=["quick", "long"], default="quick",
+                    help="主升浪判定模式:quick=高胜率小赚(k=0.06,默认)、long=低胜率大赚(k=0.09)")
     args = ap.parse_args()
     global MW_HURDLE_K, MODEL_PATH, OUT
     MW_HURDLE_K = {"quick": 0.06, "long": 0.09}[args.mode]
@@ -349,7 +349,7 @@ def main():
             if donret is None:
                 donret = cc[-1] / ep - 1 - 2 * COST
             atr_e = atr.iloc[bo]
-            swret, swopen, swexit = _swing_exit(cc, gd, bo, atr_e, SW_TPFRAC)
+            swret, swopen, swexit, swtp = _swing_exit(cc, gd, bo, atr_e, SW_TPFRAC)
             swsweep = {fr: _swing_exit(cc, gd, bo, atr_e, fr)[0] for fr in SW_TPFRAC_SWEEP}
             try:
                 dbr = db.loc[(ts, d)]; cyr = cyq.loc[(ts, d)]
@@ -361,7 +361,7 @@ def main():
                 "launch": launch, "done": hit or full, "typ": typ,
                 "cross_day": cross_day, "gain_at_cross": gain_at_cross,
                 "donret": donret, "donopen": donopen, "donexit": donexit,
-                "swret": swret, "swopen": swopen, "swexit": swexit,
+                "swret": swret, "swopen": swopen, "swexit": swexit, "swtp": swtp,
                 **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
                 "price": craw[bo],
                 "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
@@ -474,6 +474,7 @@ def main():
             "swret": None if pd.isna(r["swret"]) else round(float(r["swret"]) * 100, 0),
             "swopen": bool(r["swopen"]),
             "swexit": None if pd.isna(r["swexit"]) else str(r["swexit"].date()),
+            "swtp": None if pd.isna(r["swtp"]) else str(r["swtp"].date()),
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "hold": int(np.busday_count(r["date"].date(),
                      (r["donexit"] if not pd.isna(r["donexit"]) else pd.Timestamp(sel)).date())),
@@ -607,7 +608,7 @@ function App(){{
  var perday=NTRADE?(rows.length/NTRADE).toFixed(2):'—';
  var today=LATEST;
  var todays=rows.filter(function(r){{return r.date===today;}}).sort(function(a,b){{return b.score-a.score;}});
- var sells=rows.filter(function(r){{return r.donexit===today||r.swexit===today;}});
+ var sells=rows.filter(function(r){{return r.donexit===today||r.swexit===today||r.swtp===today;}});
  var todayEl=e('div',{{className:'today'}},
    e('div',{{className:'h'}},'最新交易日('+(today||'-')+') · 买入 '+todays.length+' 条 / 需卖出 '+sells.length+' 条'),
    e('div',null, e('b',null,'买入:'), ' ',
@@ -616,9 +617,9 @@ function App(){{
        e('span',{{className:r.mkt==='健康'?'pos':'neg'}},'['+r.board+r.mkt+']'));}})
        : e('span',{{style:{{color:'#999'}}}},'无')),
    e('div',{{style:{{marginTop:6}}}}, e('b',null,'需卖出:'), ' ',
-     sells.length? sells.map(function(r){{var t=[];if(r.donexit===today)t.push('唐奇安');if(r.swexit===today)t.push('波段');
+     sells.length? sells.map(function(r){{var t=[];if(r.donexit===today)t.push('唐奇安清仓');if(r.swexit===today)t.push('波段清仓');if(r.swtp===today)t.push('波段部分止盈(卖50%)');
        return e('span',{{className:'it',key:'s'+r.ts}},
-       e('b',null,r.name+'('+r.ts+')'),' ',e('span',{{className:'neg'}},'卖出['+t.join('/')+']'));}})
+       e('b',null,r.name+'('+r.ts+')'),' ',e('span',{{className:'neg'}},t.join('/')));}})
        : e('span',{{style:{{color:'#999'}}}},'无')));
  return e('div',null,
   todayEl,
