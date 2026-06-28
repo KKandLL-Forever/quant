@@ -1,0 +1,262 @@
+{
+  "paper_title": "Optimal Stop-Loss and Take-Profit Parameterization for Autonomous Trading Agent Swarm",
+  "num_detected": 1,
+  "strategies": [
+    {
+      "strategy_name": "Agent Swarm Stop-Loss/Take-Profit Calibration",
+      "strategy_type": "technical",
+      "asset_class": [
+        "crypto"
+      ],
+      "description": "This paper optimizes exit policies (stop-loss, trailing stop, partial take-profit, stale close, ATR-based levels, circuit breaker) for a swarm of autonomous crypto trading agents. Over 900 historical trades are replayed under alternative parameter sets to evaluate risk-adjusted performance. The study finds that tighter stop-losses (10%), early profit capture (10% partial take-profit, 75% closing), and volatility-scaled levels substantially improve Sharpe ratio compared to the baseline.",
+      "plan_id": null,
+      "strategy_id": null,
+      "backtest_id": null,
+      "price_data": true,
+      "volume_data": false,
+      "fundamental_data": [],
+      "alternative_data": [],
+      "lookback_period": null,
+      "data_frequency": null,
+      "data_source": null,
+      "time_period": null,
+      "universe_assets": null,
+      "universe_selection_criteria": null,
+      "expected_sharpe": null,
+      "expected_return": null,
+      "max_drawdown": null,
+      "expected_performance": {},
+      "indicators": [
+        {
+          "indicator_id": "average_true_range",
+          "name": "Average True Range (ATR)",
+          "category": "technical",
+          "formula": "Average True Range over a lookback window (period not specified in the paper). True Range is the maximum of: current high minus low, absolute value of current high minus previous close, and absolute value of current low minus previous close. ATR is the simple moving average of True Range values over the window.",
+          "latex": "TR_t = \\max(H_t - L_t, |H_t - C_{t-1}|, |L_t - C_{t-1}|); \\quad ATR_t = \\frac{1}{n} \\sum_{i=0}^{n-1} TR_{t-i}",
+          "inputs": [
+            "high",
+            "low",
+            "close"
+          ],
+          "parameters": {
+            "window": null
+          },
+          "scope": "time_series",
+          "output_type": "scalar",
+          "data_semantics": "price_series",
+          "executable_explanation": "Inputs are high, low, close. Compute True Range series: for each bar, TR = max(high - low, |high - previous close|, |low - previous close|). Then ATR is the simple moving average of TR over a window length. Output is a scalar representing current ATR value for that asset and time."
+        }
+      ],
+      "logic_pipeline": [
+        {
+          "step_id": "step1",
+          "description": "Compute current Average True Range (ATR) value for the asset using the default lookback (assumed 14 periods).",
+          "function": "custom",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "average_true_range"
+          ],
+          "parameters": {},
+          "expression": "atr_value = indicator('average_true_range')",
+          "output": "atr_value",
+          "output_type": "scalar",
+          "executable_explanation": "Retrieve the scalar ATR value for the current bar. Input is a time-series indicator that outputs a scalar each period."
+        },
+        {
+          "step_id": "step2",
+          "description": "Compute the effective stop-loss level: the tighter (higher) of a fixed 10% loss from entry and a volatility-scaled stop (entry - 1.0 * ATR).",
+          "function": "arithmetic",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "atr_value",
+            "entry_price"
+          ],
+          "parameters": {
+            "fixed_sl_pct": 0.1,
+            "atr_stop_mult": 1.0
+          },
+          "expression": "stop_level = min(entry_price * (1 - 0.10), entry_price - 1.0 * atr_value)",
+          "output": "stop_level",
+          "output_type": "scalar",
+          "executable_explanation": "Inputs: entry_price (scalar trade entry price, assumed known from trade state) and atr_value (step1 scalar). Compute two candidate stop prices and take the minimum, i.e., the one triggered first if price declines."
+        },
+        {
+          "step_id": "step3",
+          "description": "Compute the partial take-profit trigger level: the closer (lower) of a fixed 10% gain from entry and a volatility-scaled target (entry + 2.0 * ATR).",
+          "function": "arithmetic",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "atr_value",
+            "entry_price"
+          ],
+          "parameters": {
+            "fixed_tp_pct": 0.1,
+            "atr_tp_mult": 2.0
+          },
+          "expression": "tp_level = min(entry_price * (1 + 0.10), entry_price + 2.0 * atr_value)",
+          "output": "tp_level",
+          "output_type": "scalar",
+          "executable_explanation": "Inputs: entry_price (scalar) and atr_value (scalar). Compute two candidate take-profit prices and take the minimum, representing the nearest target likely to be hit first."
+        },
+        {
+          "step_id": "step4",
+          "description": "Check if the trailing stop activation condition is met (price has risen at least 3% from entry).",
+          "function": "condition",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "current_price",
+            "entry_price"
+          ],
+          "parameters": {
+            "trailing_activation_pct": 0.03
+          },
+          "expression": "trailing_active = (current_price >= entry_price * (1 + 0.03))",
+          "output": "trailing_active",
+          "output_type": "boolean",
+          "executable_explanation": "Inputs: current_price (market price at current time) and entry_price. Output True if price has reached 3% profit."
+        },
+        {
+          "step_id": "step5",
+          "description": "Track the highest price observed since the trailing stop was activated. If not active, set to None.",
+          "function": "custom",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "current_price",
+            "trailing_active"
+          ],
+          "parameters": {},
+          "expression": "if trailing_active: highest_since_activation = max(highest_since_activation_prev, current_price) else: None",
+          "output": "highest_since_activation",
+          "output_type": "scalar",
+          "executable_explanation": "Maintains the running maximum price from the moment trailing_active became True. Requires storage of previous value across time steps. Output is None if trailing stop not yet active."
+        },
+        {
+          "step_id": "step6",
+          "description": "Compute the trailing stop level: 5% below the highest price since activation. Only valid if trailing_active is True.",
+          "function": "arithmetic",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "highest_since_activation",
+            "trailing_active"
+          ],
+          "parameters": {
+            "trailing_distance_pct": 0.05
+          },
+          "expression": "if trailing_active: trailing_stop = highest_since_activation * (1 - 0.05) else: None",
+          "output": "trailing_stop",
+          "output_type": "scalar",
+          "executable_explanation": "Input: highest_since_activation (scalar). If active, compute the stop level 5% below that peak; otherwise output None. Used later to trigger exit."
+        },
+        {
+          "step_id": "step7",
+          "description": "Check all exit conditions: stop-loss hit, take-profit hit, trailing stop hit, or stale duration exceeded (48 hours).",
+          "function": "condition",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "current_price",
+            "stop_level",
+            "tp_level",
+            "trailing_stop",
+            "trailing_active",
+            "trade_duration_hours"
+          ],
+          "parameters": {
+            "stale_close_hours": 48,
+            "partial_fraction": 0.75
+          },
+          "expression": "exit_signal = (current_price <= stop_level) or (current_price >= tp_level) or (trailing_active and current_price <= trailing_stop) or (trade_duration_hours >= 48). Note: take-profit trigger closes 75% of position (partial_fraction = 0.75); other triggers close the full remaining position.",
+          "output": "exit_signal",
+          "output_type": "boolean",
+          "executable_explanation": "Inputs: current_price (scalar), stop_level, tp_level, trailing_stop, trailing_active, trade_duration_hours (hours since entry). Output True if any exit condition is met; False otherwise."
+        },
+        {
+          "step_id": "step8",
+          "description": "Generate final trade signal. An external, undisclosed agent swarm provides the buy signal; this pipeline only controls the exit. When an exit condition is true, output 'sell', otherwise 'hold' if a position is open, else 'buy' (assumed provided externally). For practical purposes, we output 'sell' or 'hold'.",
+          "function": "condition",
+          "scope": "time_series",
+          "group_by": "",
+          "inputs": [
+            "exit_signal"
+          ],
+          "parameters": {},
+          "expression": "if exit_signal: trade_signal = 'sell' else: trade_signal = 'hold' (assuming position is already open; actual entry is handled by external black-box agents)",
+          "output": "trade_signal",
+          "output_type": "label",
+          "executable_explanation": "Input: exit_signal boolean. Maps the boolean to a categorical signal: 'sell' when True, 'hold' when False. The system does not generate a 'buy' signal; buys come from a proprietary swarm."
+        }
+      ],
+      "execution_plan": [
+        {
+          "plan_id": "exec_1",
+          "description": "Exit‑only overlay for autonomous trading agent swarm; monitors open positions and emits full‑close signal when any pre‑calibrated exit rule is hit.",
+          "trigger": {
+            "trigger_type": "signal_driven",
+            "frequency": null,
+            "signal_lookup": null,
+            "delay_bars": 1,
+            "price_type": "close"
+          },
+          "action": {
+            "signal_source": "trade_signal",
+            "logic": "WHEN trade_signal = 'sell': CLOSE ALL LONG (market order at next available price); WHEN trade_signal = 'hold': HOLD existing position; external 'buy' entries are not driven by this signal.",
+            "default_action": "hold"
+          },
+          "position_sizing": {
+            "method": "signal_based",
+            "max_position_pct": null,
+            "total_exposure": null,
+            "long_short": "long_only",
+            "steps": [
+              {
+                "step_id": "sizing_step1",
+                "description": "Convert exit signal to flat weight",
+                "scope": "time_series",
+                "group_by": null,
+                "inputs": [
+                  "trade_signal"
+                ],
+                "parameters": {},
+                "expression": "If trade_signal = 'sell', set order_weight = 0 (close position); otherwise maintain current weight (from external entry, possibly scaled by circuit‑breaker).",
+                "output": "order_weights",
+                "output_type": "scalar",
+                "executable_explanation": "On bar where trade_signal becomes 'sell', place market sell order at next bar's open to close the whole asset position; for 'hold', no order generated. Entry side is handled externally."
+              }
+            ],
+            "executable_explanation": "Uses the categorical exit signal to either liquidate or stay invested; no other sizing operations are performed by this plan."
+          },
+          "executable_explanation": "Consumes the final 'trade_signal' label from the exit‑pipeline: 'sell' → liquidate immediately (close all long), 'hold' → do nothing. Externally, buy signals from the agent swarm (not modeled) open new long positions; circuit‑breaker scaling of new entry sizes occurs outside this plan."
+        }
+      ],
+      "risk_management": [
+        "Fixed stop‑loss at 10% decline from entry price (entire position closed)",
+        "Trailing stop activated when price rises ≥3% from entry; it follows highest price since activation with a 5% trailing distance below that peak, closing the position if hit",
+        "Partial take‑profit at 10% gain from entry (75% of position closed, remainder stays subject to other exits)",
+        "Stale‑close after 48 hours (position automatically closed if open >48 h)",
+        "ATR‑based stop multiplier 1.0 (stop distance = 1.0 × ATR from entry, whichever is tighter than fixed 10% stop)",
+        "ATR‑based take‑profit multiplier 2.0 (profit target = 2.0 × ATR from entry, whichever is lower than fixed 10% target)",
+        "Circuit‑breaker: after 2 consecutive losing trades, all subsequent new positions are opened at 25% of normal size; resets after a win"
+      ],
+      "executable_explanation": "For each open long position, on every intraday price update (tick/bar), the pipeline computes ATR, checks fixed & volatility-scaled stop-loss/take-profit/trailing-stop levels, and stale time; if any exit condition is met, a 'sell' signal is generated; otherwise hold. External agent swarm provides buy signals not modeled here; this plan only closes positions. Circuit-breaker scales down new entry sizes after consecutive losses (applied externally).",
+      "risk_management_executable_explanation": "Explicit, hard‑coded exit rules: stop‑loss 10%, trailing stop activation 3%/distance 5%, partial TP 10% at 75% fraction, 48‑h stale close, ATR multipliers 1.0/2.0, and circuit‑breaker scaling to 25% after 2 losses. No position‑per‑asset limits or sector constraints are mentioned.",
+      "needs_human_review": [
+        {
+          "field_path": "execution_plan[0].position_sizing (entry sizing / circuit‑breaker integration)",
+          "label": "External entry logic & base position size",
+          "reason": "The paper treats the agent swarm that generates buy signals as a black‑box; the initial position size per trade is not specified. The circuit‑breaker rule scales new entries after consecutive losses, but the baseline 'normal size' is unknown. Without the entry mechanism, the full trade loop cannot be reconstructed.",
+          "questions": [
+            "What is the base position size for an incoming buy (e.g., fixed capital per trade, percentage of portfolio, or equal risk)?",
+            "How exactly is the circuit‑breaker applied to the external buy signals—does it reduce the trade size multiplicatively before the position is opened, and does it interact with any other sizing logic?",
+            "Are there any other portfolio‑level constraints (e.g., maximum number of concurrent positions, max exposure) that affect entry?"
+          ]
+        }
+      ]
+    }
+  ]
+}

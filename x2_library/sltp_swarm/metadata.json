@@ -1,0 +1,17 @@
+{
+  "source_file": "/tmp/x2dl/sltp.pdf",
+  "source_filename": "sltp.pdf",
+  "source_format": ".pdf",
+  "paper_title": "Optimal Stop-Loss and Take-Profit Parameterization for Autonomous Trading Agent Swarm",
+  "parser_mode": "builtin",
+  "extractor_mode": "multilayer",
+  "instruction_files": [],
+  "instructions_dir": "",
+  "instruction_context_chars": 0,
+  "model": "deepseek/deepseek-v4-pro",
+  "num_strategies": 1,
+  "strategies": [
+    "Agent Swarm Stop-Loss/Take-Profit Calibration"
+  ],
+  "version": "0.3.0"
+}

@@ -1,0 +1,35 @@
+[
+  {
+    "commission": 0.0,
+    "final_value": 215947.64,
+    "return_value": 215947.64,
+    "total_return": 115.95,
+    "sharpe_ratio": 0.6696,
+    "max_drawdown_pct": 32.0,
+    "num_trades": 125,
+    "won_trades": 73,
+    "lost_trades": 52
+  },
+  {
+    "commission": 0.0001,
+    "final_value": 211495.66,
+    "return_value": 211495.66,
+    "total_return": 111.5,
+    "sharpe_ratio": 0.6573,
+    "max_drawdown_pct": 32.21,
+    "num_trades": 125,
+    "won_trades": 73,
+    "lost_trades": 52
+  },
+  {
+    "commission": 0.0005,
+    "final_value": 193455.16,
+    "return_value": 193455.16,
+    "total_return": 93.46,
+    "sharpe_ratio": 0.6021,
+    "max_drawdown_pct": 33.29,
+    "num_trades": 125,
+    "won_trades": 71,
+    "lost_trades": 54
+  }
+]
