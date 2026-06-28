@@ -198,7 +198,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--thr", type=float, default=0.09)
     ap.add_argument("--n", type=int, default=800)
-    ap.add_argument("--start", default="20260101", help="信号起始日 YYYYMMDD")
+    ap.add_argument("--start", default="20250101", help="信号起始日 YYYYMMDD")
     ap.add_argument("--end", default=None, help="信号结束日 YYYYMMDD,默认到最新")
     ap.add_argument("--tier", type=int, default=5, help="只显示 ML 评分前百分之几(如 5=top5%%、10=top10%%、100=全部)")
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
@@ -494,7 +494,7 @@ def main():
     _end = end_ts or pd.Timestamp(sel)
     ntrade = int(((_cal >= start_ts) & (_cal <= _end)).sum())
     cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
-    html = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>ML top信号 2026</title>
+    html = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>{args.mode}·top{args.tier}%·{args.start}~{args.end or '今'}·{args.pivot}</title>
 <link rel=stylesheet href="https://unpkg.com/antd@4.24.15/dist/antd.min.css">
 <style>body{{font-family:-apple-system,"PingFang SC",sans-serif;max-width:1850px;margin:22px auto;padding:0 18px;color:#222}}
 .today{{background:#eef6ff;border:1px solid #b6d4fe;border-radius:8px;padding:10px 14px;margin:10px 0}}
@@ -532,15 +532,16 @@ var e=React.createElement;
 function portfolio(rows,exk,retk){{
  var init=150000,nslot=4,buys={{}};
  rows.forEach(function(r){{ if(r[retk]==null) return; var ex=r[exk]||LATEST;
-   (buys[r.date]=buys[r.date]||[]).push({{ex:ex,ret:r[retk],sc:r.score}}); }});
+   (buys[r.date]=buys[r.date]||[]).push({{ts:r.ts,ex:ex,ret:r[retk],sc:r.score}}); }});
  var cash=init,op=[],curve=[];
  for(var i=0;i<CAL.length;i++){{ var d=CAL[i],keep=[];
    for(var j=0;j<op.length;j++){{ if(op[j].ex<=d) cash+=op[j].amt*(1+op[j].ret); else keep.push(op[j]); }}
    op=keep;
    var bs=(buys[d]||[]).slice().sort(function(a,b){{return b.sc-a.sc;}});
    for(var k=0;k<bs.length;k++){{ if(op.length>=nslot) break;
+     if(op.some(function(p){{return p.ts===bs[k].ts;}})) continue;
      var lk=0;op.forEach(function(p){{lk+=p.amt;}}); var unit=(cash+lk)/nslot;
-     if(cash+1e-6>=unit&&unit>0){{ cash-=unit; op.push({{ex:bs[k].ex,ret:bs[k].ret,amt:unit}}); }} }}
+     if(cash+1e-6>=unit&&unit>0){{ cash-=unit; op.push({{ts:bs[k].ts,ex:bs[k].ex,ret:bs[k].ret,amt:unit}}); }} }}
    var lk2=0;op.forEach(function(p){{lk2+=p.amt;}}); curve.push([d,Math.round(cash+lk2)]); }}
  return curve;
 }}
@@ -561,8 +562,12 @@ function svgChart(title,series,init){{
  ax+='<text x="'+(W-pad+2)+'" y="'+(by+4)+'" font-size="11" fill="#999">本金'+(init/10000)+'万</text>';
  ax+='<text x="6" y="'+(Y(mx)+4)+'" font-size="11" fill="#999">'+Math.round(mx).toLocaleString()+'</text>';
  ax+='<text x="6" y="'+(Y(mn)+4)+'" font-size="11" fill="#999">'+Math.round(mn).toLocaleString()+'</text>';
- ax+='<text x="'+pad+'" y="'+(H-8)+'" font-size="11" fill="#999">'+series[0][0]+'</text>';
- ax+='<text x="'+(W-pad-60)+'" y="'+(H-8)+'" font-size="11" fill="#999">'+series[n-1][0]+'</text>';
+ var months=[];
+ for(var ii=0;ii<n;ii++){{ if(ii===0||series[ii][0].slice(0,7)!==series[ii-1][0].slice(0,7)) months.push(ii); }}
+ var step=Math.ceil(months.length/12);
+ for(var mi=0;mi<months.length;mi+=step){{ var gi=months[mi]; var gx=X(gi);
+   ax+='<line x1="'+gx+'" y1="'+(H-pad)+'" x2="'+gx+'" y2="'+(H-pad+4)+'" stroke="#ccc"/>';
+   ax+='<text x="'+gx+'" y="'+(H-8)+'" font-size="10" fill="#999" text-anchor="middle">'+series[gi][0].slice(0,7)+'</text>'; }}
  return '<svg width="'+W+'" height="'+H+'" style="max-width:100%;border:1px solid #eee;border-radius:8px;background:#fff">'+lbl+ax+'<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.8"/></svg>';
 }}
 var cols=[
