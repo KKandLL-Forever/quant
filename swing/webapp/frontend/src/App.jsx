@@ -12,7 +12,8 @@ const MD = ({ children }) => (
 const INIT = 150000
 
 // 组合回测:4等份,出现信号占一份买入(同股未清仓不加仓,最多4只),按出场口径平仓
-function portfolio(rows, exk, retk, cal) {
+// ponytail: 无逐日价,持仓中仓位按其(终值)ret 标记浮盈算进曲线;有逐日价才能精确逐日 mark
+function portfolio(rows, exk, retk, cal, parts) {
   const buys = {}
   rows.forEach(r => {
     if (r[retk] == null) return
@@ -24,18 +25,18 @@ function portfolio(rows, exk, retk, cal) {
     op = op.filter(p => { if (p.ex <= d) { cash += p.amt * (1 + p.ret); return false } return true })
     const bs = (buys[d] || []).slice().sort((a, b) => b.sc - a.sc)
     for (const b of bs) {
-      if (op.length >= 4) break
+      if (op.length >= parts) break
       if (op.some(p => p.ts === b.ts)) continue
-      const unit = (cash + op.reduce((s, p) => s + p.amt, 0)) / 4
+      const unit = (cash + op.reduce((s, p) => s + p.amt, 0)) / parts
       if (cash + 1e-6 >= unit && unit > 0) { cash -= unit; op.push({ ts: b.ts, ex: b.ex, ret: b.ret, amt: unit }) }
     }
-    curve.push([d, Math.round(cash + op.reduce((s, p) => s + p.amt, 0))])
+    curve.push([d, Math.round(cash + op.reduce((s, p) => s + p.amt * (1 + p.ret), 0))])
   }
   return curve
 }
 
 // 按组合规则(15万4等份/最多4只/满仓放弃/同股不加仓)重放,产出交易记录;未参与的信号标错过
-function tradeLog(rows, exk, retk, holdk, openk, cal) {
+function tradeLog(rows, exk, retk, holdk, openk, cal, parts) {
   const byDate = {}
   rows.forEach(r => { if (r[retk] == null) return; (byDate[r.date] = byDate[r.date] || []).push(r) })
   const last = cal[cal.length - 1]
@@ -45,15 +46,61 @@ function tradeLog(rows, exk, retk, holdk, openk, cal) {
     op = op.filter(p => p.ex > d)
     const bs = (byDate[d] || []).slice().sort((a, b) => b.score - a.score)
     for (const r of bs) {
-      let status
-      if (op.some(p => p.ts === r.ts)) status = '已持有'
-      else if (op.length >= 4) status = '满仓错过'
-      else { status = '已交易'; op.push({ ts: r.ts, ex: r[exk] || last }) }
+      if (op.some(p => p.ts === r.ts)) continue
+      const status = op.length >= parts ? '满仓错过' : '已交易'
+      if (status === '已交易') op.push({ ts: r.ts, ex: r[exk] || last })
       log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status,
                  exit: r[exk], ret: r[retk], hold: r[holdk], open: r[openk] })
     }
   }
   return log
+}
+
+// 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
+function KLineChart({ data, marks }) {
+  const { ohlc, bis, zs, bo } = data
+  if (!ohlc || ohlc.length < 2) return <div>无数据</div>
+  const W = 1500, H = 580, padL = 52, padR = 14, padT = 14, padB = 26
+  const n = ohlc.length
+  const lo = Math.min(...ohlc.map(b => b[3])), hi = Math.max(...ohlc.map(b => b[2]))
+  const X = i => padL + i * (W - padL - padR) / (n - 1)
+  const Y = v => padT + (hi - v) * (H - padT - padB) / (hi - lo)
+  const cw = Math.max(1.5, (W - padL - padR) / n * 0.6)
+  const di = Object.fromEntries(ohlc.map((b, i) => [b[0], i]))
+  const months = []
+  for (let i = 0; i < n; i++) if (i === 0 || ohlc[i][0].slice(0, 7) !== ohlc[i - 1][0].slice(0, 7)) months.push(i)
+  const biPts = (bis || []).filter(p => di[p[0]] != null).map(p => `${X(di[p[0]]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
+  return (
+    <svg width={W} height={H} style={{ maxWidth: '100%', background: '#fff' }}>
+      <text x={4} y={Y(hi) + 4} fontSize={11} fill="#999">{hi.toFixed(2)}</text>
+      <text x={4} y={Y(lo) + 4} fontSize={11} fill="#999">{lo.toFixed(2)}</text>
+      {(zs || []).map((z, k) => di[z.sdt] != null && di[z.edt] != null && (
+        <rect key={k} x={X(di[z.sdt])} y={Y(z.zg)} width={X(di[z.edt]) - X(di[z.sdt])} height={Y(z.zd) - Y(z.zg)}
+          fill="rgba(255,165,0,0.12)" stroke="rgba(230,126,34,0.6)" strokeWidth={1} />
+      ))}
+      {ohlc.map((b, i) => {
+        const up = b[4] >= b[1], col = up ? '#c0392b' : '#27ae60'
+        return <g key={i}>
+          <line x1={X(i)} y1={Y(b[2])} x2={X(i)} y2={Y(b[3])} stroke={col} strokeWidth={1} />
+          <rect x={X(i) - cw / 2} y={Y(Math.max(b[1], b[4]))} width={cw} height={Math.max(1, Math.abs(Y(b[1]) - Y(b[4])))} fill={col} />
+        </g>
+      })}
+      {biPts && <polyline points={biPts} fill="none" stroke="#1677ff" strokeWidth={1.6} />}
+      {di[bo] != null && <line x1={X(di[bo])} y1={padT} x2={X(di[bo])} y2={H - padB} stroke="#999" strokeDasharray="3 3" />}
+      {(() => { const seen = {}; return (marks || []).map((m, k) => {
+        const i = di[m.date]; if (i == null) return null
+        if (m.kind === 'buy') {
+          const y = Y(ohlc[i][3]) + 6
+          return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 5},${y + 9} ${X(i) + 5},${y + 9}`} fill="#c0392b" />
+            <text x={X(i)} y={y + 20} fontSize={10} fill="#c0392b" textAnchor="middle">买</text></g>
+        }
+        const o = seen[m.date] || 0; seen[m.date] = o + 1; const y = Y(ohlc[i][2]) - 6 - o * 13
+        return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 5},${y - 9} ${X(i) + 5},${y - 9}`} fill="#27ae60" />
+          <text x={X(i)} y={y - 12} fontSize={10} fill="#27ae60" textAnchor="middle">{m.label}</text></g>
+      }) })()}
+      {months.map(gi => <text key={gi} x={X(gi)} y={H - 6} fontSize={9} fill="#aaa" textAnchor="middle">{ohlc[gi][0].slice(2, 7)}</text>)}
+    </svg>
+  )
 }
 
 function Chart({ title, series }) {
@@ -100,7 +147,23 @@ export default function App() {
   const [payload, setPayload] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
+  const [parts, setParts] = useState(4)
   const [ana, setAna] = useState(null)   // {open, loading, code, date, data}
+  const [kl, setKl] = useState(null)     // K线弹窗 {open, loading, code, date, data}
+
+  const openKline = async (code, date, row) => {
+    const marks = [{ date, kind: 'buy', label: '买' }]
+    if (row) {
+      if (row.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
+      if (row.swexit) marks.push({ date: row.swexit, kind: 'sell', label: '波' })
+      if (row.czexit) marks.push({ date: row.czexit, kind: 'sell', label: '缠' })
+    }
+    setKl({ open: true, loading: true, code, date, marks })
+    try {
+      const r = await fetch('/api/kline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date }) })
+      setKl({ open: true, loading: false, code, date, marks, data: await r.json() })
+    } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
+  }
 
   const train = async (extra = {}) => {
     setLoading(true); setPayload(null)
@@ -170,7 +233,8 @@ export default function App() {
     { title: '板块', dataIndex: 'board', filters: ['主板', '科创', '创业'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.board === v },
     { title: '板块大盘', dataIndex: 'mkt', render: v => <span style={{ color: v === '健康' ? '#c0392b' : '#27ae60' }}>{v}</span> },
     { title: '档位/ML分', dataIndex: 'score', defaultSortOrder: 'descend', sorter: (a, b) => a.score - b.score, render: (v, r) => <span><b>{r.tier}</b> {v}</span> },
-    { title: '代码', dataIndex: 'ts' }, { title: '名称', dataIndex: 'name' },
+    { title: '代码', dataIndex: 'ts' },
+    { title: '名称', dataIndex: 'name', render: (v, r) => <a onClick={() => openKline(r.ts, r.date, r)}>{v}</a> },
     { title: '价格', dataIndex: 'price', sorter: (a, b) => a.price - b.price, render: v => v + '元' },
     { title: '形态', dataIndex: 'typ', filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v, r) => r.typ === v },
     { title: '至今最大涨幅', dataIndex: 'maxfwd', sorter: (a, b) => (a.maxfwd || -999) - (b.maxfwd || -999), render: v => pct(v, true) },
@@ -259,12 +323,17 @@ export default function App() {
       </div>}
 
       {payload && <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 12, color: '#666', margin: '6px 0' }}>组合回测:15万本金4等份,出现信号占一份买入(同股不加仓,最多4只,满仓放弃),费率已计</div>
-        <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal)} />
+        <div style={{ fontSize: 12, color: '#666', margin: '6px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+          组合回测:15万本金分
+          <Select size="small" style={{ width: 70 }} value={parts} onChange={setParts}
+            options={[2, 3, 4, 5, 6, 8, 10].map(v => ({ value: v, label: v + '份' }))} />
+          等份,出现信号占一份买入(同股不加仓,最多{parts}只,满仓放弃),费率已计
+        </div>
+        <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal, parts)} />
         <div style={{ height: 8 }} />
-        <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal)} />
+        <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} />
         <div style={{ height: 8 }} />
-        <Chart title="缠论卖点出场" series={portfolio(rows, 'czexit', 'czr', payload.cal)} />
+        <Chart title="缠论卖点出场" series={portfolio(rows, 'czexit', 'czr', payload.cal, parts)} />
       </div>}
 
       {payload && <Tabs style={{ marginBottom: 12 }} items={[
@@ -272,17 +341,17 @@ export default function App() {
         { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },
         { key: 'cz', label: '缠论 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
       ].map(t => {
-        const log = tradeLog(rows, ...t.d, payload.cal)
+        const log = tradeLog(rows, ...t.d, payload.cal, parts)
         const tcols = [
           { title: '股票', render: (_, r) => `${r.name}(${r.ts})` },
           { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
-          { title: '状态', dataIndex: 'status', filters: ['已交易', '满仓错过', '已持有'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.status === v,
+          { title: '状态', dataIndex: 'status', filters: ['已交易', '满仓错过'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.status === v,
             render: v => v === '已交易' ? <Tag color="blue">已交易</Tag> : <Tag color="orange">错过·{v}</Tag> },
           { title: '离场日', dataIndex: 'exit', render: (v, r) => (v || '持仓中') + (r.hold != null ? `(${r.hold}天)` : '') },
           { title: '盈亏', dataIndex: 'ret', sorter: (a, b) => (a.ret ?? -999) - (b.ret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.open ? '(持仓)' : ''}{r.status !== '已交易' ? ' (未参与)' : ''}</span> },
         ]
         const done = log.filter(r => r.status === '已交易'), missed = log.filter(r => r.status !== '已交易')
-        const cl = done.filter(r => !r.open).map(r => r.ret)
+        const cl = done.map(r => r.ret)
         const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
         const summary = (
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
@@ -292,6 +361,7 @@ export default function App() {
             <span>平均回撤 <b style={{ color: '#27ae60' }}>{avg(cl.filter(v => v < 0))}</b></span>
             <span>平均持仓 <b>{done.length ? (done.reduce((s, r) => s + (r.hold || 0), 0) / done.length).toFixed(0) + '天' : '—'}</b></span>
             <span style={{ color: '#999' }}>错过 <b>{missed.length}</b> 笔(其中本可盈利 {missed.filter(r => r.ret > 0).length} 笔,均值 {avg(missed.filter(r => r.ret > 0).map(r => r.ret))})</span>
+            <span style={{ color: '#bbb', fontSize: 12 }}>胜率/盈亏含持仓中按现价</span>
           </div>
         )
         return {
@@ -308,6 +378,16 @@ export default function App() {
         "进行中"=该出场口径下尚未离场。点表头可排序/筛选。模型严格用区间起始日之前的数据训练,无未来函数。
         「LLM分析」对该股在突破日跑 技术+消息面 多agent 分析(约1-3分钟),给分析师层(趋势感知)买/卖/持。
       </div>}
+
+      <Modal open={!!kl?.open} width={1560} footer={null} onCancel={() => setKl(null)}
+        title={<span>K线 + 缠论形态 {kl?.code} @ {kl?.date}(突破日)</span>}>
+        {kl?.loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="加载中..." /><div style={{ height: 30 }} /></div> :
+          kl?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{kl.data.error}</pre> :
+            kl?.data?.ok ? <div>
+              <KLineChart data={kl.data} marks={kl.marks} />
+              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买;绿▼=卖(唐/波/缠 各口径离场);红涨绿跌(后复权)</div>
+            </div> : <div>无数据</div>}
+      </Modal>
 
       <Modal open={!!ana?.open} width={900} footer={null} onCancel={() => setAna(null)}
         title={<span>LLM 分析 {ana?.code} @ {ana?.date}
