@@ -58,3 +58,5 @@ rmi_*.png
 !template3.html
 first10Result/
 eval_results/
+swing/.evcache/
+swing/webapp/backend/.analyze_cache/

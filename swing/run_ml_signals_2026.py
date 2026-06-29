@@ -123,6 +123,94 @@ def _swing_exit(cc, gd, bo, atr_e, tpfrac):
     return realized + remaining * (cc[-1] / ep - 1) - 2 * COST, True, None, tp_dt
 
 
+def _czsc_one(job):
+    """单股缠论卖点出场(供并行调用):job=(ts, gd, cc, hh, ll, vv, dates, sel)。worker 内 import czsc。
+    返回 [(key, value)...];czsc 缺失或异常则返回 []。"""
+    ts, gd, cc, hh, ll, vv, dates, sel = job
+    try:
+        from czsc import CZSC, RawBar, Freq
+        import czsc.signals as CS
+    except Exception:
+        return []
+
+    def _sell(c):
+        for fn in ("cxt_first_sell_V221126", "tas_macd_bc_V221201"):
+            f = getattr(CS, fn, None)
+            if not f:
+                continue
+            try:
+                out = f(c, di=1)
+            except Exception:
+                try:
+                    out = f(c)
+                except Exception:
+                    continue
+            for v in out.values():
+                tk = str(v).split("_")
+                if fn == "cxt_first_sell_V221126" and tk[0] != "其他":
+                    return True
+                if fn == "tas_macd_bc_V221201" and tk[0] == "背驰" and "红" in str(v):
+                    return True
+        return False
+
+    bars = [RawBar(symbol=ts, id=i, dt=pd.Timestamp(gd[i]), freq=Freq.D, open=cc[i], close=cc[i],
+                   high=hh[i], low=ll[i], vol=vv[i], amount=0.0) for i in range(len(cc))]
+    try:
+        c = CZSC(bars[:1]); sd = [0] if _sell(c) else []
+        for i in range(1, len(bars)):
+            c.update(bars[i])
+            if _sell(c):
+                sd.append(i)
+    except Exception:
+        return []
+    idxmap = {pd.Timestamp(gd[i]): i for i in range(len(gd))}
+    sdset = set(sd)
+    ma60 = pd.Series(cc).rolling(60).mean().to_numpy()
+    res = []
+    for d in dates:
+        bo = idxmap.get(pd.Timestamp(d))
+        if bo is None:
+            continue
+        ex = next((t for t in range(bo + 1, len(cc))
+                   if t in sdset or (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= cc[bo] * 0.85), None)
+        if ex is None:
+            ret, exd, opn = cc[-1] / cc[bo] - 1 - 2 * COST, None, True
+        else:
+            ret, exd, opn = cc[ex] / cc[bo] - 1 - 2 * COST, pd.Timestamp(gd[ex]), False
+        hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
+        res.append(((ts, str(pd.Timestamp(d).date())),
+                    (round(ret * 100, 0), round(ret, 4),
+                     None if exd is None else str(exd.date()), opn, hold)))
+    return res
+
+
+def _czsc_exits(px, top, sel, workers=1):
+    """对 top 信号算缠论卖点出场:每股切片后并行跑 _czsc_one。
+    返回 {(ts,日期str):(盈亏%, raw, 离场日str或None, 是否持仓中, 持有交易日)}。"""
+    want = set(top["ts"].unique())
+    ent_dates = {ts: set(top[top["ts"] == ts]["date"]) for ts in want}
+    jobs = []
+    for ts, g in px[px["ts_code"].isin(want)].groupby("ts_code"):
+        g = g.sort_values("trade_date").reset_index(drop=True)
+        bos = [i for i, d in enumerate(g["trade_date"]) if d in ent_dates[ts]]
+        if not bos:
+            continue
+        g = g.iloc[max(0, min(bos) - 300):].reset_index(drop=True)
+        jobs.append((ts, g["trade_date"].to_numpy(), g["c"].to_numpy(), g["h"].to_numpy(),
+                     g["l"].to_numpy(), g["v"].to_numpy(),
+                     list(top[top["ts"] == ts]["date"]), sel))
+    out = {}
+    if workers <= 1 or len(jobs) < 4:
+        for j in jobs:
+            out.update(dict(_czsc_one(j)))
+        return out
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        for r in ex.map(_czsc_one, jobs):
+            out.update(dict(r))
+    return out
+
+
 def _fit_lgb(trf, vaf, seed):
     """用 val 早停训练 LGB,返回(模型, best_iter, 训练AUC, valAUC);val 太小则退回固定200轮无早停。"""
     if len(vaf) < 200 or vaf["label"].nunique() < 2:
@@ -194,6 +282,127 @@ def _evaluate_wf(df, seed, tier):
         print(f"    {k2:<10}{vv:8.1f}")
 
 
+def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
+    """逐股检测突破事件并算全部特征/出场模拟(mode/tier 无关的重活,可缓存);存 kstar/full 供按模式重算标签。"""
+    rows = []
+    for ts, g in px.groupby("ts_code"):
+        g = g.sort_values("trade_date").reset_index(drop=True)
+        c, h, l, v = g["c"], g["h"], g["l"], g["v"]
+        cc = c.to_numpy(); gd = g["trade_date"].to_numpy(); craw = g["c_raw"].to_numpy()
+        rs20a = g["rs20"].to_numpy(); rs60a = g["rs60"].to_numpy(); rsturna = g["rsturn"].to_numpy()
+        srsa = g["sector_rs"].to_numpy(); lb60a = g["lianban60"].to_numpy(); sheata = g["sector_heat"].to_numpy()
+        roea = g["roe"].to_numpy(); npyoya = g["npyoy"].to_numpy(); fcposa = g["fc_pos"].to_numpy()
+        if len(cc) < 180:
+            continue
+        ma20, ma60 = c.rolling(20).mean(), c.rolling(60).mean()
+        adx, atr = _adx(h, l, c)
+        pos1y = (c - c.rolling(250).min()) / (c.rolling(250).max() - c.rolling(250).min())
+        basew = (h.rolling(40).max().shift(1) - l.rolling(40).min().shift(1)) / l.rolling(40).min().shift(1)
+        vma = v.rolling(20).mean()
+        ret20 = c / c.shift(20) - 1; ret60 = c / c.shift(60) - 1
+        dlow = l.rolling(DON_EXIT).min().shift(1).to_numpy()
+        bd = "科创" if ts.startswith(("688", "689")) else "创业" if ts[:3] in ("300", "301") else "主板"
+        breg = regs.get(BOARD_IDX.get(bd, "沪深300"), {})
+        try:
+            mfg = mf.loc[ts].reindex(g["trade_date"])
+            mf_net20 = (mfg["net_lg"].rolling(20).sum() / mfg["tot"].rolling(20).sum().abs()).values
+        except KeyError:
+            mf_net20 = np.full(len(cc), np.nan)
+        dets = _detect_kernel(cc, args.h, 30) if args.pivot == "kernel" else _detect(cc, args.thr, 30)
+        for typ, bo, pvs in dets:
+            d = pd.Timestamp(gd[bo])
+            if d.year < 2020:
+                continue
+            endi = min(bo + MW_DAYS, len(cc) - 1)
+            fwd = cc[bo + 1:endi + 1] / cc[bo] - 1
+            maxfwd = fwd.max() if len(fwd) else np.nan
+            kstar = float(np.max(fwd / np.sqrt(np.arange(1, len(fwd) + 1)))) if len(fwd) else np.nan
+            full = bo + MW_DAYS < len(cc)
+            crossed = (fwd >= MW_HURDLE_K * np.sqrt(np.arange(1, len(fwd) + 1))) if len(fwd) else np.array([False])
+            cidx = int(np.argmax(crossed)) if crossed.any() else -1
+            cross_day = cidx + 1 if crossed.any() else np.nan
+            gain_at_cross = float(fwd[cidx]) if crossed.any() else np.nan
+            seg = cc[bo:endi + 1]
+            peak_off = int(seg.argmax())
+            launch = int(seg[:peak_off + 1].argmin()) if peak_off > 0 else None
+            ep = cc[bo]; donret = None; donopen = True; donexit = None
+            for t2 in range(bo + 1, len(cc)):
+                if (not np.isnan(dlow[t2]) and cc[t2] < dlow[t2]) or not breg.get(pd.Timestamp(gd[t2]), False):
+                    donret = cc[t2] / ep - 1 - 2 * COST; donopen = False; donexit = pd.Timestamp(gd[t2]); break
+            if donret is None:
+                donret = cc[-1] / ep - 1 - 2 * COST
+            atr_e = atr.iloc[bo]
+            swret, swopen, swexit, swtp = _swing_exit(cc, gd, bo, atr_e, SW_TPFRAC)
+            swsweep = {fr: _swing_exit(cc, gd, bo, atr_e, fr)[0] for fr in SW_TPFRAC_SWEEP}
+            try:
+                dbr = db.loc[(ts, d)]; cyr = cyq.loc[(ts, d)]
+            except KeyError:
+                dbr = cyr = None
+            mr = mkt.loc[d] if d in mkt.index else None
+            rows.append({
+                "date": d, "ts": ts, "year": d.year, "maxfwd": maxfwd, "kstar": kstar, "full": full,
+                "cross_day": cross_day, "gain_at_cross": gain_at_cross,
+                "launch": launch, "typ": typ,
+                "donret": donret, "donopen": donopen, "donexit": donexit,
+                "swret": swret, "swopen": swopen, "swexit": swexit, "swtp": swtp,
+                **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
+                "price": craw[bo],
+                "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
+                "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo],
+                "dma20": cc[bo] / ma20.iloc[bo] - 1, "dma60": cc[bo] / ma60.iloc[bo] - 1,
+                "atrp": atr.iloc[bo] / cc[bo], "adx": adx.iloc[bo],
+                "ret20": ret20.iloc[bo], "ret60": ret60.iloc[bo],
+                "volr": v.iloc[bo] / vma.iloc[bo] if vma.iloc[bo] else np.nan,
+                "winrate": cyr["winner_rate"] if cyr is not None else np.nan,
+                "cyqconc": cyr["cyqconc"] if cyr is not None else np.nan,
+                "mfnet20": mf_net20[bo],
+                "pe": dbr["pe_ttm"] if dbr is not None else np.nan,
+                "pb": dbr["pb"] if dbr is not None else np.nan,
+                "lnmv": np.log(dbr["circ_mv"]) if dbr is not None and dbr["circ_mv"] > 0 else np.nan,
+                "rs20": rs20a[bo], "rs60": rs60a[bo], "rsturn": rsturna[bo],
+                "bregnum": 1.0 if breg.get(d, False) else 0.0,
+                "crowd": mr["crowd"] if mr is not None else np.nan,
+                "idxdist": mr["idxdist"] if mr is not None else np.nan,
+                "lb2rate": mr["lb2rate"] if mr is not None else np.nan,
+                "nlb": mr["nlb"] if mr is not None else np.nan,
+                "upratio": mr["upratio"] if mr is not None else np.nan,
+                "sector_rs": srsa[bo], "lianban60": lb60a[bo], "sector_heat": sheata[bo],
+                "roe": roea[bo], "npyoy": npyoya[bo], "fc_pos": fcposa[bo],
+            })
+    return rows
+
+
+def _label_by_mode(df):
+    """按当前 MW_HURDLE_K 从 kstar/full 重算 label(主升浪命中)/done/cross_day/gain_at_cross,使缓存 df 与模式无关。"""
+    hit = df["kstar"].fillna(-9) >= MW_HURDLE_K
+    df["label"] = np.where(hit, 1, np.where(df["full"], 0, -1)).astype(int)
+    df["done"] = (hit | df["full"]).astype(bool)
+    return df
+
+
+def _build_events_parallel(px, db, cyq, mf, mkt, regs, BOARD_IDX, args, workers):
+    """按股票分块并行跑 _build_event_rows(macOS spawn:每块只 pickle 该块的数据);workers<=1 退串行。"""
+    codes = list(px["ts_code"].unique())
+    if workers <= 1 or len(codes) < 100:
+        return _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args)
+    from concurrent.futures import ProcessPoolExecutor
+    chunks = [list(x) for x in np.array_split(codes, workers) if len(x)]
+    rows = []
+    with ProcessPoolExecutor(max_workers=workers) as ex:
+        futs = []
+        for ch in chunks:
+            chs = set(ch)
+            futs.append(ex.submit(_build_event_rows,
+                                  px[px["ts_code"].isin(chs)],
+                                  db[db.index.get_level_values(0).isin(chs)],
+                                  cyq[cyq.index.get_level_values(0).isin(chs)],
+                                  mf[mf.index.get_level_values(0).isin(chs)],
+                                  mkt, regs, BOARD_IDX, args))
+        for f in futs:
+            rows.extend(f.result())
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--thr", type=float, default=0.09)
@@ -208,6 +417,7 @@ def main():
                     help="枢轴检测:kernel=核平滑(LMW,带因果滞后,默认)、zigzag=固定%%阈值")
     ap.add_argument("--h", type=float, default=4.0, help="核平滑带宽(仅 --pivot kernel,默认4)")
     ap.add_argument("--json", default=None, help="把结构化数据(信号/横幅/日历)输出到该 JSON 文件(给前后端用)")
+    ap.add_argument("--workers", type=int, default=min(8, (os.cpu_count() or 2)), help="特征提取并行进程数(默认~CPU数)")
     ap.add_argument("--mode", choices=["quick", "long"], default="quick",
                     help="主升浪判定模式:quick=高胜率小赚(k=0.06,默认)、long=低胜率大赚(k=0.09)")
     args = ap.parse_args()
@@ -306,94 +516,16 @@ def main():
     cyq["cyqconc"] = (cyq["cost_85pct"] - cyq["cost_15pct"]) / cyq["cost_50pct"]
     cyq = cyq.set_index(["ts_code", "trade_date"]); mf = mf.set_index(["ts_code", "trade_date"])
 
-    rows = []
-    for ts, g in px.groupby("ts_code"):
-        g = g.sort_values("trade_date").reset_index(drop=True)
-        c, h, l, v = g["c"], g["h"], g["l"], g["v"]
-        cc = c.to_numpy(); gd = g["trade_date"].to_numpy(); craw = g["c_raw"].to_numpy()
-        rs20a = g["rs20"].to_numpy(); rs60a = g["rs60"].to_numpy(); rsturna = g["rsturn"].to_numpy()
-        srsa = g["sector_rs"].to_numpy(); lb60a = g["lianban60"].to_numpy(); sheata = g["sector_heat"].to_numpy()
-        roea = g["roe"].to_numpy(); npyoya = g["npyoy"].to_numpy(); fcposa = g["fc_pos"].to_numpy()
-        if len(cc) < 180:
-            continue
-        ma20, ma60 = c.rolling(20).mean(), c.rolling(60).mean()
-        adx, atr = _adx(h, l, c)
-        pos1y = (c - c.rolling(250).min()) / (c.rolling(250).max() - c.rolling(250).min())
-        basew = (h.rolling(40).max().shift(1) - l.rolling(40).min().shift(1)) / l.rolling(40).min().shift(1)
-        vma = v.rolling(20).mean()
-        ret20 = c / c.shift(20) - 1; ret60 = c / c.shift(60) - 1
-        dlow = l.rolling(DON_EXIT).min().shift(1).to_numpy()
-        bd = "科创" if ts.startswith(("688", "689")) else "创业" if ts[:3] in ("300", "301") else "主板"
-        breg = regs.get(BOARD_IDX.get(bd, "沪深300"), {})
-        try:
-            mfg = mf.loc[ts].reindex(g["trade_date"])
-            mf_net20 = (mfg["net_lg"].rolling(20).sum() / mfg["tot"].rolling(20).sum().abs()).values
-        except KeyError:
-            mf_net20 = np.full(len(cc), np.nan)
-        dets = _detect_kernel(cc, args.h, 30) if args.pivot == "kernel" else _detect(cc, args.thr, 30)
-        for typ, bo, pvs in dets:
-            d = pd.Timestamp(gd[bo])
-            if d.year < 2020:
-                continue
-            endi = min(bo + MW_DAYS, len(cc) - 1)
-            fwd = cc[bo + 1:endi + 1] / cc[bo] - 1
-            maxfwd = fwd.max() if len(fwd) else np.nan
-            hurdle = MW_HURDLE_K * np.sqrt(np.arange(1, len(fwd) + 1))
-            crossed = (fwd >= hurdle) if len(fwd) else np.array([False])
-            hit = bool(crossed.any())
-            full = bo + MW_DAYS < len(cc)
-            label = 1 if hit else (0 if full else -1)
-            cidx = int(np.argmax(crossed)) if hit else -1
-            cross_day = cidx + 1 if hit else np.nan
-            gain_at_cross = float(fwd[cidx]) if hit else np.nan
-            seg = cc[bo:endi + 1]
-            peak_off = int(seg.argmax())
-            launch = int(seg[:peak_off + 1].argmin()) if peak_off > 0 else None
-            ep = cc[bo]; donret = None; donopen = True; donexit = None
-            for t2 in range(bo + 1, len(cc)):
-                if (not np.isnan(dlow[t2]) and cc[t2] < dlow[t2]) or not breg.get(pd.Timestamp(gd[t2]), False):
-                    donret = cc[t2] / ep - 1 - 2 * COST; donopen = False; donexit = pd.Timestamp(gd[t2]); break
-            if donret is None:
-                donret = cc[-1] / ep - 1 - 2 * COST
-            atr_e = atr.iloc[bo]
-            swret, swopen, swexit, swtp = _swing_exit(cc, gd, bo, atr_e, SW_TPFRAC)
-            swsweep = {fr: _swing_exit(cc, gd, bo, atr_e, fr)[0] for fr in SW_TPFRAC_SWEEP}
-            try:
-                dbr = db.loc[(ts, d)]; cyr = cyq.loc[(ts, d)]
-            except KeyError:
-                dbr = cyr = None
-            mr = mkt.loc[d] if d in mkt.index else None
-            rows.append({
-                "date": d, "ts": ts, "year": d.year, "label": label, "maxfwd": maxfwd,
-                "launch": launch, "done": hit or full, "typ": typ,
-                "cross_day": cross_day, "gain_at_cross": gain_at_cross,
-                "donret": donret, "donopen": donopen, "donexit": donexit,
-                "swret": swret, "swopen": swopen, "swexit": swexit, "swtp": swtp,
-                **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
-                "price": craw[bo],
-                "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
-                "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo],
-                "dma20": cc[bo] / ma20.iloc[bo] - 1, "dma60": cc[bo] / ma60.iloc[bo] - 1,
-                "atrp": atr.iloc[bo] / cc[bo], "adx": adx.iloc[bo],
-                "ret20": ret20.iloc[bo], "ret60": ret60.iloc[bo],
-                "volr": v.iloc[bo] / vma.iloc[bo] if vma.iloc[bo] else np.nan,
-                "winrate": cyr["winner_rate"] if cyr is not None else np.nan,
-                "cyqconc": cyr["cyqconc"] if cyr is not None else np.nan,
-                "mfnet20": mf_net20[bo],
-                "pe": dbr["pe_ttm"] if dbr is not None else np.nan,
-                "pb": dbr["pb"] if dbr is not None else np.nan,
-                "lnmv": np.log(dbr["circ_mv"]) if dbr is not None and dbr["circ_mv"] > 0 else np.nan,
-                "rs20": rs20a[bo], "rs60": rs60a[bo], "rsturn": rsturna[bo],
-                "bregnum": 1.0 if breg.get(d, False) else 0.0,
-                "crowd": mr["crowd"] if mr is not None else np.nan,
-                "idxdist": mr["idxdist"] if mr is not None else np.nan,
-                "lb2rate": mr["lb2rate"] if mr is not None else np.nan,
-                "nlb": mr["nlb"] if mr is not None else np.nan,
-                "upratio": mr["upratio"] if mr is not None else np.nan,
-                "sector_rs": srsa[bo], "lianban60": lb60a[bo], "sector_heat": sheata[bo],
-                "roe": roea[bo], "npyoy": npyoya[bo], "fc_pos": fcposa[bo],
-            })
-    df = pd.DataFrame(rows)
+    import pickle
+    _evdir = os.path.expanduser("~/AI/quart/swing/.evcache")
+    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_{sel}.pkl")
+    if (not args.eval) and os.path.exists(_evkey):
+        df = pd.read_pickle(_evkey)
+    else:
+        df = pd.DataFrame(_build_events_parallel(px, db, cyq, mf, mkt, regs, BOARD_IDX, args, args.workers))
+        if not args.eval:
+            os.makedirs(_evdir, exist_ok=True); df.to_pickle(_evkey)
+    df = _label_by_mode(df)
     if args.eval:
         _evaluate_wf(df, args.seed, args.tier)
         return
@@ -462,11 +594,13 @@ def main():
               f"{(v>0).mean()*100:>6.0f}%{'—':>7}{'—':>9}")
 
     import json
+    czx = _czsc_exits(px, top, sel, args.workers)
     data = []
     for _, r in top.iterrows():
         st = ("已走出主升浪" if r["label"] == 1 else "未达") if r["done"] else "进行中"
         code = r["ts"][:3]
         board = "科创" if r["ts"].startswith(("688", "689")) else "创业" if code in ("300", "301") else "主板"
+        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None))
         data.append({
             "date": str(r["date"].date()), "ts": r["ts"], "name": names.get(r["ts"], ""),
             "board": board, "mkt": "健康" if regs.get(BOARD_IDX.get(board, "沪深300"), {}).get(r["date"], False) else "走坏",
@@ -482,6 +616,7 @@ def main():
             "swopen": bool(r["swopen"]),
             "swexit": None if pd.isna(r["swexit"]) else str(r["swexit"].date()),
             "swtp": None if pd.isna(r["swtp"]) else str(r["swtp"].date()),
+            "czret": cz[0], "czr": cz[1], "czexit": cz[2], "czopen": cz[3], "czhold": cz[4],
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "hold": int(np.busday_count(r["date"].date(),
                      (r["donexit"] if not pd.isna(r["donexit"]) else pd.Timestamp(sel)).date())),
@@ -600,7 +735,10 @@ var cols=[
  {{title:'离场日',dataIndex:'donexit',sorter:function(a,b){{return (a.donexit||'')<(b.donexit||'')?-1:1;}},render:function(v,r){{return (v||'持仓中')+'('+r.hold+'天)';}}}},
  {{title:'波段止盈止损盈亏',dataIndex:'swret',sorter:function(a,b){{return (a.swret==null?-999:a.swret)-(b.swret==null?-999:b.swret);}},
    render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.swopen?'(持仓中)':''));}}}},
- {{title:'波段离场日',dataIndex:'swexit',sorter:function(a,b){{return (a.swexit||'')<(b.swexit||'')?-1:1;}},render:function(v,r){{return (v||'持仓中')+'('+r.swhold+'天)';}}}}
+ {{title:'波段离场日',dataIndex:'swexit',sorter:function(a,b){{return (a.swexit||'')<(b.swexit||'')?-1:1;}},render:function(v,r){{return (v||'持仓中')+'('+r.swhold+'天)';}}}},
+ {{title:'缠论盈亏',dataIndex:'czret',sorter:function(a,b){{return (a.czret==null?-999:a.czret)-(b.czret==null?-999:b.czret);}},
+   render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.czopen?'(持仓中)':''));}}}},
+ {{title:'缠论离场日',dataIndex:'czexit',sorter:function(a,b){{return (a.czexit||'')<(b.czexit||'')?-1:1;}},render:function(v,r){{return r.czret==null?'—':(v||'持仓中')+(r.czhold!=null?'('+r.czhold+'天)':'');}}}}
 ];
 function card(v,l,calc){{return e('div',{{className:'card'}},e('div',{{className:'v'}},v),e('div',{{className:'l'}},l),e('div',{{className:'calc'}},calc));}}
 function App(){{

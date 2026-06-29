@@ -147,6 +147,8 @@ export default function App() {
     { title: '唐奇安离场', dataIndex: 'donexit', render: (v, r) => (v || '持仓中') + '(' + r.hold + '天)' },
     { title: '波段盈亏', dataIndex: 'swret', sorter: (a, b) => (a.swret ?? -999) - (b.swret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.swopen ? '(持仓)' : ''}</span> },
     { title: '波段离场', dataIndex: 'swexit', render: (v, r) => (v || '持仓中') + '(' + r.swhold + '天)' },
+    { title: '缠论盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
+    { title: '缠论离场', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
     { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date)}>分析</Button> },
   ]
 
@@ -217,6 +219,8 @@ export default function App() {
         <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal)} />
         <div style={{ height: 8 }} />
         <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal)} />
+        <div style={{ height: 8 }} />
+        <Chart title="缠论卖点出场" series={portfolio(rows, 'czexit', 'czr', payload.cal)} />
       </div>}
 
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
