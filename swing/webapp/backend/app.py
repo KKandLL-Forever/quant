@@ -91,10 +91,16 @@ def analyze(req: AnalyzeReq):
         ta_analyze._load_keys()
         state, risk_decision = ta_analyze.analyze(req.code, req.date)
         verdict = ta_analyze.analyst_verdict(state)
+        bf = os.path.join(CACHE_DIR, f"biz_{req.code.split('.')[0]}.json")
+        if os.path.exists(bf):
+            business = json.load(open(bf))
+        else:
+            business = ta_analyze.business_profile(req.code)
+            json.dump(business, open(bf, "w"), ensure_ascii=False)
         res = {"ok": True, "code": req.code, "date": req.date,
                "market_report": state.get("market_report") or "",
                "news_report": state.get("news_report") or "",
-               "verdict": verdict, "risk_decision": risk_decision, "cached": False}
+               "verdict": verdict, "business": business, "risk_decision": risk_decision, "cached": False}
         with open(cf, "w") as f:
             json.dump(res, f, ensure_ascii=False)
         return res

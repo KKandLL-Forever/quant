@@ -61,6 +61,14 @@ def get_china_stock_data_unified(ticker, start_date=None, end_date=None, *a, **k
     end = str(end_date) if end_date else con.execute("SELECT MAX(trade_date) FROM daily").fetchone()[0]
     g = con.execute("""SELECT trade_date, open, high, low, close, vol, pct_chg FROM daily
         WHERE ts_code=? AND trade_date<=? ORDER BY trade_date""", [ts, str(end)]).fetch_df()
+    try:
+        ind = con.execute("""SELECT macd_dif_hfq,macd_dea_hfq,macd_hfq,kdj_k_hfq,kdj_d_hfq,kdj_hfq,
+            rsi_hfq_6,rsi_hfq_12,rsi_hfq_24,boll_upper_hfq,boll_mid_hfq,boll_lower_hfq,
+            bias1_hfq,bias2_hfq,bias3_hfq,cci_hfq,wr_hfq,dmi_pdi_hfq,dmi_mdi_hfq,dmi_adx_hfq
+            FROM stk_factor_pro WHERE ts_code=? AND trade_date<=? ORDER BY trade_date DESC LIMIT 1""",
+            [ts, str(end)]).fetchone()
+    except Exception:
+        ind = None
     con.close()
     if g.empty:
         return f"{name}({ts}) 无本地行情数据(≤{end})"
@@ -73,11 +81,21 @@ def get_china_stock_data_unified(ticker, start_date=None, end_date=None, *a, **k
     rec["trade_date"] = rec["trade_date"].dt.date
     tbl = rec.to_string(index=False)
     pos = "上方" if last["close"] > ma[20] else "下方"
+    if ind:
+        (dif, dea, mac, kk, kd, kj, r6, r12, r24, bu, bm, bl, b1, b2, b3, cci, wr, pdi, mdi, adx) = ind
+        ib = (f"\n## 技术指标(真实值,tushare,后复权)\n"
+              f"MACD: DIF {dif:.2f} DEA {dea:.2f} 柱 {mac:+.2f}({'红柱/多头' if mac > 0 else '绿柱/空头'})\n"
+              f"KDJ: K {kk:.1f} D {kd:.1f} J {kj:.1f}  | RSI: 6日 {r6:.1f} 12日 {r12:.1f} 24日 {r24:.1f}\n"
+              f"BOLL(后复权): 上 {bu:.1f} 中 {bm:.1f} 下 {bl:.1f}  | BIAS: 6 {b1:+.1f}% 12 {b2:+.1f}% 24 {b3:+.1f}%\n"
+              f"CCI {cci:.0f} | WR {wr:.1f} | DMI: +DI {pdi:.1f} -DI {mdi:.1f} ADX {adx:.1f}({'趋势强' if adx > 25 else '弱/盘整'})\n"
+              f"(注:BOLL为后复权值,勿与上方原始价直接比;看 MACD金叉死叉/KDJ/RSI超买超卖/DMI 这些信号)\n")
+    else:
+        ib = "\n(技术指标 stk_factor_pro 无数据)\n"
     return (f"# {name}({ts}) 行情报告(截止 {str(end)[:10]},PIT)\n\n"
             f"最新收盘: {last['close']:.2f}  当日涨跌: {last['pct_chg']:+.2f}%\n"
             f"区间涨跌: 5日 {chg(5):+.1f}% | 20日 {chg(20):+.1f}% | 60日 {chg(60):+.1f}%\n"
             f"均线(原始价): MA5 {ma[5]:.2f} MA10 {ma[10]:.2f} MA20 {ma[20]:.2f} MA60 {ma[60]:.2f}  "
-            f"(收盘在MA20{pos})\n\n## 近30个交易日明细\n{tbl}\n")
+            f"(收盘在MA20{pos})\n{ib}\n## 近30个交易日明细\n{tbl}\n")
 
 
 PIT_END = None

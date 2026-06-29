@@ -37,7 +37,7 @@ def analyze(code, date, analysts=("market", "news")):
     from tradingagents.graph.trading_graph import TradingAgentsGraph
     cfg = dict(DEFAULT_CONFIG)
     cfg.update({"llm_provider": "deepseek", "deep_think_llm": "deepseek-v4-pro",
-                "quick_think_llm": "deepseek-v4-pro", "backend_url": "https://api.deepseek.com",
+                "quick_think_llm": "deepseek-v4-flash", "backend_url": "https://api.deepseek.com",
                 "online_tools": True, "max_debate_rounds": 1})
     ta = TradingAgentsGraph(selected_analysts=list(analysts), debug=False, config=cfg)
     return ta.propagate(str(code).split(".")[0], date, progress_callback=lambda *a, **k: None)
@@ -68,6 +68,61 @@ def analyst_verdict(state):
         return json.loads(txt[txt.index("{"):txt.rindex("}") + 1])
     except Exception:
         return {"action": "?", "raw": txt[:200]}
+
+
+def business_profile(code):
+    """公司产业链地位深度分析:主营/上中下游/全球+国内市占率/议价能力(结合毛利率等真实财务)/双向卡脖子。"""
+    import json
+    import duckdb
+    import tushare as ts
+    from openai import OpenAI
+    import ta_bridge
+    from cache_tushare import DUCKDB_PATH
+    tscode = ta_bridge._norm(code)
+    pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
+    df = pro.stock_company(ts_code=tscode, fields="main_business,business_scope,introduction")
+    if df is None or df.empty:
+        return {"raw": "无公司资料"}
+    r = df.iloc[0]
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
+        FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
+    mv = con.execute("""SELECT total_mv,pe_ttm,pb FROM daily_basic WHERE ts_code=?
+        ORDER BY trade_date DESC LIMIT 1""", [tscode]).fetchone()
+    swr = con.execute("SELECT l1_name,l2_name,l3_name FROM sw_member WHERE ts_code=?", [tscode]).fetchone()
+    con.close()
+    fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
+                                   f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
+    mvtxt = "无" if not mv else f"总市值{mv[0]/10000:.0f}亿 PE(TTM){mv[1]} PB{mv[2]}"
+    sw = "/".join(x for x in (swr or []) if x) if swr else ""
+    info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
+            f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}")
+    prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
+
+{info}
+
+请判断并尽量量化:
+1) products: 主营产品/核心业务
+2) chain: 上游|中游|下游;chain_desc: 上下游分别是谁
+3) market_pos: 全球与国内的市场地位/市占率(尽量给数字或区间,如"国内HDI约X%、全球前N";没把握就说"约/估")
+4) pricing: 议价能力——结合毛利率{('('+str(fin[0])+'%)') if fin else ''}与行业对比,说强/中/弱及原因(高毛利=强议价)
+5) bottleneck: 卡脖子方向——是"被卡"(依赖海外/国产替代)还是"卡别人"(我方主导/海外依赖我)还是"否";给 被卡|卡别人|否|部分,reason 一句话带依据
+6) summary: 一句话总结其在供应链的真实地位
+
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":""}}"""
+    cli = OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
+    txt = cli.chat.completions.create(model="deepseek-v4-pro", temperature=0.3,
+                                      messages=[{"role": "user", "content": prompt}]).choices[0].message.content
+    try:
+        d = json.loads(txt[txt.index("{"):txt.rindex("}") + 1])
+        for x in ("上游", "中游", "下游"):  # 模型有时把整串枚举塞进来,取第一个匹配
+            if x in str(d.get("chain", "")):
+                d["chain"] = x
+                break
+        d["fin"] = fintxt
+        return d
+    except Exception:
+        return {"raw": txt[:400]}
 
 
 def _latest_td():

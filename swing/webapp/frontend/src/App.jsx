@@ -239,6 +239,16 @@ export default function App() {
                 <b>分析师层判断(趋势感知):</b> <Tag color={ana.data.verdict.action === '卖出' ? 'red' : ana.data.verdict.action === '买入' ? 'green' : 'blue'}>{ana.data.verdict.action}</Tag>
                 置信 {ana.data.verdict.confidence} — {ana.data.verdict.reasoning}
               </div>}
+              {ana.data.business && <div style={{ background: '#f0f7ff', border: '1px solid #cfe2ff', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
+                {(() => { const b = ana.data.business; if (b.raw) return <span>{b.raw}</span>; return <>
+                  <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
+                  {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
+                  {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
+                  {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
+                  {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
+                  {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
+                </> })()}
+              </div>}
               <h4>技术面</h4><MD>{ana.data.market_report}</MD>
               <h4 style={{ marginTop: 12 }}>消息面(公告/新闻/研报)</h4><MD>{ana.data.news_report}</MD>
             </div>}

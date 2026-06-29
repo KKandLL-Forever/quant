@@ -173,6 +173,14 @@ TABLE_START = {
     "cyq_perf":           "20200101",
 }
 
+# stk_factor_pro 缓存的技术指标(后复权 hfq,与 ML 口径一致):MACD/KDJ/RSI/BOLL/BIAS/CCI/WR/CR/ATR/OBV/MTM/ROC/TRIX/PSY/DMI/MA + 顶底天数
+_STK_FACTOR_COLS = [
+    "macd_dif_hfq", "macd_dea_hfq", "macd_hfq", "kdj_k_hfq", "kdj_d_hfq", "kdj_hfq",
+    "rsi_hfq_6", "rsi_hfq_12", "rsi_hfq_24", "boll_upper_hfq", "boll_mid_hfq", "boll_lower_hfq",
+    "bias1_hfq", "bias2_hfq", "bias3_hfq", "cci_hfq", "wr_hfq", "cr_hfq", "atr_hfq", "obv_hfq",
+    "mtm_hfq", "roc_hfq", "trix_hfq", "psy_hfq", "dmi_pdi_hfq", "dmi_mdi_hfq", "dmi_adx_hfq",
+    "dmi_adxr_hfq", "ma_hfq_5", "ma_hfq_10", "ma_hfq_20", "ma_hfq_60", "topdays", "updays", "downdays"]
+
 # 全局停止信号 —— 主线程收到 Ctrl+C 时 set，worker 通过它中断 sleep
 STOP_EVENT = threading.Event()
 _SIGINT_COUNT = [0]
@@ -493,10 +501,7 @@ DDL = {
         CREATE TABLE IF NOT EXISTS stk_factor_pro (
             ts_code     LowCardinality(String),
             trade_date  Date,
-            bias2_hfq   Float64,
-            rsi_hfq_12  Float64,
-            dmi_adx_hfq Float64,
-            topdays     Float64
+""" + ",\n".join(f"            {c} Float64" for c in _STK_FACTOR_COLS) + """
         ) ENGINE = ReplacingMergeTree
         PARTITION BY toYYYYMM(trade_date)
         ORDER BY (ts_code, trade_date)
@@ -538,7 +543,7 @@ COLUMNS = {
                            "hold_amount","hold_ratio","hold_float_ratio","holder_type"],
     "stk_auction_o": ["ts_code","trade_date","close","open","high","low","vol","amount","vwap"],
     "stk_auction_c": ["ts_code","trade_date","close","open","high","low","vol","amount","vwap"],
-    "stk_factor_pro": ["ts_code","trade_date","bias2_hfq","rsi_hfq_12","dmi_adx_hfq","topdays"],
+    "stk_factor_pro": ["ts_code", "trade_date", *_STK_FACTOR_COLS],
 }
 
 STRING_COLS = {
@@ -590,7 +595,7 @@ FLOAT_COLS = {
     "top10_floatholders": ["hold_amount","hold_ratio","hold_float_ratio"],
     "stk_auction_o": ["close","open","high","low","vol","amount","vwap"],
     "stk_auction_c": ["close","open","high","low","vol","amount","vwap"],
-    "stk_factor_pro": ["bias2_hfq","rsi_hfq_12","dmi_adx_hfq","topdays"],
+    "stk_factor_pro": list(_STK_FACTOR_COLS),
 }
 
 DATE_COLS = {"trade_date"}
@@ -824,7 +829,7 @@ _DUCK_DDL = {
     "stk_factor_pro": """
         CREATE TABLE IF NOT EXISTS stk_factor_pro (
             ts_code VARCHAR, trade_date DATE,
-            bias2_hfq DOUBLE, rsi_hfq_12 DOUBLE, dmi_adx_hfq DOUBLE, topdays DOUBLE,
+""" + "".join(f"            {c} DOUBLE,\n" for c in _STK_FACTOR_COLS) + """
             PRIMARY KEY (ts_code, trade_date)
         )""",
 }
@@ -1705,11 +1710,11 @@ def fetch_stk_auction_c_df(pro, limiter, trade_date):
     )
 
 
-_STK_FACTOR_FIELDS = "ts_code,trade_date,bias2_hfq,rsi_hfq_12,dmi_adx_hfq,topdays"
+_STK_FACTOR_FIELDS = "ts_code,trade_date," + ",".join(_STK_FACTOR_COLS)
 
 
 def fetch_stk_factor_df(pro, limiter, trade_date):
-    """按 trade_date 一次拉全市场技术面因子（仅 1进2 模型用到的 4 个，后复权）。"""
+    """按 trade_date 一次拉全市场技术面因子（后复权 hfq 一套:MACD/KDJ/RSI/BOLL/BIAS/CCI/DMI/MA 等,见 _STK_FACTOR_COLS）。"""
     return _fetch_paged(
         pro.stk_factor_pro, limiter, f"stk_factor_pro {trade_date}",
         trade_date=trade_date, fields=_STK_FACTOR_FIELDS,
