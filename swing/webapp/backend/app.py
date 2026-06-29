@@ -30,6 +30,7 @@ class TrainReq(BaseModel):
     tier: int = 5
     start: str = "20250101"
     end: str | None = None
+    n: int = 800            # 股票池大小(按流通市值取前 N)
     train: bool = False     # 重新训练模型(--train)
     refresh: bool = False   # 不重训,但绕过缓存重新打分(拿最新行情)
 
@@ -47,7 +48,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 @app.post("/api/train")
 def train(req: TrainReq):
     """跑 ML 信号管线,返回 {signals, banner, cal, latest, ntrade, ...}。train=True 重训模型。"""
-    ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_{req.start}_{req.end or 'now'}.json")
+    ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_n{req.n}_{req.start}_{req.end or 'now'}.json")
     if not req.train and not req.refresh and os.path.exists(ck):
         with open(ck) as f:
             r = json.load(f, parse_constant=lambda *_: None)
@@ -55,7 +56,7 @@ def train(req: TrainReq):
         return r
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     cmd = [PY, "run_ml_signals_2026.py", "--mode", req.mode, "--tier", str(req.tier),
-           "--start", req.start, "--json", out]
+           "--n", str(req.n), "--start", req.start, "--json", out]
     if req.end:
         cmd += ["--end", req.end]
     if req.train:

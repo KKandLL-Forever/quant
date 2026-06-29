@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -32,6 +32,28 @@ function portfolio(rows, exk, retk, cal) {
     curve.push([d, Math.round(cash + op.reduce((s, p) => s + p.amt, 0))])
   }
   return curve
+}
+
+// 按组合规则(15万4等份/最多4只/满仓放弃/同股不加仓)重放,产出交易记录;未参与的信号标错过
+function tradeLog(rows, exk, retk, holdk, openk, cal) {
+  const byDate = {}
+  rows.forEach(r => { if (r[retk] == null) return; (byDate[r.date] = byDate[r.date] || []).push(r) })
+  const last = cal[cal.length - 1]
+  let op = []
+  const log = []
+  for (const d of cal) {
+    op = op.filter(p => p.ex > d)
+    const bs = (byDate[d] || []).slice().sort((a, b) => b.score - a.score)
+    for (const r of bs) {
+      let status
+      if (op.some(p => p.ts === r.ts)) status = '已持有'
+      else if (op.length >= 4) status = '满仓错过'
+      else { status = '已交易'; op.push({ ts: r.ts, ex: r[exk] || last }) }
+      log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status,
+                 exit: r[exk], ret: r[retk], hold: r[holdk], open: r[openk] })
+    }
+  }
+  return log
 }
 
 function Chart({ title, series }) {
@@ -109,19 +131,24 @@ export default function App() {
     const winr = a => a.length ? (a.filter(v => v > 0).length / a.length * 100).toFixed(0) + '%' : '—'
     const don = rows.filter(r => r.donret != null).map(r => r.donret)
     const sw = rows.filter(r => r.swret != null).map(r => r.swret)
+    const cz = rows.filter(r => r.czret != null).map(r => r.czret)
     const done = rows.filter(r => r.status !== '进行中'), hit = done.filter(r => r.status === '已走出主升浪')
     const fwds = rows.filter(r => r.maxfwd != null).map(r => r.maxfwd)
     const days = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0) + '天' : '—'
+    const strat = (name, arr, holdKey, openKey) => ({
+      name, n: arr.length, win: winr(arr), avg: avg(arr), dd: avg(arr.filter(v => v < 0)),
+      hold: days(rows.filter(r => r[holdKey] != null).map(r => r[holdKey])),
+      on: rows.filter(r => r[openKey]).length,
+    })
     return {
       n: rows.length, perday: (rows.length / payload.ntrade).toFixed(2),
-      donN: don.length, swN: sw.length,
-      donwin: winr(don), swwin: winr(sw),
-      avgdon: avg(don), avgdondd: avg(don.filter(v => v < 0)),
-      avgsw: avg(sw), avgswdd: avg(sw.filter(v => v < 0)),
-      avgfwd: avg(fwds), donon: rows.filter(r => r.donopen).length, swon: rows.filter(r => r.swopen).length,
-      holdDon: days(rows.filter(r => r.hold != null).map(r => r.hold)),
-      holdSw: days(rows.filter(r => r.swhold != null).map(r => r.swhold)),
+      avgfwd: avg(fwds),
       succ: done.length ? (hit.length / done.length * 100).toFixed(0) + '%' : '—', doneN: done.length, hitN: hit.length,
+      strats: [
+        strat('唐奇安', don, 'hold', 'donopen'),
+        strat('波段', sw, 'swhold', 'swopen'),
+        strat('缠论', cz, 'czhold', 'czopen'),
+      ],
     }
   }, [rows, payload])
 
@@ -130,7 +157,11 @@ export default function App() {
     const L = payload.latest
     const buys = rows.filter(r => r.date === L).sort((a, b) => b.score - a.score)
     const sells = rows.filter(r => r.donexit === L || r.swexit === L || r.swtp === L)
-    const holds = rows.filter(r => r.donopen || r.swopen).sort((a, b) => b.score - a.score)
+    const holds = Object.values(rows.filter(r => r.donopen || r.swopen || r.czopen).reduce((m, r) => {
+      const e = m[r.ts] || { ...r, donopen: false, swopen: false, czopen: false, score: -Infinity }
+      m[r.ts] = { ...e, donopen: e.donopen || !!r.donopen, swopen: e.swopen || !!r.swopen, czopen: e.czopen || !!r.czopen, score: Math.max(e.score, r.score) }
+      return m
+    }, {})).sort((a, b) => b.score - a.score)
     return { L, buys, sells, holds }
   }, [rows, payload])
 
@@ -189,7 +220,7 @@ export default function App() {
         <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.swexit === today.L) t.push('波段清仓'); if (r.swtp === today.L) t.push('波段部分止盈(卖50%)'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
         <div style={{ marginTop: 4 }}><b>当前持仓:</b> <span style={{ fontSize: 12, color: '#999' }}>(模型/策略仍持仓,移到名字上点分析→按最新交易日 {today.L} 判断该不该卖)</span><br />
           {today.holds.length ? today.holds.map(r => {
-            const who = [r.donopen && '唐', r.swopen && '波'].filter(Boolean).join('/')
+            const who = [r.donopen && '唐', r.swopen && '波', r.czopen && '缠'].filter(Boolean).join('/')
             return <Popover key={'h' + r.ts} trigger="hover" content={<Button size="small" type="primary" ghost onClick={() => analyze(r.ts, today.L)}>分析(@{today.L})</Button>}>
               <span style={{ marginRight: 12, fontSize: 13, cursor: 'pointer', borderBottom: '1px dashed #888' }}>{r.name}({r.ts})<sub style={{ color: '#999' }}>{who}</sub></span>
             </Popover>
@@ -204,14 +235,27 @@ export default function App() {
       </div>}
 
       {stats && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        <Stat v={stats.n} label="信号数" calc="当前筛选下的信号条数" />
-        <Stat v={stats.perday} label="平均每日信号" calc={`信号数 ÷ 区间总交易日数(${stats.n}/${payload.ntrade})`} />
-        <Stat v={`${stats.donwin} / ${stats.swwin}`} label="唐奇安/波段 胜率" calc={`各自出场口径下盈亏>0 的占比(含持仓中按现价);唐奇安${stats.donN}条,波段${stats.swN}条`} />
+        <Stat v={`${stats.n} / ${stats.perday}`} label="信号数 / 平均每日" calc={`当前筛选下的信号条数,及 ÷ 区间总交易日数(${stats.n}/${payload.ntrade})`} />
         <Stat v={stats.avgfwd} label="平均最大涨幅" calc="所有信号突破后至今(或满60日)最高浮盈的均值;非实际买卖收益" />
-        <Stat v={<span><span style={{ color: '#c0392b' }}>{stats.avgdon}</span> / <span style={{ color: '#27ae60' }}>{stats.avgdondd}</span></span>} label="唐奇安 盈亏/回撤" calc="平均盈亏=所有信号均值(红);平均回撤=亏损信号的平均亏幅(绿)。扣双边费,持仓中按现价" />
-        <Stat v={<span><span style={{ color: '#c0392b' }}>{stats.avgsw}</span> / <span style={{ color: '#27ae60' }}>{stats.avgswdd}</span></span>} label="波段 盈亏/回撤" calc="同左,波段止盈止损出场口径" />
-        <Stat v={`${stats.holdDon} / ${stats.holdSw}`} label="唐奇安/波段 平均持仓" calc="从突破日到离场日的交易日均值(仍持仓算到最新交易日)" />
-        <Stat v={`${stats.donon} / ${stats.swon}`} label="唐奇安/波段 进行中" calc="各自出场口径下尚未离场(仍持仓)的条数" />
+        <Card size="small" style={{ flex: '1 1 460px' }}>
+          <div style={{ fontSize: 13, color: '#444', marginBottom: 4 }}>三种出场口径对比</div>
+          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+            <thead><tr style={{ color: '#888', textAlign: 'right' }}>
+              <th style={{ textAlign: 'left' }}>出场</th><th>胜率</th><th>平均盈亏</th><th>平均回撤</th><th>平均持仓</th><th>进行中</th>
+            </tr></thead>
+            <tbody>{stats.strats.map(s => (
+              <tr key={s.name} style={{ textAlign: 'right', borderTop: '1px solid #f0f0f0' }}>
+                <td style={{ textAlign: 'left', fontWeight: 600 }}>{s.name}</td>
+                <td>{s.win}</td>
+                <td style={{ color: '#c0392b' }}>{s.avg}</td>
+                <td style={{ color: '#27ae60' }}>{s.dd}</td>
+                <td>{s.hold}</td>
+                <td>{s.on}/{s.n}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+          <div style={{ fontSize: 11, color: '#999', marginTop: 4, lineHeight: 1.3 }}>胜率=盈亏&gt;0占比;平均盈亏=全部信号均值;平均回撤=亏损信号平均亏幅;均扣双边费、持仓中按现价。进行中=未离场/总条数</div>
+        </Card>
       </div>}
 
       {payload && <div style={{ marginBottom: 12 }}>
@@ -222,6 +266,40 @@ export default function App() {
         <div style={{ height: 8 }} />
         <Chart title="缠论卖点出场" series={portfolio(rows, 'czexit', 'czr', payload.cal)} />
       </div>}
+
+      {payload && <Tabs style={{ marginBottom: 12 }} items={[
+        { key: 'don', label: '唐奇安 交易记录', d: ['donexit', 'donret', 'hold', 'donopen'] },
+        { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },
+        { key: 'cz', label: '缠论 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
+      ].map(t => {
+        const log = tradeLog(rows, ...t.d, payload.cal)
+        const tcols = [
+          { title: '股票', render: (_, r) => `${r.name}(${r.ts})` },
+          { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
+          { title: '状态', dataIndex: 'status', filters: ['已交易', '满仓错过', '已持有'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.status === v,
+            render: v => v === '已交易' ? <Tag color="blue">已交易</Tag> : <Tag color="orange">错过·{v}</Tag> },
+          { title: '离场日', dataIndex: 'exit', render: (v, r) => (v || '持仓中') + (r.hold != null ? `(${r.hold}天)` : '') },
+          { title: '盈亏', dataIndex: 'ret', sorter: (a, b) => (a.ret ?? -999) - (b.ret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.open ? '(持仓)' : ''}{r.status !== '已交易' ? ' (未参与)' : ''}</span> },
+        ]
+        const done = log.filter(r => r.status === '已交易'), missed = log.filter(r => r.status !== '已交易')
+        const cl = done.filter(r => !r.open).map(r => r.ret)
+        const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
+        const summary = (
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
+            <span>已交易 <b>{done.length}</b> 笔(持仓中 {done.filter(r => r.open).length})</span>
+            <span>胜率 <b>{cl.length ? (cl.filter(v => v > 0).length / cl.length * 100).toFixed(0) + '%' : '—'}</b></span>
+            <span>平均盈亏 <b style={{ color: '#c0392b' }}>{avg(cl)}</b></span>
+            <span>平均回撤 <b style={{ color: '#27ae60' }}>{avg(cl.filter(v => v < 0))}</b></span>
+            <span>平均持仓 <b>{done.length ? (done.reduce((s, r) => s + (r.hold || 0), 0) / done.length).toFixed(0) + '天' : '—'}</b></span>
+            <span style={{ color: '#999' }}>错过 <b>{missed.length}</b> 笔(其中本可盈利 {missed.filter(r => r.ret > 0).length} 笔,均值 {avg(missed.filter(r => r.ret > 0).map(r => r.ret))})</span>
+          </div>
+        )
+        return {
+          key: t.key, label: t.label,
+          children: <div>{summary}<Table rowKey="key" columns={tcols} dataSource={log} size="small" pagination={{ pageSize: 30 }}
+            onRow={r => ({ style: r.status !== '已交易' ? { background: '#fafafa', color: '#999' } : undefined })} /></div>,
+        }
+      })} />}
 
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
 
