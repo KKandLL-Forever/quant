@@ -207,6 +207,7 @@ def main():
     ap.add_argument("--pivot", choices=["zigzag", "kernel"], default="kernel",
                     help="枢轴检测:kernel=核平滑(LMW,带因果滞后,默认)、zigzag=固定%%阈值")
     ap.add_argument("--h", type=float, default=4.0, help="核平滑带宽(仅 --pivot kernel,默认4)")
+    ap.add_argument("--json", default=None, help="把结构化数据(信号/横幅/日历)输出到该 JSON 文件(给前后端用)")
     ap.add_argument("--mode", choices=["quick", "long"], default="quick",
                     help="主升浪判定模式:quick=高胜率小赚(k=0.06,默认)、long=低胜率大赚(k=0.09)")
     args = ap.parse_args()
@@ -494,6 +495,16 @@ def main():
     _end = end_ts or pd.Timestamp(sel)
     ntrade = int(((_cal >= start_ts) & (_cal <= _end)).sum())
     cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
+    if args.json:
+        payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",
+                   "pivot": args.pivot, "latest": latest_td, "ntrade": ntrade, "cal": cal_js,
+                   "signals": data,
+                   "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
+                              "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 3),
+                                        "pct": None if cr_pct != cr_pct else round(cr_pct, 2), "label": cr_label}}}
+        with open(args.json, "w") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        print(f"JSON:{args.json}")
     html = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>{args.mode}·top{args.tier}%·{args.start}~{args.end or '今'}·{args.pivot}</title>
 <link rel=stylesheet href="https://unpkg.com/antd@4.24.15/dist/antd.min.css">
 <style>body{{font-family:-apple-system,"PingFang SC",sans-serif;max-width:1850px;margin:22px auto;padding:0 18px;color:#222}}

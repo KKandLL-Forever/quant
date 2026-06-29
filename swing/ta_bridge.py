@@ -80,23 +80,28 @@ def get_china_stock_data_unified(ticker, start_date=None, end_date=None, *a, **k
             f"(收盘在MA20{pos})\n\n## 近30个交易日明细\n{tbl}\n")
 
 
+PIT_END = None
+"""回测用 PIT 截断日(YYYY-MM-DD);设了之后新闻工具只取≤该日的公告/研报/新闻,避免未来函数。实盘留 None。"""
+
+
 def _make_news_tool(toolkit=None):
-    """构造统一新闻工具(普通函数,与原版一致:可直接调用也可 bind_tools),底层走 a-stock-data(东财新闻+研报)。"""
+    """构造统一新闻工具(普通函数,与原版一致:可直接调用也可 bind_tools),底层走 a-stock-data(东财新闻+研报+巨潮公告)。"""
     import astock_news
 
     def get_stock_news_unified(stock_code: str, max_news: int = 10, model_info: str = "") -> str:
-        """获取个股近期新闻 + 研报(机构/评级,东财数据源),返回带日期的中文摘要,用于消息面分析。"""
+        """获取个股新闻+研报+公告(东财/巨潮),返回带日期摘要;PIT_END 设了则按该日截断。"""
         code = str(stock_code).split(".")[0]
+        end = PIT_END
         try:
-            news = astock_news.stock_news(code)[:max_news]
+            news = [n for n in astock_news.stock_news(code) if not end or n["time"][:10] <= end][:max_news]
         except Exception:
             news = []
         try:
-            reps = astock_news.stock_reports(code)[:8]
+            reps = [r for r in astock_news.stock_reports(code, end=end or "2030-01-01") if not end or r["date"] <= end][:8]
         except Exception:
             reps = []
         try:
-            anns = astock_news.stock_announcements(code)[:12]
+            anns = astock_news.stock_announcements(code, end=end)[:12]
         except Exception:
             anns = []
         at = "\n".join(f"- {a['date']} {a['title']}" for a in anns) or "(无公告)"
