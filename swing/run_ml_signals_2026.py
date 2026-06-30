@@ -368,7 +368,7 @@ def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
             launch = int(seg[:peak_off + 1].argmin()) if peak_off > 0 else None
             ep = cc[bo]; donret = None; donopen = True; donexit = None
             for t2 in range(bo + 1, len(cc)):
-                if (not np.isnan(dlow[t2]) and cc[t2] < dlow[t2]) or not breg.get(pd.Timestamp(gd[t2]), False):
+                if not np.isnan(dlow[t2]) and cc[t2] < dlow[t2]:
                     donret = cc[t2] / ep - 1 - 2 * COST; donopen = False; donexit = pd.Timestamp(gd[t2]); break
             if donret is None:
                 donret = cc[-1] / ep - 1 - 2 * COST
@@ -566,7 +566,7 @@ def main():
 
     import pickle
     _evdir = os.path.expanduser("~/AI/quart/swing/.evcache")
-    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_hot{HOT_TOP}_{sel}.pkl")
+    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_hot{HOT_TOP}_don2_{sel}.pkl")
     if (not args.eval) and os.path.exists(_evkey):
         df = pd.read_pickle(_evkey)
     else:
@@ -702,7 +702,7 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 &nbsp;|&nbsp; 抱团度风险 <b>{cur_cr:.4f}</b> <span style="color:{'#c0392b' if cr_pct>0.7 else '#27ae60' if cr_pct<0.3 else '#888'}">{cr_label}</span>(历史分位 {cr_pct*100:.0f}%)</p>
 <p style="font-size:12px;color:#999;margin-top:0">健康=指数收盘&gt;MA60 且 MA60上行(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。</p>
 <p style="font-size:12px;color:#999;margin-top:0"><b>出场口径</b>(均从突破日入场、扣双边费):
-<b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)或所属板块大盘走坏即离场,否则一直持有(让利润奔跑);
+<b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)即离场,否则一直持有(让利润奔跑);
 <b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。</p>
 <p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,列出 top{args.tier}% = {len(top)} 条 |
 已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top5/top10/top20/top30</p>
