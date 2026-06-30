@@ -476,13 +476,10 @@ def main():
     sel_str = sel.strftime("%Y%m%d")
     hot_codes = [r[0] for r in con.execute("""SELECT ts_code FROM ths_hot
         WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?""", [sel_str, HOT_TOP]).fetchall()]
-    if not hot_codes:
-        hsel = con.execute("SELECT MAX(trade_date) FROM ths_hot WHERE trade_date<=?", [sel_str]).fetchone()[0]
-        hot_codes = [r[0] for r in con.execute("""SELECT ts_code FROM ths_hot
-            WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?""", [hsel, HOT_TOP]).fetchall()]
-    mvmap = dict(con.execute("SELECT ts_code,circ_mv FROM daily_basic WHERE trade_date=?", [sel]).fetchall())
-    hot = [c for c in hot_codes if not c.endswith(".BJ") and (mvmap.get(c) or 0) >= HOT_MV_FLOOR]
-    liquid = list(dict.fromkeys(liquid + hot))
+    if hot_codes:
+        mvmap = dict(con.execute("SELECT ts_code,circ_mv FROM daily_basic WHERE trade_date=?", [sel]).fetchall())
+        hot = [c for c in hot_codes if not c.endswith(".BJ") and (mvmap.get(c) or 0) >= HOT_MV_FLOOR]
+        liquid = list(dict.fromkeys(liquid + hot))
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     px = con.execute("""SELECT d.ts_code,d.trade_date,d.high*a.adj_factor h,d.low*a.adj_factor l,
         d.close*a.adj_factor c,d.close c_raw,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
