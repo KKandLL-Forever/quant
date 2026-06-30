@@ -132,9 +132,13 @@ def kline(req: KlineReq):
             d.low*a.adj_factor l, d.close*a.adj_factor c, d.vol v
             FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
             WHERE d.ts_code=? ORDER BY d.trade_date""", [ts]).fetch_df()
+        laf = con.execute("SELECT adj_factor FROM adj_factor WHERE ts_code=? ORDER BY trade_date DESC LIMIT 1", [ts]).fetchone()
         con.close()
         if g.empty:
             return {"ok": False, "error": "无行情"}
+        laf = float(laf[0]) if laf else 1.0
+        for col in ("o", "h", "l", "c"):
+            g[col] = g[col] / laf
         g["td"] = pd.to_datetime(g["td"])
         bo = pd.Timestamp(req.date)
         idx = int((g["td"] - bo).abs().values.argmin())
@@ -160,6 +164,127 @@ def kline(req: KlineReq):
             i = j
         ohlc = [[str(r.td.date()), round(r.o, 2), round(r.h, 2), round(r.l, 2), round(r.c, 2)] for r in g.itertuples()]
         return {"ok": True, "code": ts, "bo": str(bo.date()), "ohlc": ohlc, "bis": bis, "zs": zs}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+class AdviseReq(BaseModel):
+    code: str
+    buy_date: str
+
+
+def _czsc_sell_now(CS, c):
+    """返回触发的缠论卖点规则名(缠论一卖 / MACD顶背驰),都没触发返回 None。"""
+    for fn, tag in (("cxt_first_sell_V221126", "缠论一卖"), ("tas_macd_bc_V221201", "MACD顶背驰")):
+        f = getattr(CS, fn, None)
+        if not f:
+            continue
+        try:
+            out = f(c, di=1)
+        except Exception:
+            try:
+                out = f(c)
+            except Exception:
+                continue
+        for v in out.values():
+            tk = str(v).split("_")
+            if fn == "cxt_first_sell_V221126" and tk[0] != "其他":
+                return tag
+            if fn == "tas_macd_bc_V221201" and tk[0] == "背驰" and "红" in str(v):
+                return tag
+    return None
+
+
+@app.post("/api/advise")
+def advise(req: AdviseReq):
+    """对单只个股给定买入日,按缠论 route1(一卖/MACD顶背驰 + 跌破MA60 + 15%止损)判断是否已离场/明日是否该卖、卖出价位;附 K线+笔+中枢。"""
+    try:
+        import duckdb
+        import numpy as np
+        import pandas as pd
+        from czsc import CZSC, RawBar, Freq, ZS
+        import czsc.signals as CS
+        from cache_tushare import DUCKDB_PATH
+        import ta_bridge
+        ts = ta_bridge._norm(req.code)
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        g = con.execute("""SELECT d.trade_date td, d.open*a.adj_factor o, d.high*a.adj_factor h,
+            d.low*a.adj_factor l, d.close*a.adj_factor c, d.vol v
+            FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
+            WHERE d.ts_code=? ORDER BY d.trade_date""", [ts]).fetch_df()
+        name = con.execute("SELECT name FROM stock_meta WHERE ts_code=?", [ts]).fetchone()
+        laf = con.execute("SELECT adj_factor FROM adj_factor WHERE ts_code=? ORDER BY trade_date DESC LIMIT 1", [ts]).fetchone()
+        con.close()
+        if g.empty:
+            return {"ok": False, "error": "无行情"}
+        laf = float(laf[0]) if laf else 1.0
+        for col in ("o", "h", "l", "c"):
+            g[col] = g[col] / laf
+        g["td"] = pd.to_datetime(g["td"])
+        buy = pd.Timestamp(req.buy_date)
+        bi_global = int((g["td"] - buy).abs().values.argmin())
+        if g["td"].iloc[bi_global] < buy:
+            return {"ok": False, "error": "买入日晚于最新交易日"}
+        cc = g["c"].to_numpy()
+        ma60 = pd.Series(cc).rolling(60).mean().to_numpy()
+        w0 = max(0, bi_global - 250)
+        w = g.iloc[w0:].reset_index(drop=True)
+        bars = [RawBar(symbol=ts, id=i, dt=r.td, freq=Freq.D, open=r.o, close=r.c,
+                       high=r.h, low=r.l, vol=r.v, amount=0.0) for i, r in w.iterrows()]
+        c = CZSC(bars[:1])
+        selltag = {}
+        t0 = _czsc_sell_now(CS, c)
+        if t0:
+            selltag[w0] = t0
+        for i in range(1, len(bars)):
+            c.update(bars[i])
+            tg = _czsc_sell_now(CS, c)
+            if tg:
+                selltag[w0 + i] = tg
+        sellset = set(selltag)
+        entry = float(cc[bi_global]); stop = entry * 0.85
+        latest = len(cc) - 1
+        exd = None
+        for t in range(bi_global + 1, latest + 1):
+            if t in sellset or (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= stop:
+                exd = t; break
+        ma_l = float(ma60[latest]) if ma60[latest] == ma60[latest] else None
+        if exd is not None:
+            why = selltag.get(exd) or ("跌破60日线" if (ma60[exd] == ma60[exd] and cc[exd] < ma60[exd]) else "触发15%止损")
+            advice = {"holding": False, "exit_date": str(g["td"].iloc[exd].date()),
+                      "exit_price": round(float(cc[exd]), 2), "reason": why,
+                      "ret_pct": round(float(cc[exd] / entry - 1) * 100, 1)}
+        else:
+            trig = max([x for x in (ma_l, stop) if x is not None])
+            advice = {"holding": True, "czsc_sell_today": latest in sellset,
+                      "sell_rule": selltag.get(latest),
+                      "ma60": None if ma_l is None else round(ma_l, 2), "stop": round(stop, 2),
+                      "trigger": round(trig, 2), "latest_close": round(float(cc[latest]), 2),
+                      "latest_date": str(g["td"].iloc[latest].date()),
+                      "ret_pct": round(float(cc[latest] / entry - 1) * 100, 1)}
+        bis = [[str(c.bi_list[0].fx_a.dt.date()), round(float(c.bi_list[0].fx_a.fx), 2)]] if c.bi_list else []
+        for b in c.bi_list:
+            bis.append([str(b.fx_b.dt.date()), round(float(b.fx_b.fx), 2)])
+        zs = []
+        i = 0
+        while i + 2 < len(c.bi_list):
+            if not ZS(bis=c.bi_list[i:i + 3]).is_valid():
+                i += 1; continue
+            j = i + 3
+            while j < len(c.bi_list) and ZS(bis=c.bi_list[i:j + 1]).is_valid():
+                j += 1
+            z = ZS(bis=c.bi_list[i:j])
+            zs.append({"sdt": str(z.sdt.date()), "edt": str(z.edt.date()),
+                       "zg": round(float(z.zg), 2), "zd": round(float(z.zd), 2)})
+            i = j
+        ohlc = [[str(r.td.date()), round(r.o, 2), round(r.h, 2), round(r.l, 2), round(r.c, 2)] for r in w.itertuples()]
+        buy_td = str(g["td"].iloc[bi_global].date())
+        marks = [{"date": buy_td, "kind": "buy", "label": "买"}]
+        if exd is not None:
+            marks.append({"date": str(g["td"].iloc[exd].date()), "kind": "sell", "label": "缠"})
+        return {"ok": True, "code": ts, "name": name[0] if name else "", "bo": buy_td,
+                "entry": round(entry, 2), "ohlc": ohlc, "bis": bis, "zs": zs, "marks": marks, "advice": advice}
     except Exception:
         import traceback
         return {"ok": False, "error": traceback.format_exc()[-1500:]}

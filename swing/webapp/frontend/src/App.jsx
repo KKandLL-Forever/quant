@@ -1,5 +1,9 @@
-import React, { useState, useMemo } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs } from 'antd'
+import React, { useState, useMemo, useEffect } from 'react'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs, DatePicker, ConfigProvider } from 'antd'
+import zhCN from 'antd/locale/zh_CN'
+import dayjs from 'dayjs'
+import 'dayjs/locale/zh-cn'
+dayjs.locale('zh-cn')
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -90,13 +94,13 @@ function KLineChart({ data, marks }) {
       {(() => { const seen = {}; return (marks || []).map((m, k) => {
         const i = di[m.date]; if (i == null) return null
         if (m.kind === 'buy') {
-          const y = Y(ohlc[i][3]) + 6
-          return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 5},${y + 9} ${X(i) + 5},${y + 9}`} fill="#c0392b" />
-            <text x={X(i)} y={y + 20} fontSize={10} fill="#c0392b" textAnchor="middle">买</text></g>
+          const y = Y(ohlc[i][3]) + 10
+          return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 9},${y + 16} ${X(i) + 9},${y + 16}`} fill="#c0392b" />
+            <text x={X(i)} y={y + 32} fontSize={15} fontWeight={700} fill="#c0392b" textAnchor="middle">买</text></g>
         }
-        const o = seen[m.date] || 0; seen[m.date] = o + 1; const y = Y(ohlc[i][2]) - 6 - o * 13
-        return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 5},${y - 9} ${X(i) + 5},${y - 9}`} fill="#27ae60" />
-          <text x={X(i)} y={y - 12} fontSize={10} fill="#27ae60" textAnchor="middle">{m.label}</text></g>
+        const o = seen[m.date] || 0; seen[m.date] = o + 1; const y = Y(ohlc[i][2]) - 10 - o * 22
+        return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 9},${y - 16} ${X(i) + 9},${y - 16}`} fill="#27ae60" />
+          <text x={X(i)} y={y - 20} fontSize={15} fontWeight={700} fill="#27ae60" textAnchor="middle">{m.label}</text></g>
       }) })()}
       {months.map(gi => <text key={gi} x={X(gi)} y={H - 6} fontSize={9} fill="#aaa" textAnchor="middle">{ohlc[gi][0].slice(2, 7)}</text>)}
     </svg>
@@ -142,7 +146,7 @@ const Stat = ({ v, label, calc }) => (
   </Card>
 )
 
-export default function App() {
+function MainPage() {
   const [params, setParams] = useState({ mode: 'quick', tier: 5, start: '20250101', train: false })
   const [payload, setPayload] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -250,6 +254,7 @@ export default function App() {
   const banner = payload?.banner
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+      <Nav />
       <h2>ML 主升浪信号 + LLM 分析</h2>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         <span>模式</span>
@@ -385,7 +390,7 @@ export default function App() {
           kl?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{kl.data.error}</pre> :
             kl?.data?.ok ? <div>
               <KLineChart data={kl.data} marks={kl.marks} />
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买;绿▼=卖(唐/波/缠 各口径离场);红涨绿跌(后复权)</div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买;绿▼=卖(唐/波/缠 各口径离场);红涨绿跌(前复权)</div>
             </div> : <div>无数据</div>}
       </Modal>
 
@@ -417,4 +422,68 @@ export default function App() {
       </Modal>
     </div>
   )
+}
+
+function Nav() {
+  const go = h => { window.location.hash = h }
+  const cur = window.location.hash.replace('#', '') || '/'
+  const link = (h, t) => <a onClick={() => go(h)} style={{ marginRight: 16, fontWeight: cur === h ? 700 : 400 }}>{t}</a>
+  return <div style={{ marginBottom: 8 }}>{link('/', 'ML 信号')}{link('/advise', '缠论卖点提示')}</div>
+}
+
+function AdvisePage() {
+  const [code, setCode] = useState('')
+  const [date, setDate] = useState('')
+  const [res, setRes] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  const run = async () => {
+    if (!code || !date) { message.warning('请输入股票代码和买入日期'); return }
+    setLoading(true); setRes(null)
+    try {
+      const r = await fetch('/api/advise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, buy_date: date }) })
+      const j = await r.json()
+      if (!j.ok) { message.error(j.error || '失败'); setLoading(false); return }
+      setRes(j)
+    } catch (e) { message.error('请求失败,后端起了吗? ' + e) } finally { setLoading(false) }
+  }
+
+  const a = res?.advice
+  return (
+    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+      <Nav />
+      <h2>缠论卖点提示(单只个股)</h2>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
+        <span>股票代码</span><Input style={{ width: 160 }} placeholder="如 300903 / 300903.SZ" value={code} onChange={e => setCode(e.target.value.trim())} onPressEnter={run} />
+        <span>买入日期</span><DatePicker style={{ width: 150 }} value={date ? dayjs(date) : null}
+          onChange={(_, ds) => setDate(ds)} disabledDate={d => d && d > dayjs().endOf('day')} />
+        <Button type="primary" loading={loading} onClick={run}>确定</Button>
+      </div>
+      {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {res && <div>
+        <Card size="small" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{res.name}({res.code}) 买入 {res.bo} @ {res.entry} 元(前复权)</div>
+          {a.holding ? (
+            a.czsc_sell_today
+              ? <div style={{ color: '#27ae60', fontSize: 15, marginTop: 6 }}><b>⚠️ 最新交易日({a.latest_date})触发「{a.sell_rule}」→ 明日开盘卖出。</b>当前 {a.latest_close} 元,浮盈 {a.ret_pct}%</div>
+              : <div style={{ fontSize: 15, marginTop: 6 }}><b>继续持有。</b>明日若收盘<b style={{ color: '#27ae60' }}>跌破 {a.trigger} 元</b>则卖出(60日线 {a.ma60} / 15%止损 {a.stop},取高者)。当前 {a.latest_close} 元,浮盈 {a.ret_pct}%</div>
+          ) : (
+            <div style={{ fontSize: 15, marginTop: 6 }}>已于 <b>{a.exit_date}</b> 触发<b style={{ color: '#27ae60' }}>「{a.reason}」</b>卖出 @ {a.exit_price} 元,收益 <b style={{ color: a.ret_pct >= 0 ? '#c0392b' : '#27ae60' }}>{a.ret_pct >= 0 ? '+' : ''}{a.ret_pct}%</b></div>
+          )}
+        </Card>
+        <KLineChart data={res} marks={res.marks} />
+        <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔;橙框=中枢;红▲=买;绿▼=缠论卖点离场;红涨绿跌(前复权)。规则:缠论一卖/MACD顶背驰 或 跌破60日线 或 跌破买入价85% 即卖。</div>
+      </div>}
+    </div>
+  )
+}
+
+export default function App() {
+  const [hash, setHash] = useState(window.location.hash)
+  useEffect(() => {
+    const f = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', f)
+    return () => window.removeEventListener('hashchange', f)
+  }, [])
+  return <ConfigProvider locale={zhCN}>{hash.replace('#', '') === '/advise' ? <AdvisePage /> : <MainPage />}</ConfigProvider>
 }
