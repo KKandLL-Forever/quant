@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs, DatePicker, ConfigProvider } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs, DatePicker, ConfigProvider, Menu } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
@@ -253,7 +253,7 @@ function MainPage() {
   const banner = payload?.banner
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
-      <Nav />
+      <Header />
       <h2>ML 主升浪信号 + LLM 分析</h2>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         <span>模式</span>
@@ -423,11 +423,24 @@ function MainPage() {
   )
 }
 
-function Nav() {
-  const go = h => { window.location.hash = h }
+const NAV_ITEMS = [
+  { key: '/', label: 'ML 主升浪信号' },
+  { key: '/advise', label: '缠论卖点提示' },
+]
+
+function Header() {
   const cur = window.location.hash.replace('#', '') || '/'
-  const link = (h, t) => <a onClick={() => go(h)} style={{ marginRight: 16, fontWeight: cur === h ? 700 : 400 }}>{t}</a>
-  return <div style={{ marginBottom: 8 }}>{link('/', 'ML 信号')}{link('/advise', '缠论卖点提示')}</div>
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', height: 56, background: '#001529',
+      padding: '0 24px', marginBottom: 16, borderRadius: 8 }}>
+      <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginRight: 36, whiteSpace: 'nowrap', letterSpacing: 1 }}>
+        📈 量化策略台
+      </div>
+      <Menu mode="horizontal" theme="dark" selectedKeys={[cur]} items={NAV_ITEMS}
+        onClick={e => { window.location.hash = e.key }}
+        style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none', fontSize: 15 }} />
+    </div>
+  )
 }
 
 function AdvisePage() {
@@ -450,7 +463,7 @@ function AdvisePage() {
   const a = res?.advice
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
-      <Nav />
+      <Header />
       <h2>缠论卖点提示(单只个股)</h2>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
         <span>股票代码</span><Input style={{ width: 160 }} placeholder="如 300903 / 300903.SZ" value={code} onChange={e => setCode(e.target.value.trim())} onPressEnter={run} />
