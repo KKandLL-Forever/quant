@@ -473,9 +473,13 @@ def main():
     sel = con.execute("SELECT MAX(trade_date) FROM daily_basic").fetchone()[0]
     liquid = [r[0] for r in con.execute("""SELECT ts_code FROM daily_basic WHERE trade_date=? AND ts_code NOT LIKE '%.BJ'
         ORDER BY circ_mv DESC LIMIT ?""", [sel, args.n]).fetchall()]
-    hsel = con.execute("SELECT MAX(trade_date) FROM ths_hot").fetchone()[0]
+    sel_str = sel.strftime("%Y%m%d")
     hot_codes = [r[0] for r in con.execute("""SELECT ts_code FROM ths_hot
-        WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?""", [hsel, HOT_TOP]).fetchall()]
+        WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?""", [sel_str, HOT_TOP]).fetchall()]
+    if not hot_codes:
+        hsel = con.execute("SELECT MAX(trade_date) FROM ths_hot WHERE trade_date<=?", [sel_str]).fetchone()[0]
+        hot_codes = [r[0] for r in con.execute("""SELECT ts_code FROM ths_hot
+            WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?""", [hsel, HOT_TOP]).fetchall()]
     mvmap = dict(con.execute("SELECT ts_code,circ_mv FROM daily_basic WHERE trade_date=?", [sel]).fetchall())
     hot = [c for c in hot_codes if not c.endswith(".BJ") and (mvmap.get(c) or 0) >= HOT_MV_FLOOR]
     liquid = list(dict.fromkeys(liquid + hot))
