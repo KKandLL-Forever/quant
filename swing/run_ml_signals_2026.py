@@ -38,6 +38,7 @@ from run_patterns import _detect
 from kernel_pivots import _detect_kernel
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
+EMBARGO_DAYS = 90  # ≈MW_DAYS(60交易日)的自然日数;train 末尾此窗内样本的label前瞻窗会探入val/test,须purge防泄露
 MW_HURDLE_K = 0.090
 DON_EXIT, COST = 20, 0.0006
 SW_FIXSTOP, SW_ATRSTOP = 0.10, 1.0
@@ -304,7 +305,7 @@ def _evaluate_wf(df, seed, tier):
         te = pd.Timestamp(fd["train_end"])
         v0, v1 = pd.Timestamp(fd["val"][0]), pd.Timestamp(fd["val"][1])
         t0, t1 = pd.Timestamp(fd["test"][0]), pd.Timestamp(fd["test"][1])
-        trf = lab[lab["d"] <= te]
+        trf = lab[lab["d"] <= te - pd.Timedelta(days=EMBARGO_DAYS)]
         vaf = lab[(lab["d"] >= v0) & (lab["d"] <= v1)]
         tef = lab[(lab["d"] >= t0) & (lab["d"] <= t1)]
         if len(trf) < 500 or len(tef) < 50:
@@ -622,7 +623,7 @@ def main():
                   f"若信号区间早于训练截止会有未来信息泄露,建议 --train 重训")
     else:
         val_cut = start_ts - pd.DateOffset(months=VAL_MONTHS)
-        trf = tr[tr["date"] < val_cut]; vaf = tr[tr["date"] >= val_cut]
+        trf = tr[tr["date"] < val_cut - pd.Timedelta(days=EMBARGO_DAYS)]; vaf = tr[tr["date"] >= val_cut]
         if len(trf) < 500:
             trf, vaf = tr, tr.iloc[0:0]
         m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, args.seed)
