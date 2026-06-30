@@ -321,7 +321,7 @@ def _evaluate_wf(df, seed, tier):
         lift_f = tophit_f / base_f if base_f > 0 else np.nan
         win = picks[picks["label"] == 1]
         med_day = win["cross_day"].median(); med_gain = win["gain_at_cross"].median()
-        part = tef[["date", "ts", "label"]].copy(); part["score"] = sc; part["fold"] = i
+        part = tef[["date", "ts", "label", "maxfwd"]].copy(); part["score"] = sc; part["fold"] = i
         oos.append(part)
         metas.append({"fold": i, "tr_auc": tr_auc, "te_auc": te_auc, "lift": lift_f,
                       "base": base_f, "tophit": tophit_f, "med_day": med_day, "med_gain": med_gain})
@@ -345,6 +345,22 @@ def _evaluate_wf(df, seed, tier):
     if mtr is not None:
         print(f"  过拟合体检:训练AUC均值 {mtr:.4f} vs 逐折测试 {mean_auc:.4f}  gap={mtr-mean_auc:+.4f}"
               f"(<0.05健康 / 0.05~0.10可接受 / >0.15警惕)")
+    from scipy.stats import spearmanr
+    icf = [spearmanr(g["score"], g["maxfwd"], nan_policy="omit").correlation for _, g in oo.groupby("fold")]
+    ic_pool = spearmanr(oo["score"], oo["maxfwd"], nan_policy="omit").correlation
+    print(f"  ★rank-IC(score↔最大涨幅):逐折均值={np.nanmean(icf):+.3f}±{np.nanstd(icf):.3f}  pooled={ic_pool:+.3f}"
+          f"(>0.03有效 / >0.05好 / 逐折同号=稳定)")
+    oo["q5"] = pd.qcut(oo["score"], 5, labels=False, duplicates="drop")
+    qt = oo.groupby("q5").agg(avgfwd=("maxfwd", "mean"), hit=("label", "mean"), n=("label", "size"))
+    mono = qt["avgfwd"].is_monotonic_increasing
+    print(f"  ★分位单调(score五档,低→高):平均最大涨幅 {' < '.join(f'{v*100:.0f}%' for v in qt['avgfwd'])}"
+          f"  {'✓单调' if mono else '✗非单调'}")
+    brier = float(((oo["score"] - oo["label"]) ** 2).mean())
+    oo["d10"] = pd.qcut(oo["score"], 10, labels=False, duplicates="drop")
+    cal = oo.groupby("d10").agg(pred=("score", "mean"), real=("label", "mean"))
+    cal_gap = float((cal["pred"] - cal["real"]).abs().max())
+    print(f"  ★概率校准:Brier={brier:.3f}(越小越好)  十分位 |预测-实际| 最大偏离={cal_gap:.3f}"
+          f"({'校准好' if cal_gap < 0.1 else '偏离偏大' if cal_gap < 0.2 else '校准差'})")
     imp = pd.concat(imps, axis=1).mean(axis=1).sort_values(ascending=False)
     print("  特征重要度(gain均值)Top15:")
     for k2, vv in imp.head(15).items():
