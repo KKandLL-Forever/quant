@@ -44,6 +44,7 @@ SW_FIXSTOP, SW_ATRSTOP = 0.10, 1.0
 SW_FIXTP, SW_ATRTP, SW_TPFRAC = 0.10, 2.0, 0.50
 SW_TRAILACT, SW_TRAILDIST, SW_STALE = 0.03, 0.05, 20
 SW_TPFRAC_SWEEP = (0.30, 0.40, 0.50, 0.75)
+HOT_TOP, HOT_MV_FLOOR = 20, 2_000_000  # 同花顺热股榜并入池子前20;只滤流通市值<200亿的小盘妖股(circ_mv单位万元),不滤连板
 VAL_MONTHS = 12
 EVAL_FOLDS = [
     {"train_end": "2020-06-30", "val": ("2020-07-01", "2020-12-31"), "test": ("2021-01-01", "2021-12-31")},
@@ -472,6 +473,12 @@ def main():
     sel = con.execute("SELECT MAX(trade_date) FROM daily_basic").fetchone()[0]
     liquid = [r[0] for r in con.execute("""SELECT ts_code FROM daily_basic WHERE trade_date=? AND ts_code NOT LIKE '%.BJ'
         ORDER BY circ_mv DESC LIMIT ?""", [sel, args.n]).fetchall()]
+    hsel = con.execute("SELECT MAX(trade_date) FROM ths_hot").fetchone()[0]
+    hot_codes = [r[0] for r in con.execute("""SELECT ts_code FROM ths_hot
+        WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?""", [hsel, HOT_TOP]).fetchall()]
+    mvmap = dict(con.execute("SELECT ts_code,circ_mv FROM daily_basic WHERE trade_date=?", [sel]).fetchall())
+    hot = [c for c in hot_codes if not c.endswith(".BJ") and (mvmap.get(c) or 0) >= HOT_MV_FLOOR]
+    liquid = list(dict.fromkeys(liquid + hot))
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     px = con.execute("""SELECT d.ts_code,d.trade_date,d.high*a.adj_factor h,d.low*a.adj_factor l,
         d.close*a.adj_factor c,d.close c_raw,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
@@ -558,7 +565,7 @@ def main():
 
     import pickle
     _evdir = os.path.expanduser("~/AI/quart/swing/.evcache")
-    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_{sel}.pkl")
+    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_hot{HOT_TOP}_{sel}.pkl")
     if (not args.eval) and os.path.exists(_evkey):
         df = pd.read_pickle(_evkey)
     else:
