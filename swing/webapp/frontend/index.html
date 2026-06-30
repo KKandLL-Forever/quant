@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>量化策略台 · Quant Terminal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --paper: #f7f4ed;
+        --panel: #fffdf8;
+        --ink: #17140f;
+        --ink-soft: #5b554a;
+        --accent: #0b6e4f;
+        --line: #e6e0d3;
+        --up: #c0392b;
+        --down: #1f8e5a;
+        --font-display: "Fraunces", Georgia, serif;
+        --font-sans: "IBM Plex Sans", -apple-system, "PingFang SC", sans-serif;
+        --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+      }
+      html, body { margin: 0; }
+      body {
+        background-color: var(--paper);
+        background-image:
+          linear-gradient(var(--line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--line) 1px, transparent 1px);
+        background-size: 32px 32px;
+        background-position: -1px -1px;
+        color: var(--ink);
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+      }
+      .ant-table, .ant-statistic-content, .num, table { font-variant-numeric: tabular-nums; }
+      .ant-table-cell { font-variant-numeric: tabular-nums; }
+      .md table { border-collapse: collapse; margin: 6px 0; font-size: 12px; }
+      .md th, .md td { border: 1px solid var(--line); padding: 3px 8px; text-align: left; }
+      .md th { background: #f1ede3; }
+      .md h1, .md h2, .md h3 { font-size: 14px; margin: 8px 0 4px; font-family: var(--font-display); }
+      .md p { margin: 4px 0; }
+      .md ul { margin: 4px 0; padding-left: 18px; }
+      ::selection { background: #0b6e4f22; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

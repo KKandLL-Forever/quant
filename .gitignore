@@ -62,3 +62,4 @@ swing/.evcache/
 swing/webapp/backend/.analyze_cache/
 swing/*_shap.png
 swing/*.pkl
+!swing/webapp/frontend/index.html

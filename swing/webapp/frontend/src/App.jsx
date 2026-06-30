@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs, DatePicker, ConfigProvider, Menu } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs, DatePicker, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
@@ -254,7 +254,7 @@ function MainPage() {
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
-      <h2>ML 主升浪信号 + LLM 分析</h2>
+      <PageTitle kicker="Main-wave Signals · LightGBM + 缠论 + LLM">ML 主升浪信号</PageTitle>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         <span>模式</span>
         <Select value={params.mode} style={{ width: 110 }} onChange={v => setParams({ ...params, mode: v })}
@@ -428,17 +428,76 @@ const NAV_ITEMS = [
   { key: '/advise', label: '缠论卖点提示' },
 ]
 
+const QUANT_THEME = {
+  token: {
+    colorPrimary: '#0b6e4f',
+    colorInfo: '#0b6e4f',
+    colorBgBase: '#f7f4ed',
+    colorBgContainer: '#fffdf8',
+    colorBgLayout: '#f7f4ed',
+    colorText: '#17140f',
+    colorTextSecondary: '#5b554a',
+    colorBorder: '#e6e0d3',
+    colorBorderSecondary: '#ece7db',
+    borderRadius: 7,
+    fontFamily: '"IBM Plex Sans", -apple-system, "PingFang SC", sans-serif',
+    fontSize: 13,
+    controlHeight: 34,
+    boxShadow: '0 4px 20px -10px rgba(23,20,15,.18)',
+  },
+  components: {
+    Table: { headerBg: '#f1ede3', headerColor: '#5b554a', headerSplitColor: '#e6e0d3',
+      borderColor: '#ece7db', rowHoverBg: '#f3efe5', cellPaddingBlockSM: 7, fontWeightStrong: 600 },
+    Card: { colorBorderSecondary: '#ece7db' },
+    Button: { fontWeight: 500, primaryShadow: 'none' },
+    Tabs: { inkBarColor: '#0b6e4f', itemSelectedColor: '#0b6e4f', itemColor: '#5b554a', titleFontSize: 14 },
+    Modal: { titleFontSize: 16 },
+    Statistic: { contentFontSize: 22 },
+  },
+}
+
+const PageTitle = ({ kicker, children }) => (
+  <div style={{ margin: '4px 0 18px' }}>
+    {kicker && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: 2.5,
+      color: 'var(--accent)', fontWeight: 500, textTransform: 'uppercase' }}>{kicker}</div>}
+    <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, margin: '2px 0 0',
+      letterSpacing: .2, color: 'var(--ink)' }}>{children}</h1>
+  </div>
+)
+
 function Header() {
   const cur = window.location.hash.replace('#', '') || '/'
+  const go = k => { window.location.hash = k }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', height: 56, background: '#001529',
-      padding: '0 24px', marginBottom: 16, borderRadius: 8 }}>
-      <div style={{ color: '#fff', fontSize: 18, fontWeight: 700, marginRight: 36, whiteSpace: 'nowrap', letterSpacing: 1 }}>
-        📈 量化策略台
+    <div style={{ display: 'flex', alignItems: 'stretch', height: 64, background: 'var(--ink)',
+      padding: '0 26px', marginBottom: 22, borderRadius: 10, boxShadow: '0 8px 30px -12px rgba(11,110,79,.45)',
+      position: 'relative', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 180% at 0% 0%, #0b6e4f33, transparent 55%)', pointerEvents: 'none' }} />
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', marginRight: 44, zIndex: 1 }}>
+        <div style={{ fontFamily: 'var(--font-display)', color: '#fbf8f0', fontSize: 22, fontWeight: 600, lineHeight: 1, letterSpacing: .3 }}>
+          量化策略台
+        </div>
+        <div style={{ fontFamily: 'var(--font-mono)', color: '#0b6e4f', fontSize: 10, letterSpacing: 3, marginTop: 4, fontWeight: 500 }}>
+          QUANT&nbsp;TERMINAL
+        </div>
       </div>
-      <Menu mode="horizontal" theme="dark" selectedKeys={[cur]} items={NAV_ITEMS}
-        onClick={e => { window.location.hash = e.key }}
-        style={{ flex: 1, minWidth: 0, background: 'transparent', borderBottom: 'none', fontSize: 15 }} />
+      <nav style={{ display: 'flex', alignItems: 'stretch', gap: 4, zIndex: 1 }}>
+        {NAV_ITEMS.map(it => {
+          const on = cur === it.key
+          return (
+            <a key={it.key} onClick={() => go(it.key)} style={{
+              display: 'flex', alignItems: 'center', padding: '0 18px', cursor: 'pointer',
+              fontSize: 14, fontWeight: on ? 600 : 400, letterSpacing: .5,
+              color: on ? '#fbf8f0' : '#9b958a',
+              borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent',
+              transition: 'color .15s' }}
+              onMouseEnter={e => { if (!on) e.currentTarget.style.color = '#d8d2c6' }}
+              onMouseLeave={e => { if (!on) e.currentTarget.style.color = '#9b958a' }}>
+              {it.label}
+            </a>
+          )
+        })}
+      </nav>
     </div>
   )
 }
@@ -464,7 +523,7 @@ function AdvisePage() {
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
-      <h2>缠论卖点提示(单只个股)</h2>
+      <PageTitle kicker="Chan-theory Exit Advisor · 单只个股">缠论卖点提示</PageTitle>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
         <span>股票代码</span><Input style={{ width: 160 }} placeholder="如 300903 / 300903.SZ" value={code} onChange={e => setCode(e.target.value.trim())} onPressEnter={run} />
         <span>买入日期</span><DatePicker style={{ width: 150 }} value={date ? dayjs(date) : null}
@@ -509,5 +568,9 @@ export default function App() {
     window.addEventListener('hashchange', f)
     return () => window.removeEventListener('hashchange', f)
   }, [])
-  return <ConfigProvider locale={zhCN}>{hash.replace('#', '') === '/advise' ? <AdvisePage /> : <MainPage />}</ConfigProvider>
+  return (
+    <ConfigProvider locale={zhCN} theme={QUANT_THEME}>
+      {hash.replace('#', '') === '/advise' ? <AdvisePage /> : <MainPage />}
+    </ConfigProvider>
+  )
 }
