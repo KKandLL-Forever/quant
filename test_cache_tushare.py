@@ -12,6 +12,8 @@
   4. 计数：_run_concurrent 总行数 = 实际拉取行数，不依赖云端写入返回值（--no-cloud 也要真实计数）。
   5. 列对齐：_df_to_records 按列名而非位置映射，字段顺序变化时不串位（amount 不会写进 vol）。
   6. schema：_prepare_duck_df 列顺序/类型正确，end_date 保持字符串、hold_amount 为数值。
+  7. 周/月末取数：_week_end_dates/_month_end_dates 按每周/月最后一个交易日取，边界不取错。
+  8. 表配置自洽：每张表都有 CK+Duck DDL，STRING/FLOAT/INT_COLS 均为 COLUMNS 子集（新增表漏配即报错）。
 
 造假对象（PagedSource/FakeLimiter/FakeCk/FakeDuck/FakeDatetime）模拟 tushare/限速器/ClickHouse/
 DuckDBWriter/系统时钟的最小接口。
@@ -283,6 +285,52 @@ class TestPrepareDuckDf(unittest.TestCase):
         self.assertEqual(out["end_date"].iloc[0], "20240630")
         self.assertEqual(float(out["hold_amount"].iloc[0]), 12345.0)
         self.assertEqual(out["ann_date"].iloc[0], "")
+
+
+class TestWeekMonthEndDates(unittest.TestCase):
+    """周线/月线按"每周/每月最后一个交易日"取数：选错边界会静默抓错周期。"""
+
+    def test_week_end_picks_last_trading_day_per_iso_week(self):
+        # 2024-01-01(周一)~01-12;含两个完整 ISO 周 + 一个周末缺口
+        dates = ["20240102", "20240103", "20240104", "20240105",  # 第1周(01-01是元旦休)
+                 "20240108", "20240109", "20240110", "20240111", "20240112"]  # 第2周
+        out = C._week_end_dates(dates)
+        self.assertEqual(out, ["20240105", "20240112"])  # 各周最后一个交易日(周五)
+
+    def test_week_end_handles_short_final_week(self):
+        out = C._week_end_dates(["20240108", "20240109", "20240115"])
+        self.assertEqual(out, ["20240109", "20240115"])  # 周内最后一天即收尾
+
+    def test_month_end_picks_last_trading_day_per_month(self):
+        dates = ["20240129", "20240130", "20240131", "20240201", "20240202", "20240301"]
+        out = C._month_end_dates(dates)
+        self.assertEqual(out, ["20240131", "20240202", "20240301"])
+
+    def test_dedup_and_sorted(self):
+        dates = ["20240112", "20240108", "20240112"]  # 乱序+重复
+        self.assertEqual(C._week_end_dates(dates), ["20240112"])
+
+
+class TestTableConfigConsistency(unittest.TestCase):
+    """每张表的配置必须自洽:有 CK/Duck DDL,且类型列都是 COLUMNS 的子集(新增表易漏配)。"""
+
+    def test_every_table_has_both_ddls(self):
+        for t in C.COLUMNS:
+            self.assertIn(t, C.DDL, f"{t} 缺 ClickHouse DDL")
+            self.assertIn(t, C._DUCK_DDL, f"{t} 缺 DuckDB DDL")
+
+    def test_typed_cols_subset_of_columns(self):
+        for t, cols in C.COLUMNS.items():
+            colset = set(cols)
+            for name, mapping in (("STRING", C.STRING_COLS), ("FLOAT", C.FLOAT_COLS), ("INT", C.INT_COLS)):
+                for c in mapping.get(t, []):
+                    self.assertIn(c, colset, f"{t} 的 {name}_COLS 含未在 COLUMNS 中的列 {c}")
+
+    def test_new_tables_present(self):
+        for t in ("weekly", "monthly", "moneyflow_ind_dc"):
+            self.assertIn(t, C.COLUMNS)
+            self.assertIn(t, C.DDL)
+            self.assertIn(t, C._DUCK_DDL)
 
 
 if __name__ == "__main__":

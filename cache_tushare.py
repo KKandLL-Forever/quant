@@ -171,6 +171,7 @@ TABLE_START = {
     "stk_auction_c":  "20180101",
     "stk_factor_pro":     "20200101",
     "cyq_perf":           "20200101",
+    "moneyflow_ind_dc":   "20240101",
 }
 
 # stk_factor_pro 缓存的技术指标(后复权 hfq,与 ML 口径一致):MACD/KDJ/RSI/BOLL/BIAS/CCI/WR/CR/ATR/OBV/MTM/ROC/TRIX/PSY/DMI/MA + 顶底天数
@@ -426,6 +427,30 @@ DDL = {
         PARTITION BY toYYYYMM(trade_date)
         ORDER BY (ts_code, trade_date)
     """,
+    "moneyflow_ind_dc": """
+        CREATE TABLE IF NOT EXISTS moneyflow_ind_dc (
+            ts_code              LowCardinality(String),
+            trade_date           Date,
+            content_type         LowCardinality(String),
+            name                 String,
+            pct_change           Float32,
+            close                Float32,
+            net_amount           Float64,
+            net_amount_rate      Float32,
+            buy_elg_amount       Float64,
+            buy_elg_amount_rate  Float32,
+            buy_lg_amount        Float64,
+            buy_lg_amount_rate   Float32,
+            buy_md_amount        Float64,
+            buy_md_amount_rate   Float32,
+            buy_sm_amount        Float64,
+            buy_sm_amount_rate   Float32,
+            buy_sm_amount_stock  String,
+            rank                 Int32
+        ) ENGINE = ReplacingMergeTree
+        PARTITION BY toYYYYMM(trade_date)
+        ORDER BY (ts_code, trade_date)
+    """,
     "limit_cpt_list": """
         CREATE TABLE IF NOT EXISTS limit_cpt_list (
             ts_code    LowCardinality(String),
@@ -563,6 +588,10 @@ COLUMNS = {
                     "buy_lg_vol","buy_lg_amount","sell_lg_vol","sell_lg_amount",
                     "buy_elg_vol","buy_elg_amount","sell_elg_vol","sell_elg_amount",
                     "net_mf_vol","net_mf_amount"],
+    "moneyflow_ind_dc": ["ts_code","trade_date","content_type","name","pct_change","close",
+                         "net_amount","net_amount_rate","buy_elg_amount","buy_elg_amount_rate",
+                         "buy_lg_amount","buy_lg_amount_rate","buy_md_amount","buy_md_amount_rate",
+                         "buy_sm_amount","buy_sm_amount_rate","buy_sm_amount_stock","rank"],
     "limit_cpt_list": ["ts_code","name","trade_date","days","up_stat",
                        "cons_nums","up_nums","pct_chg","rank"],
     "limit_list_d": ["ts_code","trade_date","limit_type","industry","name",
@@ -597,6 +626,7 @@ STRING_COLS = {
     "ths_index":    ["name","exchange","list_date","type"],
     "ths_member":   ["con_name"],
     "top10_floatholders": ["ann_date","end_date","holder_name","holder_type"],
+    "moneyflow_ind_dc": ["content_type","name","buy_sm_amount_stock"],
 }
 
 FLOAT_COLS = {
@@ -610,6 +640,9 @@ FLOAT_COLS = {
                     "pe","pe_ttm","pb","ps","ps_ttm","dv_ratio","dv_ttm",
                     "total_share","float_share","free_share","total_mv","circ_mv"],
     "index_daily": ["close","open","high","low","pre_close","change","pct_chg","vol","amount"],
+    "moneyflow_ind_dc": ["pct_change","close","net_amount","net_amount_rate",
+                         "buy_elg_amount","buy_elg_amount_rate","buy_lg_amount","buy_lg_amount_rate",
+                         "buy_md_amount","buy_md_amount_rate","buy_sm_amount","buy_sm_amount_rate"],
     "limit_step":  [],
     "cyq_perf":    ["his_low","his_high","cost_5pct","cost_15pct","cost_50pct",
                     "cost_85pct","cost_95pct","weight_avg","winner_rate"],
@@ -639,6 +672,7 @@ INT_COLS = {
                    "buy_lg_vol","sell_lg_vol","buy_elg_vol","sell_elg_vol",
                    "net_mf_vol"],
     "limit_cpt_list": ["days","cons_nums","up_nums","rank"],
+    "moneyflow_ind_dc": ["rank"],
     "limit_list_d": ["open_times","limit_times"],
     "ths_index":    ["count"],
     "ths_member":   [],
@@ -819,6 +853,17 @@ _DUCK_DDL = {
             buy_elg_vol BIGINT, buy_elg_amount DOUBLE,
             sell_elg_vol BIGINT,sell_elg_amount DOUBLE,
             net_mf_vol BIGINT,  net_mf_amount  DOUBLE,
+            PRIMARY KEY (ts_code, trade_date)
+        )""",
+    "moneyflow_ind_dc": """
+        CREATE TABLE IF NOT EXISTS moneyflow_ind_dc (
+            ts_code VARCHAR, trade_date DATE, content_type VARCHAR, name VARCHAR,
+            pct_change FLOAT, close FLOAT, net_amount DOUBLE, net_amount_rate FLOAT,
+            buy_elg_amount DOUBLE, buy_elg_amount_rate FLOAT,
+            buy_lg_amount DOUBLE, buy_lg_amount_rate FLOAT,
+            buy_md_amount DOUBLE, buy_md_amount_rate FLOAT,
+            buy_sm_amount DOUBLE, buy_sm_amount_rate FLOAT,
+            buy_sm_amount_stock VARCHAR, "rank" INTEGER,
             PRIMARY KEY (ts_code, trade_date)
         )""",
     "limit_cpt_list": """
@@ -1712,6 +1757,21 @@ def fetch_moneyflow_df(pro, limiter, trade_date):
     )
 
 
+_MONEYFLOW_IND_DC_FIELDS = (
+    "trade_date,content_type,ts_code,name,pct_change,close,net_amount,net_amount_rate,"
+    "buy_elg_amount,buy_elg_amount_rate,buy_lg_amount,buy_lg_amount_rate,"
+    "buy_md_amount,buy_md_amount_rate,buy_sm_amount,buy_sm_amount_rate,buy_sm_amount_stock,rank"
+)
+
+
+def fetch_moneyflow_ind_dc_df(pro, limiter, trade_date):
+    """按 trade_date 拉取当日东财板块(行业/概念/地域)主力资金流向(含净流入额+净流入率)。"""
+    return _fetch_paged(
+        pro.moneyflow_ind_dc, limiter, f"moneyflow_ind_dc {trade_date}",
+        trade_date=trade_date, fields=_MONEYFLOW_IND_DC_FIELDS,
+    )
+
+
 _LIMIT_LIST_D_FIELDS = (
     "trade_date,ts_code,industry,name,close,pct_chg,amount,limit_amount,"
     "float_mv,total_mv,turnover_ratio,fd_amount,first_time,last_time,"
@@ -2382,6 +2442,11 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     _run_concurrent(pro, ck, "moneyflow", dates, fetch_moneyflow_df, "moneyflow",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
+    mfd_dates = [d for d in dates if d >= TABLE_START["moneyflow_ind_dc"]]
+    print(f"\n[9b] moneyflow_ind_dc 东财板块资金流（{TABLE_START['moneyflow_ind_dc']} 起，{len(mfd_dates)} 天）")
+    _run_concurrent(pro, ck, "moneyflow_ind_dc", mfd_dates, fetch_moneyflow_ind_dc_df, "moneyflow_ind_dc",
+                    limiter=limiter, workers=workers, duck_writer=duck_writer)
+
     print("\n[10/11] limit_cpt_list 涨停最强板块（按日期）")
     _run_concurrent(pro, ck, "limit_cpt_list", dates, fetch_limit_cpt_list_df, "limit_cpt_list",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
@@ -2435,6 +2500,8 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     if date_arg:
         miss_daily = miss_adj = miss_basic = miss_stock_st = miss_limit_step = [date_arg]
         miss_moneyflow = miss_cpt = miss_lld = [date_arg]
+        miss_mfd   = [date_arg] if date_arg >= TABLE_START["moneyflow_ind_dc"] else []
+        miss_weekly = miss_monthly = []
         miss_auc_o = miss_auc_c = [date_arg]
         miss_sf    = [date_arg]
         cyq_start  = date_arg
@@ -2460,6 +2527,7 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
         miss_stock_st   = _missing_dates(ck, "stock_st",    _floor("stock_st"))
         miss_limit_step = _missing_dates(ck, "limit_step",  _floor("limit_step"))
         miss_moneyflow  = _missing_dates(ck, "moneyflow",   all_dates)
+        miss_mfd        = _missing_dates(ck, "moneyflow_ind_dc", _floor("moneyflow_ind_dc"))
         miss_cpt        = _missing_dates(ck, "limit_cpt_list", _floor("limit_cpt_list"))
         miss_lld        = _missing_dates(ck, "limit_list_d",   _floor("limit_list_d"))
         miss_auc_o      = _missing_dates(ck, "stk_auction_o",  _floor("stk_auction_o"))
@@ -2474,6 +2542,7 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
             f"monthly(月线)={len(miss_monthly)}", f"adj(复权因子)={len(miss_adj)}",
             f"basic(每日指标)={len(miss_basic)}", f"stock_st(ST列表)={len(miss_stock_st)}",
             f"limit_step(连板天梯)={len(miss_limit_step)}", f"moneyflow(资金流)={len(miss_moneyflow)}",
+            f"moneyflow_ind_dc(东财板块流)={len(miss_mfd)}",
             f"limit_cpt_list(开盘啦板块)={len(miss_cpt)}", f"limit_list_d(涨跌停/炸板)={len(miss_lld)}",
             f"auction_o(开盘竞价)={len(miss_auc_o)}", f"auction_c(收盘竞价)={len(miss_auc_c)}",
             f"stk_factor(技术因子)={len(miss_sf)}", f"index_daily(指数日线)起={idx_start}",
@@ -2488,7 +2557,7 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     _run_fina_plan(pro, ck, limiter, workers, duck_writer, fina_plan)
 
     if not any([miss_daily, miss_weekly, miss_monthly, miss_adj, miss_basic, miss_stock_st,
-                miss_limit_step, miss_moneyflow, miss_cpt, miss_lld,
+                miss_limit_step, miss_moneyflow, miss_mfd, miss_cpt, miss_lld,
                 miss_auc_o, miss_auc_c, miss_sf]):
         print("所有表数据已是最新（财务/参考表已在上方处理）。")
         return
@@ -2517,6 +2586,9 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     if miss_moneyflow:
         _run_concurrent(pro, ck, "moneyflow", miss_moneyflow, fetch_moneyflow_df, "moneyflow",
                         limiter=limiter, workers=workers, duck_writer=duck_writer)
+    if miss_mfd:
+        _run_concurrent(pro, ck, "moneyflow_ind_dc", miss_mfd, fetch_moneyflow_ind_dc_df,
+                        "moneyflow_ind_dc", limiter=limiter, workers=workers, duck_writer=duck_writer)
     if miss_cpt:
         _run_concurrent(pro, ck, "limit_cpt_list", miss_cpt, fetch_limit_cpt_list_df,
                         "limit_cpt_list", limiter=limiter, workers=workers, duck_writer=duck_writer)
