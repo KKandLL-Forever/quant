@@ -8,7 +8,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 const MD = ({ children }) => (
-  <div className="md" style={{ fontSize: 13, maxHeight: 320, overflow: 'auto', background: '#fafafa', padding: 10 }}>
+  <div className="md" style={{ fontSize: 13, maxHeight: 320, overflow: 'auto', background: '#f4f0e7', padding: 10 }}>
     <ReactMarkdown remarkPlugins={[remarkGfm]}>{children || '(空)'}</ReactMarkdown>
   </div>
 )
@@ -75,7 +75,7 @@ function KLineChart({ data, marks }) {
   for (let i = 0; i < n; i++) if (i === 0 || ohlc[i][0].slice(0, 7) !== ohlc[i - 1][0].slice(0, 7)) months.push(i)
   const biPts = (bis || []).filter(p => di[p[0]] != null).map(p => `${X(di[p[0]]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
   return (
-    <svg width={W} height={H} style={{ maxWidth: '100%', background: '#fff' }}>
+    <svg width={W} height={H} style={{ maxWidth: '100%', background: '#fffdf8' }}>
       <text x={4} y={Y(hi) + 4} fontSize={11} fill="#999">{hi.toFixed(2)}</text>
       <text x={4} y={Y(lo) + 4} fontSize={11} fill="#999">{lo.toFixed(2)}</text>
       {(zs || []).map((z, k) => di[z.sdt] != null && di[z.edt] != null && (
@@ -121,7 +121,7 @@ function Chart({ title, series }) {
   for (let i = 0; i < n; i++) if (i === 0 || series[i][0].slice(0, 7) !== series[i - 1][0].slice(0, 7)) months.push(i)
   const step = Math.ceil(months.length / 12)
   return (
-    <svg width={W} height={H} style={{ maxWidth: '100%', border: '1px solid #eee', borderRadius: 8, background: '#fff' }}>
+    <svg width={W} height={H} style={{ maxWidth: '100%', border: '1px solid #e6e0d3', borderRadius: 8, background: '#fffdf8' }}>
       <text x={pad} y={20} fontSize={14} fontWeight={700}>{title}  期末 {Math.round(last).toLocaleString()} ({up ? '+' : ''}{ret}%)</text>
       <line x1={pad} y1={Y(INIT)} x2={W - pad} y2={Y(INIT)} stroke="#bbb" strokeDasharray="4 4" />
       <text x={6} y={Y(mx) + 4} fontSize={11} fill="#999">{Math.round(mx).toLocaleString()}</text>
@@ -266,7 +266,7 @@ function MainPage() {
         <Button loading={loading} onClick={() => train({ refresh: true, train: false })}>刷新数据(不重训)</Button>
       </div>
 
-      {banner && <div style={{ background: '#f6f9ff', border: '1px solid #d0e0ff', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
+      {banner && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
         {Object.entries(banner.indices).map(([nm, st]) => <span key={nm} style={{ marginRight: 16 }}><b>{nm}</b> <span style={{ color: st === '健康' ? '#c0392b' : '#27ae60' }}>{st}</span></span>)}
         <span>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{banner.crowd.pct != null ? (banner.crowd.pct * 100).toFixed(0) + '%' : '—'},{banner.crowd.label})</span>
       </div>}
@@ -282,7 +282,7 @@ function MainPage() {
         列出 top{payload.tier}% = {payload.signals.length} 条 | 已满60日的 {stats.doneN} 条中走出主升浪 {stats.succ} | 档位:top1/3/5/10/20/30
       </p>}
 
-      {today && <div style={{ background: '#eef6ff', border: '1px solid #b6d4fe', borderRadius: 8, padding: '8px 12px', margin: '8px 0' }}>
+      {today && <div style={{ background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 8, padding: '8px 12px', margin: '8px 0' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>最新交易日({today.L}) · 买入 {today.buys.length} 条 / 需卖出 {today.sells.length} 条</div>
         <div><b>买入:</b> {today.buys.length ? today.buys.map(r => <span key={'b' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> {r.tier} ML{r.score} <span style={{ color: r.mkt === '健康' ? '#c0392b' : '#27ae60' }}>[{r.board}{r.mkt}]</span></span>) : <span style={{ color: '#999' }}>无</span>}</div>
         <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.swexit === today.L) t.push('波段清仓'); if (r.swtp === today.L) t.push('波段部分止盈(卖50%)'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
@@ -312,7 +312,7 @@ function MainPage() {
               <th style={{ textAlign: 'left' }}>出场</th><th>胜率</th><th>平均盈亏</th><th>平均回撤</th><th>平均持仓</th><th>进行中</th>
             </tr></thead>
             <tbody>{stats.strats.map(s => (
-              <tr key={s.name} style={{ textAlign: 'right', borderTop: '1px solid #f0f0f0' }}>
+              <tr key={s.name} style={{ textAlign: 'right', borderTop: '1px solid #ece7db' }}>
                 <td style={{ textAlign: 'left', fontWeight: 600 }}>{s.name}</td>
                 <td>{s.win}</td>
                 <td style={{ color: '#c0392b' }}>{s.avg}</td>
@@ -371,13 +371,13 @@ function MainPage() {
         return {
           key: t.key, label: t.label,
           children: <div>{summary}<Table rowKey="key" columns={tcols} dataSource={log} size="small" pagination={{ pageSize: 30 }}
-            onRow={r => ({ style: r.status !== '已交易' ? { background: '#fafafa', color: '#999' } : undefined })} /></div>,
+            onRow={r => ({ style: r.status !== '已交易' ? { background: '#f3efe5', color: '#9b958a' } : undefined })} /></div>,
         }
       })} />}
 
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
 
-      {payload && <div style={{ background: '#fff8e1', border: '1px solid #ffe082', borderRadius: 6, padding: 10, fontSize: 12, color: '#6d4c41', marginTop: 10 }}>
+      {payload && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: 10, fontSize: 12, color: '#7a5d18', marginTop: 10 }}>
         <b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈,非实际买卖收益;"唐奇安/波段离场"括号内为持仓交易日数(仍持仓算到最新交易日);
         "进行中"=该出场口径下尚未离场。点表头可排序/筛选。模型严格用区间起始日之前的数据训练,无未来函数。
         「LLM分析」对该股在突破日跑 技术+消息面 多agent 分析(约1-3分钟),给分析师层(趋势感知)买/卖/持。
@@ -401,11 +401,11 @@ function MainPage() {
         {ana?.loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="多 agent 分析中(约 1-3 分钟)..." /><div style={{ height: 30 }} /></div> :
           ana?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.data.error}</pre> :
             ana?.data && <div>
-              {ana.data.verdict && <div style={{ background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 6, padding: 10, marginBottom: 12 }}>
+              {ana.data.verdict && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6, padding: 10, marginBottom: 12 }}>
                 <b>分析师层判断(趋势感知):</b> <Tag color={ana.data.verdict.action === '卖出' ? 'red' : ana.data.verdict.action === '买入' ? 'green' : 'blue'}>{ana.data.verdict.action}</Tag>
                 置信 {ana.data.verdict.confidence} — {ana.data.verdict.reasoning}
               </div>}
-              {ana.data.business && <div style={{ background: '#f0f7ff', border: '1px solid #cfe2ff', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
+              {ana.data.business && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
                 {(() => { const b = ana.data.business; if (b.raw) return <span>{b.raw}</span>; return <>
                   <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
                   {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
@@ -543,7 +543,7 @@ function AdvisePage() {
           ) : (
             <div style={{ fontSize: 15, marginTop: 6 }}>本轮已于 <b>{a.exit_date}</b> 因<b style={{ color: '#27ae60' }}>「{a.reason}」</b>终止 @ {a.exit_price} 元,{a.legs > 1 ? '复利' : ''}收益 <b style={{ color: a.ret_pct >= 0 ? '#c0392b' : '#27ae60' }}>{a.ret_pct >= 0 ? '+' : ''}{a.ret_pct}%</b></div>
           )}
-          {a.state !== 'ended' && <div style={{ marginTop: 10, padding: '8px 10px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, fontSize: 14 }}>
+          {a.state !== 'ended' && <div style={{ marginTop: 10, padding: '8px 10px', background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 6, fontSize: 14 }}>
             <b>📌 下一交易日({a.latest_date} 的下一交易日)操作:</b>
             {a.state === 'holding' ? (<>
               <div style={{ marginTop: 4 }}><b style={{ color: '#27ae60' }}>卖出 →</b> ① 若出现缠论卖点(一卖/MACD顶背驰)→ 止盈卖出(卖后转为等回补);② 或 收盘跌破 <b>{a.trigger}</b> 元(60日线 {a.ma60} / 现价回撤15%止损 {a.stop} 取高)→ 离场。</div>
