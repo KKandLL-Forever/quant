@@ -147,7 +147,7 @@ const Stat = ({ v, label, calc }) => (
 )
 
 function MainPage() {
-  const [params, setParams] = useState({ mode: 'quick', tier: 5, start: '20250101', train: false })
+  const [params, setParams] = useState({ mode: 'long', tier: 5, start: '20260101', train: false })
   const [payload, setPayload] = useState(null)
   const [loading, setLoading] = useState(false)
   const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
@@ -179,6 +179,8 @@ function MainPage() {
       setPayload(j); message.success(`${j.cached ? '已加载缓存' : '完成'},共 ${j.signals.length} 条信号`)
     } catch (e) { message.error('请求失败,后端起了吗? ' + e) } finally { setLoading(false) }
   }
+
+  useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
 
   const analyze = async (code, date, force = false) => {
     setAna({ open: true, loading: true, code, date })
