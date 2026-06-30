@@ -235,7 +235,6 @@ function MainPage() {
   const cols = [
     { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
     { title: '板块', dataIndex: 'board', filters: ['主板', '科创', '创业'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.board === v },
-    { title: '板块大盘', dataIndex: 'mkt', render: v => <span style={{ color: v === '健康' ? '#c0392b' : '#27ae60' }}>{v}</span> },
     { title: '档位/ML分', dataIndex: 'score', defaultSortOrder: 'descend', sorter: (a, b) => a.score - b.score, render: (v, r) => <span><b>{r.tier}</b> {v}</span> },
     { title: '代码', dataIndex: 'ts' },
     { title: '名称', dataIndex: 'name', render: (v, r) => <a onClick={() => openKline(r.ts, r.date, r)}>{v}</a> },
