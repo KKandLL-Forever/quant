@@ -261,6 +261,36 @@ DDL = {
         PARTITION BY toYYYYMM(trade_date)
         ORDER BY (ts_code, trade_date)
     """,
+    "weekly": """
+        CREATE TABLE IF NOT EXISTS weekly (
+            ts_code    LowCardinality(String),
+            trade_date Date,
+            open       Float32,
+            high       Float32,
+            low        Float32,
+            close      Float32,
+            vol        Float64,
+            amount     Float64,
+            pct_chg    Float32
+        ) ENGINE = ReplacingMergeTree
+        PARTITION BY toYYYYMM(trade_date)
+        ORDER BY (ts_code, trade_date)
+    """,
+    "monthly": """
+        CREATE TABLE IF NOT EXISTS monthly (
+            ts_code    LowCardinality(String),
+            trade_date Date,
+            open       Float32,
+            high       Float32,
+            low        Float32,
+            close      Float32,
+            vol        Float64,
+            amount     Float64,
+            pct_chg    Float32
+        ) ENGINE = ReplacingMergeTree
+        PARTITION BY toYYYYMM(trade_date)
+        ORDER BY (ts_code, trade_date)
+    """,
     "adj_factor": """
         CREATE TABLE IF NOT EXISTS adj_factor (
             ts_code    LowCardinality(String),
@@ -514,6 +544,8 @@ COLUMNS = {
                     "list_date","delist_date","value_date","maturity_date",
                     "issue_size","remain_size"],
     "daily":       ["ts_code","trade_date","open","high","low","close","vol","amount","pct_chg"],
+    "weekly":      ["ts_code","trade_date","open","high","low","close","vol","amount","pct_chg"],
+    "monthly":     ["ts_code","trade_date","open","high","low","close","vol","amount","pct_chg"],
     "adj_factor":  ["ts_code","trade_date","adj_factor"],
     "daily_basic": ["ts_code","trade_date","close","turnover_rate","turnover_rate_f",
                     "volume_ratio","pe","pe_ttm","pb","ps","ps_ttm","dv_ratio","dv_ttm",
@@ -571,6 +603,8 @@ FLOAT_COLS = {
     "stock_meta":  [],
     "cb_basic":    ["issue_size","remain_size"],
     "daily":       ["open","high","low","close","vol","amount","pct_chg"],
+    "weekly":      ["open","high","low","close","vol","amount","pct_chg"],
+    "monthly":     ["open","high","low","close","vol","amount","pct_chg"],
     "adj_factor":  ["adj_factor"],
     "daily_basic": ["close","turnover_rate","turnover_rate_f","volume_ratio",
                     "pe","pe_ttm","pb","ps","ps_ttm","dv_ratio","dv_ttm",
@@ -698,6 +732,20 @@ _DUCK_DDL = {
         )""",
     "daily": """
         CREATE TABLE IF NOT EXISTS daily (
+            ts_code VARCHAR, trade_date DATE,
+            open FLOAT, high FLOAT, low FLOAT, close FLOAT,
+            vol DOUBLE, amount DOUBLE, pct_chg FLOAT,
+            PRIMARY KEY (ts_code, trade_date)
+        )""",
+    "weekly": """
+        CREATE TABLE IF NOT EXISTS weekly (
+            ts_code VARCHAR, trade_date DATE,
+            open FLOAT, high FLOAT, low FLOAT, close FLOAT,
+            vol DOUBLE, amount DOUBLE, pct_chg FLOAT,
+            PRIMARY KEY (ts_code, trade_date)
+        )""",
+    "monthly": """
+        CREATE TABLE IF NOT EXISTS monthly (
             ts_code VARCHAR, trade_date DATE,
             open FLOAT, high FLOAT, low FLOAT, close FLOAT,
             vol DOUBLE, amount DOUBLE, pct_chg FLOAT,
@@ -1532,6 +1580,39 @@ def fetch_daily_df(pro, limiter, trade_date):
     )
 
 
+def fetch_weekly_df(pro, limiter, trade_date):
+    return _fetch_paged(
+        pro.weekly, limiter, f"weekly {trade_date}",
+        trade_date=trade_date,
+        fields="ts_code,trade_date,open,high,low,close,vol,amount,pct_chg",
+    )
+
+
+def _week_end_dates(all_dates: list[str]) -> list[str]:
+    """从交易日列表取每个 ISO 周的最后一个交易日(= 周线 trade_date)。"""
+    last = {}
+    for d in sorted(all_dates):
+        y, w, _ = datetime.strptime(d, "%Y%m%d").isocalendar()
+        last[(y, w)] = d
+    return sorted(last.values())
+
+
+def fetch_monthly_df(pro, limiter, trade_date):
+    return _fetch_paged(
+        pro.monthly, limiter, f"monthly {trade_date}",
+        trade_date=trade_date,
+        fields="ts_code,trade_date,open,high,low,close,vol,amount,pct_chg",
+    )
+
+
+def _month_end_dates(all_dates: list[str]) -> list[str]:
+    """从交易日列表取每个自然月的最后一个交易日(= 月线 trade_date)。"""
+    last = {}
+    for d in sorted(all_dates):
+        last[d[:6]] = d
+    return sorted(last.values())
+
+
 def fetch_adj_date_df(pro, limiter, trade_date):
     return _fetch_paged(
         pro.adj_factor, limiter, f"adj_factor date={trade_date}",
@@ -2261,6 +2342,16 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     _run_concurrent(pro, ck, "daily", dates, fetch_daily_df, "daily",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
 
+    week_ends = _week_end_dates(dates)
+    print(f"\n[周线] 周K线（{len(week_ends)} 个周末交易日）")
+    _run_concurrent(pro, ck, "weekly", week_ends, fetch_weekly_df, "weekly",
+                    limiter=limiter, workers=workers, duck_writer=duck_writer)
+
+    month_ends = _month_end_dates(dates)
+    print(f"\n[月线] 月K线（{len(month_ends)} 个月末交易日）")
+    _run_concurrent(pro, ck, "monthly", month_ends, fetch_monthly_df, "monthly",
+                    limiter=limiter, workers=workers, duck_writer=duck_writer)
+
     print("\n[2/8] 复权因子（按日期）")
     _run_concurrent(pro, ck, "adj_factor", dates, fetch_adj_date_df, "adj_factor",
                     limiter=limiter, workers=workers, duck_writer=duck_writer)
@@ -2359,7 +2450,11 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
             start = TABLE_START.get(table)
             return all_dates if not start else [d for d in all_dates if d >= start]
 
+        week_ends       = _week_end_dates(all_dates)
+        month_ends      = _month_end_dates(all_dates)
         miss_daily      = _missing_dates(ck, "daily",       all_dates)
+        miss_weekly     = _missing_dates(ck, "weekly",      week_ends)
+        miss_monthly    = _missing_dates(ck, "monthly",     month_ends)
         miss_adj        = _missing_dates(ck, "adj_factor",  all_dates)
         miss_basic      = _missing_dates(ck, "daily_basic", all_dates)
         miss_stock_st   = _missing_dates(ck, "stock_st",    _floor("stock_st"))
@@ -2375,7 +2470,8 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
         fina_plan       = _fina_plan(ck, all_dates, full=False)
 
         daily_cells = [
-            f"daily(日线)={len(miss_daily)}", f"adj(复权因子)={len(miss_adj)}",
+            f"daily(日线)={len(miss_daily)}", f"weekly(周线)={len(miss_weekly)}",
+            f"monthly(月线)={len(miss_monthly)}", f"adj(复权因子)={len(miss_adj)}",
             f"basic(每日指标)={len(miss_basic)}", f"stock_st(ST列表)={len(miss_stock_st)}",
             f"limit_step(连板天梯)={len(miss_limit_step)}", f"moneyflow(资金流)={len(miss_moneyflow)}",
             f"limit_cpt_list(开盘啦板块)={len(miss_cpt)}", f"limit_list_d(涨跌停/炸板)={len(miss_lld)}",
@@ -2391,7 +2487,7 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
 
     _run_fina_plan(pro, ck, limiter, workers, duck_writer, fina_plan)
 
-    if not any([miss_daily, miss_adj, miss_basic, miss_stock_st,
+    if not any([miss_daily, miss_weekly, miss_monthly, miss_adj, miss_basic, miss_stock_st,
                 miss_limit_step, miss_moneyflow, miss_cpt, miss_lld,
                 miss_auc_o, miss_auc_c, miss_sf]):
         print("所有表数据已是最新（财务/参考表已在上方处理）。")
@@ -2399,6 +2495,12 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
 
     if miss_daily:
         _run_concurrent(pro, ck, "daily", miss_daily, fetch_daily_df, "daily",
+                        limiter=limiter, workers=workers, duck_writer=duck_writer)
+    if miss_weekly:
+        _run_concurrent(pro, ck, "weekly", miss_weekly, fetch_weekly_df, "weekly",
+                        limiter=limiter, workers=workers, duck_writer=duck_writer)
+    if miss_monthly:
+        _run_concurrent(pro, ck, "monthly", miss_monthly, fetch_monthly_df, "monthly",
                         limiter=limiter, workers=workers, duck_writer=duck_writer)
     if miss_adj:
         _run_concurrent(pro, ck, "adj_factor", miss_adj, fetch_adj_date_df, "adj_factor",

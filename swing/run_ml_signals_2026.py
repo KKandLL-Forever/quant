@@ -124,8 +124,8 @@ def _swing_exit(cc, gd, bo, atr_e, tpfrac):
 
 
 def _czsc_one(job):
-    """单股缠论卖点出场(供并行调用):job=(ts, gd, cc, hh, ll, vv, dates, sel)。worker 内 import czsc。
-    返回 [(key, value)...];czsc 缺失或异常则返回 []。"""
+    """单股缠论出场 M3(供并行调用):缠论卖点止盈→回调缠论买点回补,跌破MA60或入场价85%终止,复利。
+    job=(ts, gd, cc, hh, ll, vv, dates, sel)。worker 内 import czsc;czsc 缺失或异常返回 []。"""
     ts, gd, cc, hh, ll, vv, dates, sel = job
     try:
         from czsc import CZSC, RawBar, Freq
@@ -153,30 +153,70 @@ def _czsc_one(job):
                     return True
         return False
 
+    def _buy(c):
+        for fn in ("cxt_first_buy_V221126", "cxt_second_bs_V230320", "cxt_third_buy_V230228"):
+            f = getattr(CS, fn, None)
+            if not f:
+                continue
+            try:
+                out = f(c, di=1)
+            except Exception:
+                try:
+                    out = f(c)
+                except Exception:
+                    continue
+            for v in out.values():
+                s = str(v); tk = s.split("_")
+                if fn == "cxt_second_bs_V230320":
+                    if "买" in s:
+                        return True
+                elif tk[0] != "其他":
+                    return True
+        return False
+
     bars = [RawBar(symbol=ts, id=i, dt=pd.Timestamp(gd[i]), freq=Freq.D, open=cc[i], close=cc[i],
                    high=hh[i], low=ll[i], vol=vv[i], amount=0.0) for i in range(len(cc))]
     try:
-        c = CZSC(bars[:1]); sd = [0] if _sell(c) else []
+        c = CZSC(bars[:1])
+        sd = {0} if _sell(c) else set()
+        bd = {0} if _buy(c) else set()
         for i in range(1, len(bars)):
             c.update(bars[i])
             if _sell(c):
-                sd.append(i)
+                sd.add(i)
+            if _buy(c):
+                bd.add(i)
     except Exception:
         return []
     idxmap = {pd.Timestamp(gd[i]): i for i in range(len(gd))}
-    sdset = set(sd)
     ma60 = pd.Series(cc).rolling(60).mean().to_numpy()
+
+    def _m3(bo):
+        mult, en, t = 1.0, bo, bo + 1
+        while t < len(cc):
+            if (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= cc[en] * 0.85:
+                return mult * (cc[t] / cc[en]) * (1 - 2 * COST) - 1, t, False
+            if t in sd:
+                mult *= (cc[t] / cc[en]) * (1 - 2 * COST)
+                re = None
+                for t2 in range(t + 1, len(cc)):
+                    if ma60[t2] == ma60[t2] and cc[t2] < ma60[t2]:
+                        break
+                    if t2 in bd:
+                        re = t2; break
+                if re is None:
+                    return mult - 1, t, False
+                en = re; t = re + 1; continue
+            t += 1
+        return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True
+
     res = []
     for d in dates:
         bo = idxmap.get(pd.Timestamp(d))
         if bo is None:
             continue
-        ex = next((t for t in range(bo + 1, len(cc))
-                   if t in sdset or (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= cc[bo] * 0.85), None)
-        if ex is None:
-            ret, exd, opn = cc[-1] / cc[bo] - 1 - 2 * COST, None, True
-        else:
-            ret, exd, opn = cc[ex] / cc[bo] - 1 - 2 * COST, pd.Timestamp(gd[ex]), False
+        ret, exi, opn = _m3(bo)
+        exd = None if exi is None else pd.Timestamp(gd[exi])
         hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
         res.append(((ts, str(pd.Timestamp(d).date())),
                     (round(ret * 100, 0), round(ret, 4),
@@ -736,9 +776,9 @@ var cols=[
  {{title:'波段止盈止损盈亏',dataIndex:'swret',sorter:function(a,b){{return (a.swret==null?-999:a.swret)-(b.swret==null?-999:b.swret);}},
    render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.swopen?'(持仓中)':''));}}}},
  {{title:'波段离场日',dataIndex:'swexit',sorter:function(a,b){{return (a.swexit||'')<(b.swexit||'')?-1:1;}},render:function(v,r){{return (v||'持仓中')+'('+r.swhold+'天)';}}}},
- {{title:'缠论盈亏',dataIndex:'czret',sorter:function(a,b){{return (a.czret==null?-999:a.czret)-(b.czret==null?-999:b.czret);}},
+ {{title:'缠论M3盈亏',dataIndex:'czret',sorter:function(a,b){{return (a.czret==null?-999:a.czret)-(b.czret==null?-999:b.czret);}},
    render:function(v,r){{return v==null?'—':e('span',{{className:v>=0?'pos':'neg'}},(v>=0?'+':'')+v+'%'+(r.czopen?'(持仓中)':''));}}}},
- {{title:'缠论离场日',dataIndex:'czexit',sorter:function(a,b){{return (a.czexit||'')<(b.czexit||'')?-1:1;}},render:function(v,r){{return r.czret==null?'—':(v||'持仓中')+(r.czhold!=null?'('+r.czhold+'天)':'');}}}}
+ {{title:'缠论M3终止日',dataIndex:'czexit',sorter:function(a,b){{return (a.czexit||'')<(b.czexit||'')?-1:1;}},render:function(v,r){{return r.czret==null?'—':(v||'持仓中')+(r.czhold!=null?'('+r.czhold+'天)':'');}}}}
 ];
 function card(v,l,calc){{return e('div',{{className:'card'}},e('div',{{className:'v'}},v),e('div',{{className:'l'}},l),e('div',{{className:'calc'}},calc));}}
 function App(){{

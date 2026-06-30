@@ -214,7 +214,7 @@ function MainPage() {
       strats: [
         strat('唐奇安', don, 'hold', 'donopen'),
         strat('波段', sw, 'swhold', 'swopen'),
-        strat('缠论', cz, 'czhold', 'czopen'),
+        strat('缠论M3', cz, 'czhold', 'czopen'),
       ],
     }
   }, [rows, payload])
@@ -246,8 +246,8 @@ function MainPage() {
     { title: '唐奇安离场', dataIndex: 'donexit', render: (v, r) => (v || '持仓中') + '(' + r.hold + '天)' },
     { title: '波段盈亏', dataIndex: 'swret', sorter: (a, b) => (a.swret ?? -999) - (b.swret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.swopen ? '(持仓)' : ''}</span> },
     { title: '波段离场', dataIndex: 'swexit', render: (v, r) => (v || '持仓中') + '(' + r.swhold + '天)' },
-    { title: '缠论盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
-    { title: '缠论离场', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
+    { title: '缠论M3盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
+    { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
     { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date)}>分析</Button> },
   ]
 
@@ -338,13 +338,13 @@ function MainPage() {
         <div style={{ height: 8 }} />
         <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} />
         <div style={{ height: 8 }} />
-        <Chart title="缠论卖点出场" series={portfolio(rows, 'czexit', 'czr', payload.cal, parts)} />
+        <Chart title="缠论M3(卖点止盈+回调买点回补)" series={portfolio(rows, 'czexit', 'czr', payload.cal, parts)} />
       </div>}
 
       {payload && <Tabs style={{ marginBottom: 12 }} items={[
         { key: 'don', label: '唐奇安 交易记录', d: ['donexit', 'donret', 'hold', 'donopen'] },
         { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },
-        { key: 'cz', label: '缠论 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
+        { key: 'cz', label: '缠论M3 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
       ].map(t => {
         const log = tradeLog(rows, ...t.d, payload.cal, parts)
         const tcols = [
@@ -389,8 +389,8 @@ function MainPage() {
         {kl?.loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="加载中..." /><div style={{ height: 30 }} /></div> :
           kl?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{kl.data.error}</pre> :
             kl?.data?.ok ? <div>
-              <KLineChart data={kl.data} marks={kl.marks} />
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买;绿▼=卖(唐/波/缠 各口径离场);红涨绿跌(前复权)</div>
+              <KLineChart data={kl.data} marks={kl.data.marks || kl.marks} />
+              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买/补(缠论M3:卖点止盈+回调回补);绿▼=卖(缠=缠论卖点、止=跌破60日线/止损);红涨绿跌(前复权)</div>
             </div> : <div>无数据</div>}
       </Modal>
 
@@ -462,17 +462,29 @@ function AdvisePage() {
       {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
       {res && <div>
         <Card size="small" style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>{res.name}({res.code}) 买入 {res.bo} @ {res.entry} 元(前复权)</div>
-          {a.holding ? (
+          <div style={{ fontSize: 15, fontWeight: 600 }}>{res.name}({res.code}) 买入 {res.bo} @ {res.entry} 元(前复权){a.legs > 1 ? `,已滚动 ${a.legs} 腿` : ''}</div>
+          {a.state === 'holding' ? (
             a.czsc_sell_today
-              ? <div style={{ color: '#27ae60', fontSize: 15, marginTop: 6 }}><b>⚠️ 最新交易日({a.latest_date})触发「{a.sell_rule}」→ 明日开盘卖出。</b>当前 {a.latest_close} 元,浮盈 {a.ret_pct}%</div>
-              : <div style={{ fontSize: 15, marginTop: 6 }}><b>继续持有。</b>明日若收盘<b style={{ color: '#27ae60' }}>跌破 {a.trigger} 元</b>则卖出(60日线 {a.ma60} / 15%止损 {a.stop},取高者)。当前 {a.latest_close} 元,浮盈 {a.ret_pct}%</div>
+              ? <div style={{ color: '#27ae60', fontSize: 15, marginTop: 6 }}><b>⚠️ 最新交易日({a.latest_date})触发「{a.sell_rule}」→ 明日开盘止盈卖出</b>(卖后若回调出现缠论买点、价在60日线上方可回补)。当前 {a.latest_close} 元,累计 {a.total_ret_pct}%</div>
+              : <div style={{ fontSize: 15, marginTop: 6 }}><b>继续持有。</b>明日若收盘<b style={{ color: '#27ae60' }}>跌破 {a.trigger} 元</b>则卖出(60日线 {a.ma60} / 现价回撤15%止损 {a.stop},取高者)。当前 {a.latest_close} 元,累计 {a.total_ret_pct}%</div>
+          ) : a.state === 'waiting' ? (
+            <div style={{ fontSize: 15, marginTop: 6 }}>已于 <b>{a.sold_date}</b> 触发「{a.sell_rule}」止盈 @ {a.sold_price} 元(已实现 <b style={{ color: a.realized_pct >= 0 ? '#c0392b' : '#27ae60' }}>{a.realized_pct >= 0 ? '+' : ''}{a.realized_pct}%</b>),<b>现空仓等回补</b>。{a.buy_today ? <b style={{ color: '#c0392b' }}>最新交易日已现缠论买点 → 明日可回补 @ 现价 {a.latest_close}</b> : <span>出现缠论买点且价在60日线({a.ma60})上方则买回;若先跌破60日线则放弃这波。当前 {a.latest_close} 元</span>}</div>
           ) : (
-            <div style={{ fontSize: 15, marginTop: 6 }}>已于 <b>{a.exit_date}</b> 触发<b style={{ color: '#27ae60' }}>「{a.reason}」</b>卖出 @ {a.exit_price} 元,收益 <b style={{ color: a.ret_pct >= 0 ? '#c0392b' : '#27ae60' }}>{a.ret_pct >= 0 ? '+' : ''}{a.ret_pct}%</b></div>
+            <div style={{ fontSize: 15, marginTop: 6 }}>本轮已于 <b>{a.exit_date}</b> 因<b style={{ color: '#27ae60' }}>「{a.reason}」</b>终止 @ {a.exit_price} 元,{a.legs > 1 ? '复利' : ''}收益 <b style={{ color: a.ret_pct >= 0 ? '#c0392b' : '#27ae60' }}>{a.ret_pct >= 0 ? '+' : ''}{a.ret_pct}%</b></div>
           )}
+          {a.state !== 'ended' && <div style={{ marginTop: 10, padding: '8px 10px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, fontSize: 14 }}>
+            <b>📌 下一交易日({a.latest_date} 的下一交易日)操作:</b>
+            {a.state === 'holding' ? (<>
+              <div style={{ marginTop: 4 }}><b style={{ color: '#27ae60' }}>卖出 →</b> ① 若出现缠论卖点(一卖/MACD顶背驰)→ 止盈卖出(卖后转为等回补);② 或 收盘跌破 <b>{a.trigger}</b> 元(60日线 {a.ma60} / 现价回撤15%止损 {a.stop} 取高)→ 离场。</div>
+              <div><b style={{ color: '#999' }}>买入 →</b> 已持仓,无需操作(回补仅在止盈卖出后考虑)。</div>
+            </>) : (<>
+              <div style={{ marginTop: 4 }}><b style={{ color: '#c0392b' }}>买入 →</b> 若出现缠论买点 且 收盘在 60日线(<b>{a.ma60}</b>)上方 → 回补买入。</div>
+              <div><b style={{ color: '#999' }}>卖出 →</b> 当前空仓无持仓可卖;若先跌破 60日线({a.ma60})→ 放弃这波,不再回补。</div>
+            </>)}
+          </div>}
         </Card>
         <KLineChart data={res} marks={res.marks} />
-        <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔;橙框=中枢;红▲=买;绿▼=缠论卖点离场;红涨绿跌(前复权)。规则:缠论一卖/MACD顶背驰 或 跌破60日线 或 跌破买入价85% 即卖。</div>
+        <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔;橙框=中枢;红▲=买/回补(补=回调买回)、绿▼=缠论卖点止盈;红涨绿跌(前复权)。规则(M3):缠论卖点止盈 → 回调缠论买点回补 → 跌破60日线或入场价85%终止。</div>
       </div>}
     </div>
   )
