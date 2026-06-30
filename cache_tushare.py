@@ -903,7 +903,7 @@ def _prepare_duck_df(table: str, df: pd.DataFrame) -> pd.DataFrame:
     for col in str_cols:
         df[col] = df[col].fillna("").astype(str)
     for col in int_cols:
-        df[col] = df[col].fillna(0).astype(int)
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
     for col in flt_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
@@ -1733,7 +1733,7 @@ def fetch_limit_list_d_df(pro, limiter, trade_date):
             frames.append(df)
     if not frames:
         return None
-    merged = pd.concat(frames, ignore_index=True)
+    merged = pd.concat([f.dropna(axis=1, how="all") for f in frames], ignore_index=True)
     if "limit" in merged.columns:
         merged = merged.rename(columns={"limit": "limit_type"})
     for col in _LIMIT_LIST_D_COLS:
