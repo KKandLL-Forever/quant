@@ -64,6 +64,33 @@ FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "atrp", "ret20", "ret60",
          "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv", "rsturn",
          "crowd", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
 OUT = os.path.expanduser("~/AI/quart/swing/ml_signals_2026.html")
+FEAT_CN = {
+    "ptype": "形态类型", "brk": "突破强度", "pos1y": "一年价格位置", "basew": "底部宽度",
+    "dma20": "距20日线", "atrp": "波动率ATR%", "ret20": "20日涨幅", "ret60": "60日涨幅",
+    "winrate": "获利盘比例", "cyqconc": "筹码集中度", "mfnet20": "20日主力净额", "pe": "市盈率",
+    "pb": "市净率", "lnmv": "对数流通市值", "rsturn": "换手率分位", "crowd": "抱团度",
+    "idxdist": "指数距60日高", "sector_rs": "板块相对强度", "sector_heat": "板块热度",
+    "lianban60": "60日涨停数", "npyoy": "净利润同比",
+}
+
+
+def _shap_plot(model, X, path):
+    """对已训练 LGB 模型出 SHAP beeswarm 图(特征中英双标),保存到 path。"""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS", "Heiti TC", "STHeiti"]
+    plt.rcParams["axes.unicode_minus"] = False
+    import shap
+    Xs = X.sample(min(2000, len(X)), random_state=0) if len(X) > 2000 else X
+    sv = shap.TreeExplainer(model).shap_values(Xs)
+    if isinstance(sv, list):
+        sv = sv[1]
+    Xd = Xs.rename(columns={c: f"{FEAT_CN.get(c, c)} {c}" for c in Xs.columns})
+    shap.summary_plot(sv, Xd, show=False, max_display=len(Xs.columns))
+    plt.tight_layout()
+    plt.savefig(path, dpi=130, bbox_inches="tight")
+    plt.close()
 MODEL_PATH = os.path.expanduser("~/AI/quart/swing/ml_signals_2026_model.pkl")
 
 
@@ -609,6 +636,12 @@ def main():
                 pickle.dump({"model": m, "train_cutoff": args.start, "n_train": len(trf),
                              "seed": args.seed, "feats": FEATS, "best_iter": bi}, f)
             print(f"[模型] 已训练并存盘 → {MODEL_PATH}(训练截止 {args.start}, 训练样本 {len(trf)})")
+            try:
+                shap_path = MODEL_PATH.replace(".pkl", "_shap.png")
+                _shap_plot(m, trf[FEATS], shap_path)
+                print(f"[模型] SHAP 特征影响图 → {shap_path}")
+            except Exception as e:
+                print(f"[模型] SHAP 出图失败(跳过):{e}")
         else:
             print(f"[模型] 无存盘模型,本次现训现用(未存盘);加 --train 可存盘复用")
     te["score"] = m.predict_proba(te[FEATS])[:, 1]
