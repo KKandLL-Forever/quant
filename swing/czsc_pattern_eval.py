@@ -24,7 +24,7 @@ from cache_tushare import DUCKDB_PATH
 
 BULL = {"上颈线突破", "类三买", "类趋势底背驰", "aAb式底背驰"}
 BEAR = {"下颈线突破", "类三卖", "类趋势顶背驰", "aAb式顶背驰"}
-HZS = [5, 10, 20]
+HZS = [5, 10, 20, 40]
 
 
 def main():
@@ -74,18 +74,19 @@ def main():
     con.close()
     df = pd.DataFrame(rows)
     print(f"\n截止日 {cutoff}(实际 {sel})· 池 top{topn} · 命中形态样本 {len(df)}")
-    print(f"\n{'形态':<14}{'方向':<5}{'样本':>6}{'5日':>9}{'10日':>9}{'20日':>9}{'10日方向准':>10}")
+    print(f"\n{'形态':<14}{'方向':<5}{'样本':>6}{'10日收益':>9}{'20日收益':>9}{'40日收益':>9}"
+          f"{'准@10':>7}{'准@20':>7}{'准@40':>7}")
     for grp, cats in [("看涨", BULL), ("看跌", BEAR)]:
         for cat in cats:
             d = df[df["cat"] == cat]
             if not len(d):
                 print(f"  {cat:<12}{grp:<5}{'0':>6}"); continue
             exp_up = grp == "看涨"
-            acc = ((d["f10"] > 0) == exp_up).mean() * 100
-            print(f"  {cat:<12}{grp:<5}{len(d):>6}{d['f5'].mean()*100:>8.1f}%{d['f10'].mean()*100:>8.1f}%"
-                  f"{d['f20'].mean()*100:>8.1f}%{acc:>9.0f}%")
-    base10 = (df["f10"] > 0).mean() * 100
-    print(f"\n  基准:全样本10日上涨概率 = {base10:.0f}%(方向准>此值才算有效)")
+            a = {H: ((d[f"f{H}"] > 0) == exp_up).mean() * 100 for H in (10, 20, 40)}
+            print(f"  {cat:<12}{grp:<5}{len(d):>6}{d['f10'].mean()*100:>8.1f}%{d['f20'].mean()*100:>8.1f}%"
+                  f"{d['f40'].mean()*100:>8.1f}%{a[10]:>6.0f}%{a[20]:>6.0f}%{a[40]:>6.0f}%")
+    for H in (10, 20, 40):
+        print(f"  基准:全样本{H}日上涨概率 = {(df[f'f{H}']>0).mean()*100:.0f}%")
 
 
 if __name__ == "__main__":
