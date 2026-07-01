@@ -14,6 +14,7 @@ const MD = ({ children }) => (
 )
 
 import { portfolio, tradeLog, INIT } from './lib/portfolio'
+import { useSignalStore } from './store/signalStore'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }) {
@@ -102,11 +103,8 @@ const Stat = ({ v, label, calc }) => (
 )
 
 function MainPage() {
-  const [params, setParams] = useState({ mode: 'long', tier: 5, start: '20260101', train: false })
-  const [payload, setPayload] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const { params, setParams, parts, setParts, payload, loading, train } = useSignalStore()
   const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
-  const [parts, setParts] = useState(4)
   const [ana, setAna] = useState(null)   // {open, loading, code, date, data}
   const [kl, setKl] = useState(null)     // K线弹窗 {open, loading, code, date, data}
 
@@ -122,17 +120,6 @@ function MainPage() {
       const r = await fetch('/api/kline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date }) })
       setKl({ open: true, loading: false, code, date, marks, data: await r.json() })
     } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
-  }
-
-  const train = async (extra = {}) => {
-    setLoading(true); setPayload(null)
-    try {
-      const r = await fetch('/api/train', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...params, ...extra }) })
-      const j = await r.json()
-      if (!j.ok) { message.error('训练失败: ' + (j.error || '')); return }
-      j.signals.forEach(s => { s.__latest = j.latest })
-      setPayload(j); message.success(`${j.cached ? '已加载缓存' : '完成'},共 ${j.signals.length} 条信号`)
-    } catch (e) { message.error('请求失败,后端起了吗? ' + e) } finally { setLoading(false) }
   }
 
   useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
