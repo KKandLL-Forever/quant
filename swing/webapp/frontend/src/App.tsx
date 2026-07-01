@@ -364,7 +364,7 @@ function MainPage() {
             </div> : <div>无数据</div>}
       </Modal>
 
-      <Modal open={!!ana?.open} width={900} footer={null} onCancel={closeAna}
+      <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
         title={<span>LLM 分析 {ana?.code} @ {ana?.date}
           {ana?.data?.cached && <Tag color="default" style={{ marginLeft: 8 }}>已缓存</Tag>}
           {!ana?.loading && ana?.data && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
