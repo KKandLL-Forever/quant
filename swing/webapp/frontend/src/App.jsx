@@ -527,7 +527,7 @@ function AdvisePage() {
       <Header />
       <PageTitle kicker="Chan-theory Exit Advisor · 单只个股">缠论卖点提示</PageTitle>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
-        <span>股票代码</span><Input style={{ width: 160 }} placeholder="如 300903 / 300903.SZ" value={code} onChange={e => setCode(e.target.value.trim())} onPressEnter={run} />
+        <span>代码</span><Input style={{ width: 190 }} placeholder="个股/ETF 如 300903 / 510300" value={code} onChange={e => setCode(e.target.value.trim())} onPressEnter={run} />
         <span>买入日期</span><DatePicker style={{ width: 150 }} value={date ? dayjs(date) : null}
           onChange={(_, ds) => setDate(ds)} disabledDate={d => d && d > dayjs().endOf('day')} />
         <Button type="primary" loading={loading} onClick={run}>确定</Button>

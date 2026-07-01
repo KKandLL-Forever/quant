@@ -251,6 +251,50 @@ def _czsc_buy_now(CS, c):
     return False
 
 
+def _norm_code(raw):
+    """归一化代码:带后缀原样;ETF 5开头→.SH、1开头→.SZ;否则按个股规则。"""
+    import ta_bridge
+    s = raw.strip().upper()
+    if "." in s:
+        return s
+    if s[:1] == "5":
+        return s + ".SH"
+    if s[:1] == "1":
+        return s + ".SZ"
+    return ta_bridge._norm(s)
+
+
+def _fund_ohlc(ts):
+    """ETF/基金:tushare 在线拉 fund_daily + fund_adj,返回(g[td,o,h,l,c,v 后复权], 最新adj, 名称)。"""
+    import os
+    import pandas as pd
+    import tushare as tsl
+    tok = os.environ.get("TUSHARE_TOKEN", "")
+    pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+    if not tok and os.path.exists(pe):
+        for line in open(pe):
+            if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
+                tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+    pro = tsl.pro_api(tok)
+    d = pro.fund_daily(ts_code=ts, start_date="20180101", fields="trade_date,open,high,low,close,vol")
+    if d is None or d.empty:
+        return None, 1.0, ""
+    adj = pro.fund_adj(ts_code=ts, start_date="20180101", fields="trade_date,adj_factor")
+    d = d.merge(adj, on="trade_date", how="left").sort_values("trade_date")
+    d["adj_factor"] = d["adj_factor"].ffill().bfill().fillna(1.0)
+    laf = float(d["adj_factor"].iloc[-1])
+    g = pd.DataFrame({"td": d["trade_date"], "o": d["open"] * d["adj_factor"], "h": d["high"] * d["adj_factor"],
+                      "l": d["low"] * d["adj_factor"], "c": d["close"] * d["adj_factor"], "v": d["vol"]})
+    nm = ""
+    try:
+        fb = pro.fund_basic(ts_code=ts, fields="ts_code,name")
+        if fb is not None and not fb.empty:
+            nm = fb["name"].iloc[0]
+    except Exception:
+        pass
+    return g, laf, nm
+
+
 @app.post("/api/advise")
 def advise(req: AdviseReq):
     """对单只个股给定买入日,按缠论 route1(一卖/MACD顶背驰 + 跌破MA60 + 15%止损)判断是否已离场/明日是否该卖、卖出价位;附 K线+笔+中枢。"""
@@ -261,8 +305,7 @@ def advise(req: AdviseReq):
         from czsc import CZSC, RawBar, Freq, ZS
         import czsc.signals as CS
         from cache_tushare import DUCKDB_PATH
-        import ta_bridge
-        ts = ta_bridge._norm(req.code)
+        ts = _norm_code(req.code)
         con = duckdb.connect(DUCKDB_PATH, read_only=True)
         g = con.execute("""SELECT d.trade_date td, d.open*a.adj_factor o, d.high*a.adj_factor h,
             d.low*a.adj_factor l, d.close*a.adj_factor c, d.vol v
@@ -272,8 +315,12 @@ def advise(req: AdviseReq):
         laf = con.execute("SELECT adj_factor FROM adj_factor WHERE ts_code=? ORDER BY trade_date DESC LIMIT 1", [ts]).fetchone()
         con.close()
         if g.empty:
-            return {"ok": False, "error": "无行情"}
-        laf = float(laf[0]) if laf else 1.0
+            g, laf, nm = _fund_ohlc(ts)      # 库里没有(如ETF)→ tushare 在线拉
+            if g is None or g.empty:
+                return {"ok": False, "error": f"无行情:{ts}(个股库+ETF在线均未取到)"}
+            name = (nm,)
+        else:
+            laf = float(laf[0]) if laf else 1.0
         for col in ("o", "h", "l", "c"):
             g[col] = g[col] / laf
         g["td"] = pd.to_datetime(g["td"])
