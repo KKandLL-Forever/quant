@@ -13,52 +13,7 @@ const MD = ({ children }) => (
   </div>
 )
 
-const INIT = 150000
-
-// 组合回测:4等份,出现信号占一份买入(同股未清仓不加仓,最多4只),按出场口径平仓
-// ponytail: 无逐日价,持仓中仓位按其(终值)ret 标记浮盈算进曲线;有逐日价才能精确逐日 mark
-function portfolio(rows, exk, retk, cal, parts) {
-  const buys = {}
-  rows.forEach(r => {
-    if (r[retk] == null) return
-    const ex = r[exk] || r.__latest
-    ;(buys[r.date] = buys[r.date] || []).push({ ts: r.ts, ex, ret: r[retk], sc: r.score })
-  })
-  let cash = INIT, op = [], curve = []
-  for (const d of cal) {
-    op = op.filter(p => { if (p.ex <= d) { cash += p.amt * (1 + p.ret); return false } return true })
-    const bs = (buys[d] || []).slice().sort((a, b) => b.sc - a.sc)
-    for (const b of bs) {
-      if (op.length >= parts) break
-      if (op.some(p => p.ts === b.ts)) continue
-      const unit = (cash + op.reduce((s, p) => s + p.amt, 0)) / parts
-      if (cash + 1e-6 >= unit && unit > 0) { cash -= unit; op.push({ ts: b.ts, ex: b.ex, ret: b.ret, amt: unit }) }
-    }
-    curve.push([d, Math.round(cash + op.reduce((s, p) => s + p.amt * (1 + p.ret), 0))])
-  }
-  return curve
-}
-
-// 按组合规则(15万4等份/最多4只/满仓放弃/同股不加仓)重放,产出交易记录;未参与的信号标错过
-function tradeLog(rows, exk, retk, holdk, openk, cal, parts) {
-  const byDate = {}
-  rows.forEach(r => { if (r[retk] == null) return; (byDate[r.date] = byDate[r.date] || []).push(r) })
-  const last = cal[cal.length - 1]
-  let op = []
-  const log = []
-  for (const d of cal) {
-    op = op.filter(p => p.ex > d)
-    const bs = (byDate[d] || []).slice().sort((a, b) => b.score - a.score)
-    for (const r of bs) {
-      if (op.some(p => p.ts === r.ts)) continue
-      const status = op.length >= parts ? '满仓错过' : '已交易'
-      if (status === '已交易') op.push({ ts: r.ts, ex: r[exk] || last })
-      log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status,
-                 exit: r[exk], ret: r[retk], hold: r[holdk], open: r[openk] })
-    }
-  }
-  return log
-}
+import { portfolio, tradeLog, INIT } from './lib/portfolio'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }) {
