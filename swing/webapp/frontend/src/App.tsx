@@ -13,52 +13,13 @@ const MD = ({ children }) => (
   </div>
 )
 
-const INIT = 150000
-
-// 组合回测:4等份,出现信号占一份买入(同股未清仓不加仓,最多4只),按出场口径平仓
-// ponytail: 无逐日价,持仓中仓位按其(终值)ret 标记浮盈算进曲线;有逐日价才能精确逐日 mark
-function portfolio(rows, exk, retk, cal, parts) {
-  const buys = {}
-  rows.forEach(r => {
-    if (r[retk] == null) return
-    const ex = r[exk] || r.__latest
-    ;(buys[r.date] = buys[r.date] || []).push({ ts: r.ts, ex, ret: r[retk], sc: r.score })
-  })
-  let cash = INIT, op = [], curve = []
-  for (const d of cal) {
-    op = op.filter(p => { if (p.ex <= d) { cash += p.amt * (1 + p.ret); return false } return true })
-    const bs = (buys[d] || []).slice().sort((a, b) => b.sc - a.sc)
-    for (const b of bs) {
-      if (op.length >= parts) break
-      if (op.some(p => p.ts === b.ts)) continue
-      const unit = (cash + op.reduce((s, p) => s + p.amt, 0)) / parts
-      if (cash + 1e-6 >= unit && unit > 0) { cash -= unit; op.push({ ts: b.ts, ex: b.ex, ret: b.ret, amt: unit }) }
-    }
-    curve.push([d, Math.round(cash + op.reduce((s, p) => s + p.amt * (1 + p.ret), 0))])
-  }
-  return curve
-}
-
-// 按组合规则(15万4等份/最多4只/满仓放弃/同股不加仓)重放,产出交易记录;未参与的信号标错过
-function tradeLog(rows, exk, retk, holdk, openk, cal, parts) {
-  const byDate = {}
-  rows.forEach(r => { if (r[retk] == null) return; (byDate[r.date] = byDate[r.date] || []).push(r) })
-  const last = cal[cal.length - 1]
-  let op = []
-  const log = []
-  for (const d of cal) {
-    op = op.filter(p => p.ex > d)
-    const bs = (byDate[d] || []).slice().sort((a, b) => b.score - a.score)
-    for (const r of bs) {
-      if (op.some(p => p.ts === r.ts)) continue
-      const status = op.length >= parts ? '满仓错过' : '已交易'
-      if (status === '已交易') op.push({ ts: r.ts, ex: r[exk] || last })
-      log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status,
-                 exit: r[exk], ret: r[retk], hold: r[holdk], open: r[openk] })
-    }
-  }
-  return log
-}
+import { portfolio, tradeLog, INIT } from './lib/portfolio'
+import { useSignalStore } from './store/signalStore'
+import { Header, PageTitle, QUANT_THEME } from './shell'
+import HoldingsPage from './features/holdings/HoldingsPage'
+import LimitUpPage from './features/limitup/LimitUpPage'
+import EtfSharePage from './features/etf-share/EtfSharePage'
+import BullTopPage from './features/bull-top/BullTopPage'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }) {
@@ -71,7 +32,7 @@ function KLineChart({ data, marks }) {
   const Y = v => padT + (hi - v) * (H - padT - padB) / (hi - lo)
   const cw = Math.max(1.5, (W - padL - padR) / n * 0.6)
   const di = Object.fromEntries(ohlc.map((b, i) => [b[0], i]))
-  const months = []
+  const months: number[] = []
   for (let i = 0; i < n; i++) if (i === 0 || ohlc[i][0].slice(0, 7) !== ohlc[i - 1][0].slice(0, 7)) months.push(i)
   const biPts = (bis || []).filter(p => di[p[0]] != null).map(p => `${X(di[p[0]]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
   return (
@@ -117,7 +78,7 @@ function Chart({ title, series }) {
   const Y = v => H - pad - (v - mn) * (H - 2 * pad) / (mx - mn)
   let d = ''; for (let i = 0; i < n; i++) d += (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(series[i][1]).toFixed(1)
   const last = series[n - 1][1], ret = ((last / INIT - 1) * 100).toFixed(1), up = last >= INIT
-  const months = []
+  const months: number[] = []
   for (let i = 0; i < n; i++) if (i === 0 || series[i][0].slice(0, 7) !== series[i - 1][0].slice(0, 7)) months.push(i)
   const step = Math.ceil(months.length / 12)
   return (
@@ -147,13 +108,10 @@ const Stat = ({ v, label, calc }) => (
 )
 
 function MainPage() {
-  const [params, setParams] = useState({ mode: 'long', tier: 5, start: '20260101', train: false })
-  const [payload, setPayload] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const { params, setParams, parts, setParts, payload, loading, train } = useSignalStore()
   const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
-  const [parts, setParts] = useState(4)
-  const [ana, setAna] = useState(null)   // {open, loading, code, date, data}
-  const [kl, setKl] = useState(null)     // K线弹窗 {open, loading, code, date, data}
+  const [ana, setAna] = useState<any>(null)   // {open, loading, code, date, data}
+  const [kl, setKl] = useState<any>(null)     // K线弹窗 {open, loading, code, date, data}
 
   const openKline = async (code, date, row) => {
     const marks = [{ date, kind: 'buy', label: '买' }]
@@ -167,17 +125,6 @@ function MainPage() {
       const r = await fetch('/api/kline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date }) })
       setKl({ open: true, loading: false, code, date, marks, data: await r.json() })
     } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
-  }
-
-  const train = async (extra = {}) => {
-    setLoading(true); setPayload(null)
-    try {
-      const r = await fetch('/api/train', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...params, ...extra }) })
-      const j = await r.json()
-      if (!j.ok) { message.error('训练失败: ' + (j.error || '')); return }
-      j.signals.forEach(s => { s.__latest = j.latest })
-      setPayload(j); message.success(`${j.cached ? '已加载缓存' : '完成'},共 ${j.signals.length} 条信号`)
-    } catch (e) { message.error('请求失败,后端起了吗? ' + e) } finally { setLoading(false) }
   }
 
   useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
@@ -447,89 +394,11 @@ function MainPage() {
   )
 }
 
-const NAV_ITEMS = [
-  { key: '/', label: 'ML 主升浪信号' },
-  { key: '/advise', label: '缠论卖点提示' },
-]
-
-const QUANT_THEME = {
-  token: {
-    colorPrimary: '#0b6e4f',
-    colorInfo: '#0b6e4f',
-    colorBgBase: '#f7f4ed',
-    colorBgContainer: '#fffdf8',
-    colorBgLayout: '#f7f4ed',
-    colorText: '#17140f',
-    colorTextSecondary: '#5b554a',
-    colorBorder: '#e6e0d3',
-    colorBorderSecondary: '#ece7db',
-    borderRadius: 7,
-    fontFamily: '"IBM Plex Sans", -apple-system, "PingFang SC", sans-serif',
-    fontSize: 13,
-    controlHeight: 34,
-    boxShadow: '0 4px 20px -10px rgba(23,20,15,.18)',
-  },
-  components: {
-    Table: { headerBg: '#f1ede3', headerColor: '#5b554a', headerSplitColor: '#e6e0d3',
-      borderColor: '#ece7db', rowHoverBg: '#f3efe5', cellPaddingBlockSM: 7, fontWeightStrong: 600 },
-    Card: { colorBorderSecondary: '#ece7db' },
-    Button: { fontWeight: 500, primaryShadow: 'none' },
-    Tabs: { inkBarColor: '#0b6e4f', itemSelectedColor: '#0b6e4f', itemColor: '#5b554a', titleFontSize: 14 },
-    Modal: { titleFontSize: 16 },
-    Statistic: { contentFontSize: 22 },
-  },
-}
-
-const PageTitle = ({ kicker, children }) => (
-  <div style={{ margin: '4px 0 18px' }}>
-    {kicker && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: 2.5,
-      color: 'var(--accent)', fontWeight: 500, textTransform: 'uppercase' }}>{kicker}</div>}
-    <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, margin: '2px 0 0',
-      letterSpacing: .2, color: 'var(--ink)' }}>{children}</h1>
-  </div>
-)
-
-function Header() {
-  const cur = window.location.hash.replace('#', '') || '/'
-  const go = k => { window.location.hash = k }
-  return (
-    <div style={{ display: 'flex', alignItems: 'stretch', height: 64, background: 'var(--ink)',
-      padding: '0 26px', marginBottom: 22, borderRadius: 10, boxShadow: '0 8px 30px -12px rgba(11,110,79,.45)',
-      position: 'relative', overflow: 'hidden' }}>
-      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(120% 180% at 0% 0%, #0b6e4f33, transparent 55%)', pointerEvents: 'none' }} />
-      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', marginRight: 44, zIndex: 1 }}>
-        <div style={{ fontFamily: 'var(--font-display)', color: '#fbf8f0', fontSize: 22, fontWeight: 600, lineHeight: 1, letterSpacing: .3 }}>
-          量化策略台
-        </div>
-        <div style={{ fontFamily: 'var(--font-mono)', color: '#0b6e4f', fontSize: 10, letterSpacing: 3, marginTop: 4, fontWeight: 500 }}>
-          QUANT&nbsp;TERMINAL
-        </div>
-      </div>
-      <nav style={{ display: 'flex', alignItems: 'stretch', gap: 4, zIndex: 1 }}>
-        {NAV_ITEMS.map(it => {
-          const on = cur === it.key
-          return (
-            <a key={it.key} onClick={() => go(it.key)} style={{
-              display: 'flex', alignItems: 'center', padding: '0 18px', cursor: 'pointer',
-              fontSize: 14, fontWeight: on ? 600 : 400, letterSpacing: .5,
-              color: on ? '#fbf8f0' : '#9b958a',
-              borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent',
-              transition: 'color .15s' }}
-              onMouseEnter={e => { if (!on) e.currentTarget.style.color = '#d8d2c6' }}
-              onMouseLeave={e => { if (!on) e.currentTarget.style.color = '#9b958a' }}>
-              {it.label}
-            </a>
-          )
-        })}
-      </nav>
-    </div>
-  )
-}
 
 function AdvisePage() {
   const [code, setCode] = useState('')
   const [date, setDate] = useState('')
-  const [res, setRes] = useState(null)
+  const [res, setRes] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
   const run = async () => {
@@ -594,7 +463,15 @@ export default function App() {
   }, [])
   return (
     <ConfigProvider locale={zhCN} theme={QUANT_THEME}>
-      {hash.replace('#', '') === '/advise' ? <AdvisePage /> : <MainPage />}
+      {(() => {
+        const r = hash.replace('#', '')
+        if (r === '/advise') return <AdvisePage />
+        if (r === '/holdings') return <HoldingsPage />
+        if (r === '/limitup') return <LimitUpPage />
+        if (r === '/etfshare') return <EtfSharePage />
+        if (r === '/bulltop') return <BullTopPage />
+        return <MainPage />
+      })()}
     </ConfigProvider>
   )
 }

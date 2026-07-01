@@ -509,6 +509,197 @@ def advise(req: AdviseReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class LimitupReq(BaseModel):
+    start: str = "20250101"
+    end: str | None = None
+
+
+@app.post("/api/limitup")
+def limitup(req: LimitupReq):
+    """涨停统计:从 DuckDB limit_list_d(limit_type=U)按区间取,按交易日分组返回 LimitStock 列表。"""
+    try:
+        import duckdb
+        from cache_tushare import DUCKDB_PATH
+        def _d(s):
+            return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if s and len(s) == 8 and s.isdigit() else s
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        args = [_d(req.start)]
+        endq = ""
+        if req.end:
+            endq = " AND trade_date<=?"; args.append(_d(req.end))
+        rows = con.execute(f"""SELECT trade_date,ts_code,name,industry,close,pct_chg,amount,turnover_ratio,
+            open_times,limit_times,fd_amount,up_stat,first_time,last_time
+            FROM limit_list_d WHERE limit_type='U' AND trade_date>=?{endq} ORDER BY trade_date""", args).fetchall()
+        con.close()
+        by_date = {}
+        for r in rows:
+            d = str(r[0])
+            by_date.setdefault(d, []).append({
+                "tsCode": r[1], "name": r[2], "industry": r[3] or "", "close": float(r[4] or 0),
+                "pctChg": float(r[5] or 0), "amount": float(r[6] or 0), "turnoverRatio": float(r[7] or 0),
+                "openTimes": int(r[8] or 0), "limitTimes": max(1, int(r[9] or 1)), "fdAmount": float(r[10] or 0),
+                "upStat": str(r[11] or ""), "firstTime": str(r[12] or ""), "lastTime": str(r[13] or ""),
+                "limitType": "U", "luDesc": "",
+            })
+        return {"ok": True, "dates": sorted(by_date), "byDate": by_date}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+class BoardCalReq(BaseModel):
+    start: str = "20200101"
+
+
+@app.post("/api/boardcal")
+def boardcal(req: BoardCalReq):
+    """连板日历:每交易日的最高板/次高板 + 6板及以上龙头(name/board)。从 limit_list_d 全量算。"""
+    try:
+        import duckdb
+        from cache_tushare import DUCKDB_PATH
+        s = req.start
+        sd = f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 and s.isdigit() else s
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        rows = con.execute("""SELECT trade_date, ts_code, name, limit_times, fd_amount
+            FROM limit_list_d WHERE limit_type='U' AND trade_date>=? ORDER BY trade_date""", [sd]).fetchall()
+        con.close()
+        byd = {}
+        for td, ts, nm, lt, fd in rows:
+            byd.setdefault(str(td), []).append((ts, nm, int(lt or 1), float(fd or 0)))
+        days = []
+        for d in sorted(byd):
+            ss = byd[d]
+            boards = [x[2] for x in ss]
+            mx = max(boards)
+            below = [b for b in boards if b < mx]
+            second = max(below) if below else 0
+            dragons = sorted([x for x in ss if x[2] >= 6], key=lambda x: (-x[2], -x[3]))
+            days.append({
+                "date": d.replace("-", ""), "maxBoard": mx, "secondBoard": second,
+                "dragons": [{"tsCode": x[0], "name": x[1], "board": x[2]} for x in dragons],
+            })
+        return {"ok": True, "days": days}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+class EtfShareReq(BaseModel):
+    codes: list[str]
+    start: str
+    end: str | None = None
+
+
+@app.post("/api/etfshare")
+def etfshare(req: EtfShareReq):
+    """ETF 份额时序:tushare etf_share_size(total_share 万份→亿份),按代码返回。"""
+    try:
+        import os
+        import datetime as dt
+        import tushare as tsl
+        tok = os.environ.get("TUSHARE_TOKEN", "")
+        pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+        if not tok and os.path.exists(pe):
+            for line in open(pe):
+                if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
+                    tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+        pro = tsl.pro_api(tok)
+        end = req.end or dt.date.today().strftime("%Y%m%d")
+        series = {}
+        for c in req.codes:
+            try:
+                df = pro.etf_share_size(ts_code=c, start_date=req.start, end_date=end)
+            except Exception:
+                df = None
+            if df is None or df.empty:
+                series[c] = []; continue
+            df = df.sort_values("trade_date")
+            series[c] = [{"trade_date": str(r.trade_date), "fdShare": round(float(r.total_share) / 10000, 2)}
+                         for r in df.itertuples()]
+        return {"ok": True, "series": series}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+class BullTopReq(BaseModel):
+    start: str = "20150101"
+
+
+@app.post("/api/bulltop")
+def bulltop(req: BullTopReq):
+    """牛市逃顶:全市场整体法PE(剔金融)+历史分位、换手率(+MA5)、股东净减持(月)、融资余额。"""
+    try:
+        import os
+        import datetime as dt
+        import duckdb
+        import numpy as np
+        import pandas as pd
+        from cache_tushare import DUCKDB_PATH
+        s = req.start
+        sd = f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 and s.isdigit() else s
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        val = con.execute("""SELECT db.trade_date td,
+            SUM(CASE WHEN f.ts_code IS NULL THEN db.total_mv ELSE 0 END) tmv,
+            SUM(CASE WHEN f.ts_code IS NULL AND db.pe_ttm>0 THEN db.total_mv/db.pe_ttm ELSE 0 END) earn,
+            SUM(db.circ_mv) cmv, SUM(db.turnover_rate*db.circ_mv) tnum
+            FROM daily_basic db
+            LEFT JOIN (SELECT DISTINCT ts_code FROM sw_member WHERE l1_name IN ('银行','非银金融','石油石化')) f USING(ts_code)
+            WHERE db.trade_date>=? AND db.total_mv IS NOT NULL
+            GROUP BY db.trade_date ORDER BY db.trade_date""", [sd]).fetch_df()
+        hld = con.execute("""SELECT ann_date, in_de, change_vol, avg_price FROM stk_holdertrade
+            WHERE ann_date>=? AND avg_price IS NOT NULL AND change_vol IS NOT NULL""", [s]).fetch_df()
+        con.close()
+
+        val = val[val["earn"] > 0].copy()
+        val["pe"] = val["tmv"] / val["earn"]
+        val["turnover"] = val["tnum"] / val["cmv"] / 100
+        pe = val["pe"].to_numpy()
+        order = np.sort(pe)
+        val["pct"] = np.searchsorted(order, pe, side="right") / len(pe)
+        val["ma5"] = val["turnover"].rolling(5).mean()
+        valuation = [{"date": str(r.td)[:10].replace("-", ""), "peTtm": round(float(r.pe), 2), "pct": round(float(r.pct), 3),
+                      "circMv": round(float(r.cmv) / 1e4, 1), "totalMv": round(float(r.tmv) / 1e4, 1),
+                      "amountFull": round(float(r.tnum) / 1e6, 1)}   # 全市场成交额近似(亿)
+                     for r in val.itertuples()]
+        turnover = [{"date": str(r.td)[:10].replace("-", ""), "turnover": round(float(r.turnover) * 100, 3),
+                     "ma5": None if r.ma5 != r.ma5 else round(float(r.ma5) * 100, 3)} for r in val.itertuples()]
+
+        hld["month"] = hld["ann_date"].astype(str).str[:6]
+        hld["amt"] = hld["change_vol"] * hld["avg_price"] * hld["in_de"].map(lambda x: 1 if x == "DE" else -1)
+        hm = hld.groupby("month")["amt"].sum()
+        holder = [{"month": m, "netReduce": round(float(v) / 1e8, 2)} for m, v in hm.items()]
+
+        margin = []
+        try:
+            import tushare as tsl
+            tok = os.environ.get("TUSHARE_TOKEN", "")
+            pe_env = os.path.expanduser("~/AI/quart/.pyenv.local")
+            if not tok and os.path.exists(pe_env):
+                for line in open(pe_env):
+                    if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
+                        tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+            pro = tsl.pro_api(tok)
+            end = dt.date.today().strftime("%Y%m%d")
+            parts = []
+            for y in range(int(s[:4]), int(end[:4]) + 1):
+                df = pro.margin(start_date=f"{y}0101", end_date=f"{y}1231")
+                if df is not None and not df.empty:
+                    parts.append(df)
+            if parts:
+                m = pd.concat([p.dropna(axis=1, how="all") for p in parts])
+                m["two"] = m["rzye"].fillna(0) + m["rqye"].fillna(0)   # 两融=融资余额+融券余额
+                g = m.groupby("trade_date").agg(two=("two", "sum"), rzmre=("rzmre", "sum")).sort_index()
+                margin = [{"date": str(idx), "rzye": round(float(r.two) / 1e8, 1), "rzmre": round(float(r.rzmre) / 1e8, 1)}
+                          for idx, r in g.iterrows()]
+        except Exception:
+            margin = []
+        return {"ok": True, "valuation": valuation, "turnover": turnover, "holder": holder, "margin": margin}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
