@@ -16,7 +16,8 @@ BENCH_CODE, BENCH_NAME, STRAT_NAME = "510300.SH", "沪深300ETF基准", "全天�
 def to_payload(n=20, k=1, l=3, start="2024-01-01", end=None):
     """给前后端用:跑全天候策略回测并组装 JSON(每日调仓)。"""
     end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    return engine.to_payload(ETFS, engine.load_fund_qfq, BENCH_CODE, BENCH_NAME, STRAT_NAME, n, k, l, start, end)
+    return engine.to_payload(ETFS, engine.load_fund_qfq, BENCH_CODE, BENCH_NAME, STRAT_NAME, n, k, l, start, end,
+                             commission=engine.COMM_ETF, stamp=engine.STAMP_ETF)
 
 
 def main():

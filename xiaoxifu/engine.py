@@ -18,6 +18,22 @@ import cache_tushare as ct
 
 EQUAL_NAME = "等权重组合"
 TRADING_DAYS = 252
+COMM_STOCK, STAMP_STOCK = 0.00025, 0.0005   # 个股:佣金双边0.025% + 卖出印花税0.05%
+COMM_ETF, STAMP_ETF = 0.0002, 0.0             # 场内ETF:佣金双边0.02%,免印花税
+
+
+def cost_series(w, commission, stamp):
+    """按目标权重变动算每日交易成本 Series:佣金×Σ|Δw| + 印花税×卖出额,权重生效日计。"""
+    dw = w.fillna(0).diff()
+    turnover = dw.abs().sum(axis=1)
+    sells = (-dw.clip(upper=0)).sum(axis=1)
+    return commission * turnover + stamp * sells
+
+
+def net_returns(w, rets, commission, stamp):
+    """组合净日收益 = 权重滞后1天的加权收益 − 成本滞后1天(T决策T+1执行)。"""
+    gross = (w.shift(1) * rets).sum(axis=1)
+    return gross - cost_series(w, commission, stamp).shift(1).fillna(0)
 
 
 def load_stock_qfq(codes, start, end):
@@ -100,13 +116,14 @@ def perf(returns):
                 卡玛比率=round(ann / abs(mdd), 3) if mdd else None)
 
 
-def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end):
-    """跑回测,返回 (summary DataFrame, cum 累计收益宽表, dd 回撤宽表, actions)。"""
+def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
+        commission=COMM_STOCK, stamp=STAMP_STOCK):
+    """跑回测(扣手续费),返回 (summary DataFrame, cum 累计收益宽表, dd 回撤宽表, actions, px)。"""
     px = loader(universe.keys(), start, end)
     rets = px.pct_change(fill_method=None)
     mom, adj = calc_momentum(rets, n)
     w, actions = build_weights(mom, adj, n, k, l)
-    strat = (w.shift(1) * rets).sum(axis=1).rename(strat_name)
+    strat = net_returns(w, rets, commission, stamp).rename(strat_name)
     equal = rets.mean(axis=1).rename(EQUAL_NAME)
     series = {strat_name: strat, EQUAL_NAME: equal}
     if bench_code in px.columns:
@@ -125,9 +142,11 @@ def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, en
     return summary, cum, dd, actions, px
 
 
-def to_payload(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end):
+def to_payload(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
+               commission=COMM_STOCK, stamp=STAMP_STOCK):
     """组装前后端 JSON:params/cols/summary/equity/rebalances(每个持仓带当日前复权价 price)。"""
-    summary, cum, dd, actions, px = run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end)
+    summary, cum, dd, actions, px = run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
+                                        commission=commission, stamp=stamp)
     equity = [{"date": str(pd.Timestamp(d).date()),
                **{c: round(float(cum.loc[d, c]), 4) for c in cum.columns}} for d in cum.index]
     for a in actions:

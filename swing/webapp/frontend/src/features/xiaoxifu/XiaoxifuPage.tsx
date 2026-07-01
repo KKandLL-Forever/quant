@@ -16,13 +16,13 @@ interface Payload {
 
 interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; showShares?: boolean; kicker: string; desc: string; actionTitle?: string }
 const STRATS: StratCfg[] = [
-  { key: 'leader', label: '龙头动量轮动', hasKL: true, kicker: 'Leader Momentum · 年化~106%',
+  { key: 'leader', label: '龙头动量轮动', hasKL: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
     desc: '22 只各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF' },
-  { key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~41%',
+  { key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~39%(含手续费)',
     desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF' },
-  { key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~21%',
+  { key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~20%(含手续费)',
     desc: '13 只主流行业 ETF · 每 K 交易日调仓取前 L · 基准科创50ETF' },
-  { key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, kicker: 'Regime Switch · 年化~119% · 回撤减半',
+  { key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, kicker: 'Regime Switch · 年化~112%(含手续费) · 回撤减半',
     desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头 · 对照纯龙头/纯全天候',
     actionTitle: '牛熊切换记录' },
 ]

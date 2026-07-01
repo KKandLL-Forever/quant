@@ -17,13 +17,13 @@ STRAT_NAME, LEAD_NAME, ALLW_NAME = "牛熊切换组合", "纯龙头", "纯全天
 WARM = "2022-01-01"
 
 
-def _daily(universe, loader, n, k, l, warm, end):
-    """复算某策略每日组合收益 Series + 每日权重宽表,返回 (ret, w)。"""
+def _daily(universe, loader, n, k, l, warm, end, commission, stamp):
+    """复算某策略每日净收益(扣手续费)+ 每日权重宽表,返回 (ret, w)。"""
     px = loader(universe.keys(), warm, end)
     rets = px.pct_change(fill_method=None)
     mom, adj = engine.calc_momentum(rets, n)
     w, _ = engine.build_weights(mom, adj, n, k, l)
-    return (w.shift(1) * rets).sum(axis=1), w
+    return engine.net_returns(w, rets, commission, stamp), w
 
 
 def _holdings(w, universe, d):
@@ -55,8 +55,8 @@ def _perf_row(name, r):
 def to_payload(start="2024-01-01", end=None, **_):
     """给前后端用:跑牛熊切换组合并组装 JSON(净值/绩效/切换记录)。"""
     end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    lead, lead_w = _daily(lm.STOCKS, engine.load_stock_qfq, 20, 5, 5, WARM, end)
-    allw, allw_w = _daily(aw.ETFS, engine.load_fund_qfq, 20, 1, 3, WARM, end)
+    lead, lead_w = _daily(lm.STOCKS, engine.load_stock_qfq, 20, 5, 5, WARM, end, engine.COMM_STOCK, engine.STAMP_STOCK)
+    allw, allw_w = _daily(aw.ETFS, engine.load_fund_qfq, 20, 1, 3, WARM, end, engine.COMM_ETF, engine.STAMP_ETF)
     defensive = _hs300_regime(WARM, end)
     idx = lead.index.intersection(allw.index)
     lead, allw = lead.reindex(idx), allw.reindex(idx)
@@ -64,6 +64,8 @@ def to_payload(start="2024-01-01", end=None, **_):
     defensive = defensive.reindex(idx).ffill().fillna(False)
     applied = defensive.shift(1).fillna(False).astype(bool)
     combo = pd.Series(np.where(applied, allw, lead), index=idx)
+    switch = applied.ne(applied.shift(1)).fillna(False)
+    combo = combo - switch * (engine.COMM_STOCK + engine.COMM_ETF + engine.STAMP_STOCK)
 
     m = idx >= pd.Timestamp(start)
     rdf = pd.DataFrame({STRAT_NAME: combo[m], LEAD_NAME: lead[m], ALLW_NAME: allw[m]})
