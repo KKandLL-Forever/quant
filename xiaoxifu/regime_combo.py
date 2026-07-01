@@ -18,12 +18,19 @@ WARM = "2022-01-01"
 
 
 def _daily(universe, loader, n, k, l, warm, end):
-    """复算某策略每日组合收益 Series。"""
+    """复算某策略每日组合收益 Series + 每日权重宽表,返回 (ret, w)。"""
     px = loader(universe.keys(), warm, end)
     rets = px.pct_change(fill_method=None)
     mom, adj = engine.calc_momentum(rets, n)
     w, _ = engine.build_weights(mom, adj, n, k, l)
-    return (w.shift(1) * rets).sum(axis=1)
+    return (w.shift(1) * rets).sum(axis=1), w
+
+
+def _holdings(w, universe, d):
+    """取权重表 w 在日期 d 的非零持仓,返回 picks 列表[{code,name,weight}]。"""
+    row = w.loc[d]
+    row = row[row > 0].sort_values(ascending=False)
+    return [{"code": c, "name": universe.get(c, c), "weight": round(float(v), 4)} for c, v in row.items()]
 
 
 def _hs300_regime(warm, end):
@@ -48,13 +55,14 @@ def _perf_row(name, r):
 def to_payload(start="2024-01-01", end=None, **_):
     """给前后端用:跑牛熊切换组合并组装 JSON(净值/绩效/切换记录)。"""
     end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    lead = _daily(lm.STOCKS, engine.load_stock_qfq, 20, 5, 5, WARM, end)
-    allw = _daily(aw.ETFS, engine.load_fund_qfq, 20, 1, 3, WARM, end)
+    lead, lead_w = _daily(lm.STOCKS, engine.load_stock_qfq, 20, 5, 5, WARM, end)
+    allw, allw_w = _daily(aw.ETFS, engine.load_fund_qfq, 20, 1, 3, WARM, end)
     defensive = _hs300_regime(WARM, end)
     idx = lead.index.intersection(allw.index)
     lead, allw = lead.reindex(idx), allw.reindex(idx)
+    lead_w, allw_w = lead_w.reindex(idx).ffill(), allw_w.reindex(idx).ffill()
     defensive = defensive.reindex(idx).ffill().fillna(False)
-    applied = defensive.shift(1).fillna(False)
+    applied = defensive.shift(1).fillna(False).astype(bool)
     combo = pd.Series(np.where(applied, allw, lead), index=idx)
 
     m = idx >= pd.Timestamp(start)
@@ -71,8 +79,8 @@ def to_payload(start="2024-01-01", end=None, **_):
     for d, dv in ap.items():
         state = "全天候(避险)" if dv else "龙头(进攻)"
         if state != prev:
-            switches.append({"date": str(pd.Timestamp(d).date()),
-                             "picks": [{"code": "", "name": f"切换为 {state}", "weight": 1.0}]})
+            picks = _holdings(allw_w, aw.ETFS, d) if dv else _holdings(lead_w, lm.STOCKS, d)
+            switches.append({"date": str(pd.Timestamp(d).date()), "state": state, "picks": picks})
             prev = state
     return {
         "ok": True,

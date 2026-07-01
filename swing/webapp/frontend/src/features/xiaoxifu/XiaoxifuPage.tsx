@@ -5,7 +5,7 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Responsi
 import { Header, PageTitle } from '../../shell'
 
 interface Pick { code: string; name: string; weight: number }
-interface Rebalance { date: string; picks: Pick[] }
+interface Rebalance { date: string; picks: Pick[]; state?: string }
 interface Perf { 策略: string; 年化收益: number | null; 年化波动率: number | null; 最大回撤: number | null; 夏普比率: number | null; 卡玛比率: number | null }
 interface Payload {
   ok: boolean; error?: string
@@ -26,7 +26,7 @@ const STRATS: StratCfg[] = [
     desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头 · 对照纯龙头/纯全天候',
     actionTitle: '牛熊切换记录' },
 ]
-const COLOR = (name: string) => name.includes('策略') ? '#c0392b' : name.includes('等权') ? '#1f8e5a' : '#3b82f6'
+const PALETTE = ['#c0392b', '#1f8e5a', '#3b82f6']
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
 
 function StrategyView({ cfg }: { cfg: StratCfg }) {
@@ -55,16 +55,21 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
     for (const c of data!.cols) o[c] = row[c] as number
     return o
   }), [data])
+  const colorOf = (name: string) => data ? PALETTE[data.cols.indexOf(name) % PALETTE.length] || '#888' : '#888'
 
   const rebColumns = [
-    { title: '调仓日', dataIndex: 'date', width: 120 },
+    { title: cfg.actionTitle ? '切换日' : '调仓日', dataIndex: 'date', width: 120 },
+    ...(cfg.actionTitle ? [{
+      title: '切换为', dataIndex: 'state', width: 150,
+      render: (state: string) => <Tag color={state?.includes('避险') ? 'blue' : 'red'}><b>{state}</b></Tag>,
+    }] : []),
     {
-      title: cfg.fixed ? '状态' : '持仓(权重)', dataIndex: 'picks',
-      render: (picks: Pick[]) => picks.length === 0
+      title: cfg.actionTitle ? '当期持仓' : '持仓(权重)', dataIndex: 'picks',
+      render: (picks: Pick[], row: Rebalance) => picks.length === 0
         ? <span style={{ color: '#999' }}>空仓(无正动量标的)</span>
         : picks.map(p => (
-          <Tag key={p.code || p.name} color={p.name.includes('避险') ? 'blue' : 'red'} style={{ marginBottom: 4 }}>
-            {p.name} {p.code && <span style={{ opacity: .6 }}>{p.code}</span>} {!cfg.fixed && <b>{(p.weight * 100).toFixed(1)}%</b>}
+          <Tag key={p.code || p.name} color={row.state?.includes('避险') ? 'blue' : 'red'} style={{ marginBottom: 4 }}>
+            {p.name} {p.code && <span style={{ opacity: .6 }}>{p.code}</span>} <b>{(p.weight * 100).toFixed(1)}%</b>
           </Tag>
         )),
     },
@@ -87,7 +92,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
           <Row gutter={12} style={{ marginBottom: 16 }}>
             {data.summary.map(s => (
               <Col key={s.策略} span={8}>
-                <Card size="small" title={s.策略} styles={{ header: { color: COLOR(s.策略), fontWeight: 600 } }}>
+                <Card size="small" title={s.策略} styles={{ header: { color: colorOf(s.策略), fontWeight: 600 } }}>
                   <Row gutter={8}>
                     <Col span={12}><Statistic title="年化收益" value={s.年化收益 ?? '—'} suffix="%" valueStyle={{ color: '#c0392b', fontSize: 20 }} /></Col>
                     <Col span={12}><Statistic title="最大回撤" value={s.最大回撤 ?? '—'} suffix="%" valueStyle={{ fontSize: 20 }} /></Col>
@@ -109,8 +114,8 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
                 <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }} formatter={(v: any) => pct(Number(v))} />
                 <Legend />
                 {data.cols.map(c => (
-                  <Line key={c} type="linear" dataKey={c} name={c} stroke={COLOR(c)}
-                    strokeWidth={c.includes('策略') ? 2 : 1.4} dot={false} isAnimationActive={false} connectNulls />
+                  <Line key={c} type="linear" dataKey={c} name={c} stroke={colorOf(c)}
+                    strokeWidth={data.cols.indexOf(c) === 0 ? 2 : 1.4} dot={false} isAnimationActive={false} connectNulls />
                 ))}
               </LineChart>
             </ResponsiveContainer>
