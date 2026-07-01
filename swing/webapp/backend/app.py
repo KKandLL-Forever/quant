@@ -622,6 +622,81 @@ def etfshare(req: EtfShareReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class BullTopReq(BaseModel):
+    start: str = "20150101"
+
+
+@app.post("/api/bulltop")
+def bulltop(req: BullTopReq):
+    """牛市逃顶:全市场整体法PE(剔金融)+历史分位、换手率(+MA5)、股东净减持(月)、融资余额。"""
+    try:
+        import os
+        import datetime as dt
+        import duckdb
+        import numpy as np
+        import pandas as pd
+        from cache_tushare import DUCKDB_PATH
+        s = req.start
+        sd = f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 and s.isdigit() else s
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        val = con.execute("""SELECT db.trade_date td,
+            SUM(CASE WHEN f.ts_code IS NULL THEN db.total_mv ELSE 0 END) tmv,
+            SUM(CASE WHEN f.ts_code IS NULL AND db.pe_ttm>0 THEN db.total_mv/db.pe_ttm ELSE 0 END) earn,
+            SUM(db.circ_mv) cmv, SUM(db.turnover_rate*db.circ_mv) tnum
+            FROM daily_basic db
+            LEFT JOIN (SELECT DISTINCT ts_code FROM sw_member WHERE l1_name IN ('银行','非银金融')) f USING(ts_code)
+            WHERE db.trade_date>=? AND db.total_mv IS NOT NULL
+            GROUP BY db.trade_date ORDER BY db.trade_date""", [sd]).fetch_df()
+        hld = con.execute("""SELECT ann_date, in_de, change_vol, avg_price FROM stk_holdertrade
+            WHERE ann_date>=? AND avg_price IS NOT NULL AND change_vol IS NOT NULL""", [s]).fetch_df()
+        con.close()
+
+        val = val[val["earn"] > 0].copy()
+        val["pe"] = val["tmv"] / val["earn"]
+        val["turnover"] = val["tnum"] / val["cmv"] / 100
+        pe = val["pe"].to_numpy()
+        order = np.sort(pe)
+        val["pct"] = np.searchsorted(order, pe, side="right") / len(pe)
+        val["ma5"] = val["turnover"].rolling(5).mean()
+        valuation = [{"date": str(r.td)[:10].replace("-", ""), "peTtm": round(float(r.pe), 2), "pct": round(float(r.pct), 3),
+                      "circMv": round(float(r.cmv) / 1e4, 1), "totalMv": round(float(r.tmv) / 1e4, 1)}
+                     for r in val.itertuples()]
+        turnover = [{"date": str(r.td)[:10].replace("-", ""), "turnover": round(float(r.turnover) * 100, 3),
+                     "ma5": None if r.ma5 != r.ma5 else round(float(r.ma5) * 100, 3)} for r in val.itertuples()]
+
+        hld["month"] = hld["ann_date"].astype(str).str[:6]
+        hld["amt"] = hld["change_vol"] * hld["avg_price"] * hld["in_de"].map(lambda x: 1 if x == "DE" else -1)
+        hm = hld.groupby("month")["amt"].sum()
+        holder = [{"month": m, "netReduce": round(float(v) / 1e8, 2)} for m, v in hm.items()]
+
+        margin = []
+        try:
+            import tushare as tsl
+            tok = os.environ.get("TUSHARE_TOKEN", "")
+            pe_env = os.path.expanduser("~/AI/quart/.pyenv.local")
+            if not tok and os.path.exists(pe_env):
+                for line in open(pe_env):
+                    if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
+                        tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+            pro = tsl.pro_api(tok)
+            end = dt.date.today().strftime("%Y%m%d")
+            parts = []
+            for y in range(int(s[:4]), int(end[:4]) + 1):
+                df = pro.margin(start_date=f"{y}0101", end_date=f"{y}1231")
+                if df is not None and not df.empty:
+                    parts.append(df)
+            if parts:
+                m = pd.concat([p.dropna(axis=1, how="all") for p in parts])
+                mg = m.groupby("trade_date")["rzye"].sum().sort_index()
+                margin = [{"date": str(d), "rzye": round(float(v) / 1e8, 1)} for d, v in mg.items()]
+        except Exception:
+            margin = []
+        return {"ok": True, "valuation": valuation, "turnover": turnover, "holder": holder, "margin": margin}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}

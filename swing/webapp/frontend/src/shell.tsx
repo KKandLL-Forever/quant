@@ -7,6 +7,7 @@ export const NAV_ITEMS = [
   { key: '/holdings', label: '持仓总览' },
   { key: '/limitup', label: '涨停统计' },
   { key: '/etfshare', label: 'ETF份额' },
+  { key: '/bulltop', label: '牛市逃顶' },
 ]
 
 export const QUANT_THEME = {

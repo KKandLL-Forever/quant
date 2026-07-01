@@ -19,6 +19,7 @@ import { Header, PageTitle, QUANT_THEME } from './shell'
 import HoldingsPage from './features/holdings/HoldingsPage'
 import LimitUpPage from './features/limitup/LimitUpPage'
 import EtfSharePage from './features/etf-share/EtfSharePage'
+import BullTopPage from './features/bull-top/BullTopPage'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }) {
@@ -468,6 +469,7 @@ export default function App() {
         if (r === '/holdings') return <HoldingsPage />
         if (r === '/limitup') return <LimitUpPage />
         if (r === '/etfshare') return <EtfSharePage />
+        if (r === '/bulltop') return <BullTopPage />
         return <MainPage />
       })()}
     </ConfigProvider>
