@@ -122,17 +122,22 @@ def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, en
     cum, dd = growth - 1, growth.div(growth.cummax()) - 1
     summary = pd.DataFrame({name: perf(rdf[name]) for name in rdf.columns}).T
     summary.index.name = "策略"
-    return summary, cum, dd, actions
+    return summary, cum, dd, actions, px
 
 
 def to_payload(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end):
-    """组装前后端 JSON:params/cols/summary/equity/rebalances。"""
-    summary, cum, dd, actions = run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end)
+    """组装前后端 JSON:params/cols/summary/equity/rebalances(每个持仓带当日前复权价 price)。"""
+    summary, cum, dd, actions, px = run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end)
     equity = [{"date": str(pd.Timestamp(d).date()),
                **{c: round(float(cum.loc[d, c]), 4) for c in cum.columns}} for d in cum.index]
     for a in actions:
+        d = pd.Timestamp(a["date"])
         for p in a["picks"]:
             p["name"] = universe.get(p["code"], p["code"])
+            try:
+                p["price"] = round(float(px.loc[d, p["code"]]), 3)
+            except Exception:
+                p["price"] = None
     return {
         "ok": True,
         "params": {"N": n, "K": k, "L": l, "start": start, "end": end},

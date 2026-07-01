@@ -4,7 +4,7 @@ import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs,
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 
-interface Pick { code: string; name: string; weight: number }
+interface Pick { code: string; name: string; weight: number; price?: number | null }
 interface Rebalance { date: string; picks: Pick[]; state?: string }
 interface Perf { 策略: string; 年化收益: number | null; 年化波动率: number | null; 最大回撤: number | null; 夏普比率: number | null; 卡玛比率: number | null }
 interface Payload {
@@ -14,13 +14,13 @@ interface Payload {
   equity: Record<string, number | string>[]; rebalances: Rebalance[]
 }
 
-interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; kicker: string; desc: string; actionTitle?: string }
+interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; showShares?: boolean; kicker: string; desc: string; actionTitle?: string }
 const STRATS: StratCfg[] = [
   { key: 'leader', label: '龙头动量轮动', hasKL: true, kicker: 'Leader Momentum · 年化~106%',
     desc: '22 只各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF' },
   { key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~41%',
     desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF' },
-  { key: 'industry', label: '行业动量轮动', hasKL: true, kicker: 'Industry Rotation · 年化~21%',
+  { key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~21%',
     desc: '13 只主流行业 ETF · 每 K 交易日调仓取前 L · 基准科创50ETF' },
   { key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, kicker: 'Regime Switch · 年化~119% · 回撤减半',
     desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头 · 对照纯龙头/纯全天候',
@@ -33,6 +33,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const [N, setN] = useState(20)
   const [K, setK] = useState(5)
   const [L, setL] = useState(5)
+  const [capital, setCapital] = useState(100000)
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -64,14 +65,18 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
       render: (state: string) => <Tag color={state?.includes('避险') ? 'blue' : 'red'}><b>{state}</b></Tag>,
     }] : []),
     {
-      title: cfg.actionTitle ? '当期持仓' : '持仓(权重)', dataIndex: 'picks',
+      title: cfg.showShares ? `持仓(权重 · ¥${capital.toLocaleString()}下可买份额)` : cfg.actionTitle ? '当期持仓' : '持仓(权重)', dataIndex: 'picks',
       render: (picks: Pick[], row: Rebalance) => picks.length === 0
         ? <span style={{ color: '#999' }}>空仓(无正动量标的)</span>
-        : picks.map(p => (
-          <Tag key={p.code || p.name} color={row.state?.includes('避险') ? 'blue' : 'red'} style={{ marginBottom: 4 }}>
-            {p.name} {p.code && <span style={{ opacity: .6 }}>{p.code}</span>} <b>{(p.weight * 100).toFixed(1)}%</b>
-          </Tag>
-        )),
+        : picks.map(p => {
+          const lots = cfg.showShares && p.price ? Math.floor(capital * p.weight / p.price / 100) * 100 : null
+          return (
+            <Tag key={p.code || p.name} color={row.state?.includes('避险') ? 'blue' : 'red'} style={{ marginBottom: 4 }}>
+              {p.name} {p.code && <span style={{ opacity: .6 }}>{p.code}</span>} <b>{(p.weight * 100).toFixed(1)}%</b>
+              {lots != null && <span style={{ marginLeft: 4 }}>· ¥{p.price} · <b>{lots.toLocaleString()}</b>份</span>}
+            </Tag>
+          )
+        }),
     },
   ]
 
@@ -81,6 +86,9 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         {!cfg.fixed && <><span>动量周期 N</span><InputNumber min={5} max={60} value={N} onChange={v => setN(v || 20)} size="small" /></>}
         {cfg.hasKL && <><span>调仓间隔 K</span><InputNumber min={1} max={20} value={K} onChange={v => setK(v || 5)} size="small" /></>}
         {cfg.hasKL && <><span>持仓数 L</span><InputNumber min={1} max={22} value={L} onChange={v => setL(v || 5)} size="small" /></>}
+        {cfg.showShares && <><span>资金</span><InputNumber min={10000} step={10000} value={capital}
+          onChange={v => setCapital(v || 100000)} size="small" style={{ width: 130 }}
+          formatter={v => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => Number((v || '').replace(/[^\d]/g, ''))} /></>}
         <Button type="primary" size="small" onClick={load} loading={loading}>运行回测</Button>
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 2024-01-01 起 · 权重滞后1天(T+1执行)</span>
       </div>
