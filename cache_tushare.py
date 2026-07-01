@@ -2273,7 +2273,7 @@ def _make_fina_fetcher(cfg):
         def f(pro, limiter, d):
             a = _fetch_paged(pro.dividend, limiter, f"dividend ann {d}", ann_date=d, fields=flds)
             b = _fetch_paged(pro.dividend, limiter, f"dividend imp {d}", imp_ann_date=d, fields=flds)
-            parts = [x for x in (a, b) if x is not None and not x.empty]
+            parts = [x.dropna(axis=1, how="all") for x in (a, b) if x is not None and not x.empty]
             return _fina_dedup(pd.concat(parts, ignore_index=True), keys, datecol) if parts else None
     else:
         raise ValueError(f"未知 dim: {dim}")
