@@ -251,10 +251,16 @@ def _czsc_buy_now(CS, c):
     return False
 
 
+INDEX_ALIAS = {"1A0001": "000001.SH", "SH000001": "000001.SH", "上证指数": "000001.SH",
+               "1B0001": "399001.SZ", "深证成指": "399001.SZ"}
+
+
 def _norm_code(raw):
-    """归一化代码:带后缀原样;ETF 5开头→.SH、1开头→.SZ;否则按个股规则。"""
+    """归一化代码:通达信指数别名→tushare;带后缀原样;ETF 5开头→.SH、1开头→.SZ;否则按个股规则。"""
     import ta_bridge
     s = raw.strip().upper()
+    if s in INDEX_ALIAS:
+        return INDEX_ALIAS[s]
     if "." in s:
         return s
     if s[:1] == "5":
@@ -262,6 +268,39 @@ def _norm_code(raw):
     if s[:1] == "1":
         return s + ".SZ"
     return ta_bridge._norm(s)
+
+
+def _is_index(ts):
+    """判断是否指数:上证 000/999开头.SH、深证 399开头.SZ。"""
+    return (ts.endswith(".SH") and ts[:3] in ("000", "999")) or (ts.endswith(".SZ") and ts.startswith("399"))
+
+
+def _index_ohlc(ts):
+    """指数:tushare 在线拉 index_daily(无需复权),返回(g[td,o,h,l,c,v], 1.0, 名称)。"""
+    import os
+    import pandas as pd
+    import tushare as tsl
+    tok = os.environ.get("TUSHARE_TOKEN", "")
+    pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+    if not tok and os.path.exists(pe):
+        for line in open(pe):
+            if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
+                tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+    pro = tsl.pro_api(tok)
+    d = pro.index_daily(ts_code=ts, start_date="20180101", fields="trade_date,open,high,low,close,vol")
+    if d is None or d.empty:
+        return None, 1.0, ""
+    d = d.sort_values("trade_date")
+    g = pd.DataFrame({"td": d["trade_date"], "o": d["open"], "h": d["high"],
+                      "l": d["low"], "c": d["close"], "v": d["vol"]})
+    nm = ts
+    try:
+        ib = pro.index_basic(ts_code=ts, fields="ts_code,name")
+        if ib is not None and not ib.empty:
+            nm = ib["name"].iloc[0]
+    except Exception:
+        pass
+    return g, 1.0, nm
 
 
 def _fund_ohlc(ts):
@@ -315,9 +354,12 @@ def advise(req: AdviseReq):
         laf = con.execute("SELECT adj_factor FROM adj_factor WHERE ts_code=? ORDER BY trade_date DESC LIMIT 1", [ts]).fetchone()
         con.close()
         if g.empty:
-            g, laf, nm = _fund_ohlc(ts)      # 库里没有(如ETF)→ tushare 在线拉
+            if _is_index(ts):
+                g, laf, nm = _index_ohlc(ts)          # 指数
+            else:
+                g, laf, nm = _fund_ohlc(ts)           # ETF/基金
             if g is None or g.empty:
-                return {"ok": False, "error": f"无行情:{ts}(个股库+ETF在线均未取到)"}
+                return {"ok": False, "error": f"无行情:{ts}(个股/ETF/指数均未取到)"}
             name = (nm,)
         else:
             laf = float(laf[0]) if laf else 1.0
