@@ -37,12 +37,15 @@ TRADING_DAYS = 252
 
 
 def load_adj_close(codes, start, end):
-    """从本地 DuckDB 读多只个股后复权收盘,返回宽表 DataFrame[index=trade_date, columns=code]。"""
+    """从本地 DuckDB 读多只个股前复权收盘,返回宽表 DataFrame[index=trade_date, columns=code]。"""
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
     df = con.execute(
-        """SELECT d.ts_code, d.trade_date, d.close*a.adj_factor AS adjc
+        """WITH laf AS (
+             SELECT ts_code, arg_max(adj_factor, trade_date) AS lf FROM adj_factor GROUP BY ts_code)
+           SELECT d.ts_code, d.trade_date, d.close*a.adj_factor/laf.lf AS adjc
            FROM daily d JOIN adj_factor a
              ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
+           JOIN laf ON laf.ts_code=d.ts_code
            WHERE d.ts_code IN (SELECT UNNEST(?)) AND d.trade_date BETWEEN ? AND ?""",
         [list(codes), start, end],
     ).fetch_df()
@@ -51,7 +54,7 @@ def load_adj_close(codes, start, end):
 
 
 def load_bench(start, end):
-    """走 tushare fund_daily+fund_adj 取基准 588000 后复权收盘,返回 Series[index=Timestamp]。"""
+    """走 tushare fund_daily+fund_adj 取基准 588000 前复权收盘,返回 Series[index=Timestamp]。"""
     import tushare as ts
     pro = ts.pro_api(ct._get_token())
     d = pro.fund_daily(ts_code=BENCH_CODE, start_date=start.replace("-", ""),
@@ -61,7 +64,7 @@ def load_bench(start, end):
     m = d.merge(a, on="trade_date")
     m["dt"] = pd.to_datetime(m["trade_date"])
     m = m.sort_values("dt").set_index("dt")
-    return (m["close"] * m["adj_factor"]).rename(BENCH_NAME)
+    return (m["close"] * m["adj_factor"] / m["adj_factor"].iloc[-1]).rename(BENCH_NAME)
 
 
 def calc_momentum(returns, n):
