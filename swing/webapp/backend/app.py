@@ -584,6 +584,44 @@ def boardcal(req: BoardCalReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class EtfShareReq(BaseModel):
+    codes: list[str]
+    start: str
+    end: str | None = None
+
+
+@app.post("/api/etfshare")
+def etfshare(req: EtfShareReq):
+    """ETF 份额时序:tushare etf_share_size(total_share 万份→亿份),按代码返回。"""
+    try:
+        import os
+        import datetime as dt
+        import tushare as tsl
+        tok = os.environ.get("TUSHARE_TOKEN", "")
+        pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+        if not tok and os.path.exists(pe):
+            for line in open(pe):
+                if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
+                    tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+        pro = tsl.pro_api(tok)
+        end = req.end or dt.date.today().strftime("%Y%m%d")
+        series = {}
+        for c in req.codes:
+            try:
+                df = pro.etf_share_size(ts_code=c, start_date=req.start, end_date=end)
+            except Exception:
+                df = None
+            if df is None or df.empty:
+                series[c] = []; continue
+            df = df.sort_values("trade_date")
+            series[c] = [{"trade_date": str(r.trade_date), "fdShare": round(float(r.total_share) / 10000, 2)}
+                         for r in df.itertuples()]
+        return {"ok": True, "series": series}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
