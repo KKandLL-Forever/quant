@@ -90,7 +90,7 @@ export default function BullTopPage() {
           · 总市值 {(cur.totalMv / 1e4).toFixed(1)}万亿</span>}
       </span>}>
         {zb(
-          <ResponsiveContainer width="100%" height={360}>
+          <ResponsiveContainer width="100%" height={480}>
             <ComposedChart data={valData} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
               {grid}{areas(valData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
@@ -115,7 +115,7 @@ export default function BullTopPage() {
           · 融资买入占成交 <b>{curMgn.buyShare}%</b></span>}
       </span>}>
         {zb(
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={320}>
             <ComposedChart data={mgnData} margin={{ top: 8, right: 44, bottom: 0, left: 8 }}>
               {grid}{areas(mgnData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
@@ -133,7 +133,7 @@ export default function BullTopPage() {
 
       <Card size="small" style={{ marginBottom: 14 }} title="换手率(单日 / 5日均,3% 预警)">
         {zb(
-          <ResponsiveContainer width="100%" height={240}>
+          <ResponsiveContainer width="100%" height={320}>
             <LineChart data={tovData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
               {grid}{areas(tovData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
@@ -149,7 +149,7 @@ export default function BullTopPage() {
       </Card>
 
       <Card size="small" title="重要股东月度净减持(亿元,1000亿 预警)">
-        <ResponsiveContainer width="100%" height={240}>
+        <ResponsiveContainer width="100%" height={320}>
           <BarChart data={d.holder} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
             {grid}
             <XAxis dataKey="month" tick={{ fontSize: 10 }} minTickGap={40} />
