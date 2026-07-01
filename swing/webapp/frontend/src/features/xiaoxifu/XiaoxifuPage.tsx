@@ -60,7 +60,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
       render: (picks: Pick[]) => picks.length === 0
         ? <span style={{ color: '#999' }}>空仓(无正动量标的)</span>
         : picks.map(p => (
-          <Tag key={p.code} color="red" style={{ marginBottom: 4 }}>{p.name} <b>{(p.weight * 100).toFixed(1)}%</b></Tag>
+          <Tag key={p.code} color="red" style={{ marginBottom: 4 }}>{p.name} <span style={{ opacity: .6 }}>{p.code}</span> <b>{(p.weight * 100).toFixed(1)}%</b></Tag>
         )),
     },
   ]
