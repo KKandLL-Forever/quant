@@ -547,6 +547,43 @@ def limitup(req: LimitupReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class BoardCalReq(BaseModel):
+    start: str = "20200101"
+
+
+@app.post("/api/boardcal")
+def boardcal(req: BoardCalReq):
+    """连板日历:每交易日的最高板/次高板 + 6板及以上龙头(name/board)。从 limit_list_d 全量算。"""
+    try:
+        import duckdb
+        from cache_tushare import DUCKDB_PATH
+        s = req.start
+        sd = f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) == 8 and s.isdigit() else s
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        rows = con.execute("""SELECT trade_date, ts_code, name, limit_times, fd_amount
+            FROM limit_list_d WHERE limit_type='U' AND trade_date>=? ORDER BY trade_date""", [sd]).fetchall()
+        con.close()
+        byd = {}
+        for td, ts, nm, lt, fd in rows:
+            byd.setdefault(str(td), []).append((ts, nm, int(lt or 1), float(fd or 0)))
+        days = []
+        for d in sorted(byd):
+            ss = byd[d]
+            boards = [x[2] for x in ss]
+            mx = max(boards)
+            below = [b for b in boards if b < mx]
+            second = max(below) if below else 0
+            dragons = sorted([x for x in ss if x[2] >= 6], key=lambda x: (-x[2], -x[3]))
+            days.append({
+                "date": d.replace("-", ""), "maxBoard": mx, "secondBoard": second,
+                "dragons": [{"tsCode": x[0], "name": x[1], "board": x[2]} for x in dragons],
+            })
+        return {"ok": True, "days": days}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
