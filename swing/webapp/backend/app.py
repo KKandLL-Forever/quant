@@ -40,6 +40,14 @@ class AnalyzeReq(BaseModel):
     code: str
     date: str
     force: bool = False
+    rid: str = ""            # 前端生成的请求id,用于取消
+
+
+class CancelReq(BaseModel):
+    rid: str
+
+
+ANALYZE_PROCS = {}           # rid -> Popen,供取消
 
 
 CACHE_DIR = os.path.join(os.path.dirname(__file__), ".analyze_cache")
@@ -88,11 +96,25 @@ def analyze(req: AnalyzeReq):
             r = json.load(f)
         r["cached"] = True
         return r
+    out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
+    proc = subprocess.Popen([PY, "ta_analyze_job.py", req.code, req.date, out], cwd=SWING)
+    if req.rid:
+        ANALYZE_PROCS[req.rid] = proc
     try:
+        proc.wait(timeout=1800)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        return {"ok": False, "error": "分析超时(30分钟)"}
+    finally:
+        ANALYZE_PROCS.pop(req.rid, None)
+    if proc.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
+        return {"ok": False, "error": "分析已取消或失败", "cancelled": proc.returncode is not None and proc.returncode < 0}
+    try:
+        with open(out) as f:
+            j = json.load(f)
+        os.unlink(out)
         import ta_analyze
         ta_analyze._load_keys()
-        state, risk_decision = ta_analyze.analyze(req.code, req.date)
-        verdict = ta_analyze.analyst_verdict(state)
         bf = os.path.join(CACHE_DIR, f"biz_{req.code.split('.')[0]}.json")
         if os.path.exists(bf):
             business = json.load(open(bf))
@@ -100,15 +122,24 @@ def analyze(req: AnalyzeReq):
             business = ta_analyze.business_profile(req.code)
             json.dump(business, open(bf, "w"), ensure_ascii=False)
         res = {"ok": True, "code": req.code, "date": req.date,
-               "market_report": state.get("market_report") or "",
-               "news_report": state.get("news_report") or "",
-               "verdict": verdict, "business": business, "risk_decision": risk_decision, "cached": False}
+               "market_report": j["market_report"], "news_report": j["news_report"],
+               "verdict": j["verdict"], "business": business, "risk_decision": j["risk_decision"], "cached": False}
         with open(cf, "w") as f:
             json.dump(res, f, ensure_ascii=False)
         return res
-    except Exception as e:
+    except Exception:
         import traceback
         return {"ok": False, "error": traceback.format_exc()[-2000:]}
+
+
+@app.post("/api/analyze_cancel")
+def analyze_cancel(req: CancelReq):
+    """关闭弹窗时调用:kill 掉该请求对应的分析子进程。"""
+    p = ANALYZE_PROCS.pop(req.rid, None)
+    if p and p.poll() is None:
+        p.kill()
+        return {"ok": True, "killed": True}
+    return {"ok": True, "killed": False}
 
 
 class KlineReq(BaseModel):

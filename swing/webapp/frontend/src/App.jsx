@@ -183,12 +183,27 @@ function MainPage() {
   useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
 
   const analyze = async (code, date, force = false) => {
-    setAna({ open: true, loading: true, code, date })
+    const rid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())
+    const ctrl = new AbortController()
+    setAna({ open: true, loading: true, code, date, rid, ctrl })
     try {
-      const r = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date, force }) })
+      const r = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, date, force, rid }), signal: ctrl.signal })
       const j = await r.json()
-      setAna({ open: true, loading: false, code, date, data: j })
-    } catch (e) { setAna({ open: true, loading: false, code, date, data: { error: String(e) } }) }
+      setAna(a => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: j } : a)
+    } catch (e) {
+      if (e.name === 'AbortError') return                 // 用户关弹窗主动中止,忽略
+      setAna(a => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: { error: String(e) } } : a)
+    }
+  }
+
+  const closeAna = () => {
+    if (ana?.loading && ana?.rid) {
+      fetch('/api/analyze_cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rid: ana.rid }) }).catch(() => {})   // 通知后端 kill 子进程
+      ana.ctrl?.abort()
+    }
+    setAna(null)
   }
 
   const rows = useMemo(() => !payload ? [] : payload.signals.filter(r =>
@@ -402,7 +417,7 @@ function MainPage() {
             </div> : <div>无数据</div>}
       </Modal>
 
-      <Modal open={!!ana?.open} width={900} footer={null} onCancel={() => setAna(null)}
+      <Modal open={!!ana?.open} width={900} footer={null} onCancel={closeAna}
         title={<span>LLM 分析 {ana?.code} @ {ana?.date}
           {ana?.data?.cached && <Tag color="default" style={{ marginLeft: 8 }}>已缓存</Tag>}
           {!ana?.loading && ana?.data && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
