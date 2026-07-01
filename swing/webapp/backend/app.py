@@ -700,6 +700,27 @@ def bulltop(req: BullTopReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class XiaoxifuReq(BaseModel):
+    N: int = 20
+    K: int = 5
+    L: int = 5
+    start: str = "2024-01-01"
+    end: str | None = None
+
+
+@app.post("/api/xiaoxifu")
+def xiaoxifu(req: XiaoxifuReq):
+    """龙头动量轮动策略复现:跑 xiaoxifu/leader_momentum,返回调仓动作 + 累计收益曲线 + 绩效。"""
+    import traceback
+    try:
+        sys.path.insert(0, os.path.expanduser("~/AI/quart/xiaoxifu"))
+        import leader_momentum as lm
+        end = req.end or __import__("datetime").date.today().strftime("%Y-%m-%d")
+        return lm.to_payload(req.N, req.K, req.L, req.start, end)
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}

@@ -75,25 +75,32 @@ def calc_momentum(returns, n):
 
 
 def build_weights(mom, adj, n, k, l):
-    """按调仓规则生成每日权重宽表:正原始动量筛选→调整动量前L→归一化,权重生效至下次调仓前。"""
+    """按调仓规则生成每日权重宽表 + 调仓动作列表:正原始动量筛选→调整动量前L→归一化,权重生效至下次调仓前。
+
+    返回 (w 宽表, actions 列表[{date, picks:[{code,weight}]}])。"""
     dates = mom.index
     cols = mom.columns
     w = pd.DataFrame(0.0, index=dates, columns=cols)
     reb = list(range(n - 1, len(dates), k))
+    actions = []
     for j, ri in enumerate(reb):
         cm = mom.iloc[ri]
         ca = adj.iloc[ri]
         pos = cm[(cm > 0) & cm.notna()].index
         if len(pos) == 0:
+            actions.append({"date": str(dates[ri].date()), "picks": []})
             continue
         pa = ca[pos].dropna()
         top = pa.sort_values(ascending=False).head(l)
         if top.sum() <= 0:
+            actions.append({"date": str(dates[ri].date()), "picks": []})
             continue
         ww = top / top.sum()
         end = len(dates) if j == len(reb) - 1 else reb[j + 1]
         w.iloc[ri:end, w.columns.get_indexer(ww.index)] = ww.values
-    return w
+        actions.append({"date": str(dates[ri].date()),
+                        "picks": [{"code": c, "weight": round(float(v), 4)} for c, v in ww.items()]})
+    return w, actions
 
 
 def perf(returns):
@@ -127,6 +134,8 @@ def plot(cum, dd, outdir, n, k, l):
     except Exception:
         return
     for other, tag in ((BENCH_NAME, "vs_benchmark"), (EQUAL_NAME, "vs_equal_weight")):
+        if other not in cum.columns or STRAT_NAME not in cum.columns:
+            continue
         fig, ax = plt.subplots(2, 1, figsize=(10, 8), height_ratios=[1, 0.9], sharex=True)
         for name, color in ((STRAT_NAME, "#E41A1C"), (other, "#377EB8")):
             ax[0].plot(cum.index, cum[name] * 100, label=name, color=color, lw=1.5)
@@ -139,8 +148,55 @@ def plot(cum, dd, outdir, n, k, l):
         plt.close(fig)
 
 
+def run(n=20, k=5, l=5, start="2024-01-01", end=None, bench=True):
+    """跑完整回测,返回 (summary DataFrame, cum 累计收益宽表, dd 回撤宽表, actions 调仓动作列表)。"""
+    end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
+    px = load_adj_close(STOCKS.keys(), start, end)
+    px.index = pd.to_datetime(px.index)
+    rets = px.pct_change(fill_method=None)
+    mom, adj = calc_momentum(rets, n)
+    w, actions = build_weights(mom, adj, n, k, l)
+
+    strat = (w.shift(1) * rets).sum(axis=1).rename(STRAT_NAME)
+    equal = rets.mean(axis=1).rename(EQUAL_NAME)
+    series = {STRAT_NAME: strat, EQUAL_NAME: equal}
+    if bench:
+        try:
+            bpx = load_bench(start, end).reindex(px.index).ffill()
+            series[BENCH_NAME] = bpx.pct_change(fill_method=None).rename(BENCH_NAME)
+        except Exception as e:
+            print(f"基准拉取失败,跳过: {e}")
+
+    rdf = pd.DataFrame(series).loc[strat.index]
+    growth = (1 + rdf.fillna(0)).cumprod()
+    cum = growth - 1
+    dd = growth.div(growth.cummax()) - 1
+    summary = pd.DataFrame({name: perf(rdf[name]) for name in rdf.columns}).T
+    summary.index.name = "策略"
+    return summary, cum, dd, actions
+
+
+def to_payload(n, k, l, start, end):
+    """给前后端用:跑回测并组装 JSON dict(summary/equity/rebalances/params)。"""
+    summary, cum, dd, actions = run(n, k, l, start, end, bench=True)
+    equity = [{"date": str(pd.Timestamp(d).date()),
+               **{c: round(float(cum.loc[d, c]), 4) for c in cum.columns}} for d in cum.index]
+    for a in actions:
+        for p in a["picks"]:
+            p["name"] = STOCKS.get(p["code"], p["code"])
+    return {
+        "ok": True,
+        "params": {"N": n, "K": k, "L": l, "start": start, "end": end},
+        "cols": list(cum.columns),
+        "summary": [{"策略": idx, **{c: (None if pd.isna(v) else v) for c, v in row.items()}}
+                    for idx, row in summary.iterrows()],
+        "equity": equity,
+        "rebalances": list(reversed(actions)),
+    }
+
+
 def main():
-    """跑完整回测:加载数据→动量→权重→三组收益→指标→存盘绘图。"""
+    """CLI:跑回测→打印指标→存 csv/png 到参数命名文件夹。"""
     ap = argparse.ArgumentParser()
     ap.add_argument("--N", type=int, default=20)
     ap.add_argument("--K", type=int, default=5)
@@ -150,28 +206,8 @@ def main():
     ap.add_argument("--no-bench", action="store_true", help="跳过在线拉基准(离线可用)")
     args = ap.parse_args()
 
+    summary, cum, dd, actions = run(args.N, args.K, args.L, args.start, args.end, bench=not args.no_bench)
     px = load_adj_close(STOCKS.keys(), args.start, args.end)
-    px.index = pd.to_datetime(px.index)
-    rets = px.pct_change(fill_method=None)
-    mom, adj = calc_momentum(rets, args.N)
-    w = build_weights(mom, adj, args.N, args.K, args.L)
-
-    strat = (w.shift(1) * rets).sum(axis=1).rename(STRAT_NAME)
-    equal = rets.mean(axis=1).rename(EQUAL_NAME)
-
-    series = {STRAT_NAME: strat, EQUAL_NAME: equal}
-    if not args.no_bench:
-        try:
-            bpx = load_bench(args.start, args.end).reindex(px.index).ffill()
-            series[BENCH_NAME] = bpx.pct_change().rename(BENCH_NAME)
-        except Exception as e:
-            print(f"基准拉取失败,跳过: {e}")
-
-    rdf = pd.DataFrame(series).loc[strat.index]
-    cum = (1 + rdf.fillna(0)).cumprod() - 1
-    dd = (1 + rdf.fillna(0)).cumprod().div((1 + rdf.fillna(0)).cumprod().cummax()) - 1
-    summary = pd.DataFrame({name: perf(rdf[name]) for name in rdf.columns}).T
-    summary.index.name = "策略"
 
     print(f"\n参数 N={args.N} K={args.K} L={args.L}  回测 {args.start}~{args.end}")
     print(f"交易日 {len(px)}  标的 {len(STOCKS)}\n")
@@ -184,16 +220,16 @@ def main():
     cum.to_csv(os.path.join(outdir, "cumulative_returns.csv"), encoding="utf-8-sig")
     dd.to_csv(os.path.join(outdir, "drawdowns.csv"), encoding="utf-8-sig")
 
-    wl = w[w.gt(0).any(axis=1)].stack()
-    wl = wl[wl > 0].rename("Weight").reset_index()
-    wl.columns = ["Date", "Stock", "Weight"]
-    wl["Name"] = wl["Stock"].map(STOCKS)
-    wl.to_csv(os.path.join(outdir, "daily_weights_nonzero.csv"), index=False, encoding="utf-8-sig")
-    freq = (wl.groupby("Stock").size().rename("选中天数")
-            .to_frame().join(pd.Series(STOCKS, name="名称"))
-            .sort_values("选中天数", ascending=False))
-    freq.to_csv(os.path.join(outdir, "stock_selection_summary.csv"), encoding="utf-8-sig")
-    print("\n股票选中频率(前10):"); print(freq.head(10).to_string())
+    rows = [{"Date": a["date"], "Stock": p["code"], "Name": STOCKS.get(p["code"], p["code"]),
+             "Weight": p["weight"]} for a in actions for p in a["picks"]]
+    rb = pd.DataFrame(rows)
+    if len(rb):
+        rb.to_csv(os.path.join(outdir, "rebalance_actions.csv"), index=False, encoding="utf-8-sig")
+        freq = (rb.groupby("Stock").size().rename("入选次数")
+                .to_frame().join(pd.Series(STOCKS, name="名称"))
+                .sort_values("入选次数", ascending=False))
+        freq.to_csv(os.path.join(outdir, "stock_selection_summary.csv"), encoding="utf-8-sig")
+        print("\n入选次数(前10):"); print(freq.head(10).to_string())
 
     plot(cum, dd, outdir, args.N, args.K, args.L)
     print(f"\n结果已保存到 {outdir}")
