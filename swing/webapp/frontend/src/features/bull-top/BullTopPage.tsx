@@ -102,8 +102,8 @@ export default function BullTopPage() {
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))}
                 formatter={(v: any, n: any) => n === '总市值' ? [`${(v / 1e4).toFixed(1)}万亿`, n] : [`${v}`, n]} />
               <Legend />
-              <Line yAxisId="pe" type="monotone" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
-              <Line yAxisId="mv" type="monotone" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} />
+              <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
+              <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
         )}
@@ -124,8 +124,8 @@ export default function BullTopPage() {
               <ReferenceLine yAxisId="r" y={3} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '3%', fontSize: 10, fill: '#c0392b' }} />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n]} />
               <Legend />
-              <Line yAxisId="r" type="monotone" dataKey="ratio" name="两融/流通市值" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
-              <Line yAxisId="b" type="monotone" dataKey="buyShare" name="融资买入占成交" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} connectNulls />
+              <Line yAxisId="r" type="linear" dataKey="ratio" name="两融/流通市值" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
+              <Line yAxisId="b" type="linear" dataKey="buyShare" name="融资买入占成交" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} connectNulls />
             </ComposedChart>
           </ResponsiveContainer>
         )}
@@ -141,8 +141,8 @@ export default function BullTopPage() {
               <ReferenceLine y={3} stroke="#c0392b" strokeDasharray="4 3" />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n]} />
               <Legend />
-              <Line type="monotone" dataKey="turnover" name="单日换手" stroke="#0b6e4f" strokeWidth={1} dot={false} isAnimationActive={false} />
-              <Line type="monotone" dataKey="ma5" name="5日均换手" stroke="#c0392b" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
+              <Line type="linear" dataKey="turnover" name="单日换手" stroke="#0b6e4f" strokeWidth={1} dot={false} isAnimationActive={false} />
+              <Line type="linear" dataKey="ma5" name="5日均换手" stroke="#c0392b" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         )}

@@ -100,7 +100,7 @@ export default function EtfSharePage() {
                 labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => `${v} 亿份`} />
               <Legend onClick={(o: any) => setHidden(h => ({ ...h, [o.dataKey]: !h[o.dataKey] }))} />
               {ETF_LIST.map(e => (
-                <Line key={e.ts_code} type="monotone" dataKey={e.ts_code} name={`${e.name} ${e.ts_code}`}
+                <Line key={e.ts_code} type="linear" dataKey={e.ts_code} name={`${e.name} ${e.ts_code}`}
                   stroke={e.color} strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden[e.ts_code]} connectNulls />
               ))}
             </LineChart>
@@ -126,7 +126,7 @@ export default function EtfSharePage() {
               <YAxis tick={{ fontSize: 10 }} width={48} />
               <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }}
                 labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v} 亿份`, '合计']} />
-              <Line type="monotone" dataKey="total" name="合计" stroke="#17140f" strokeWidth={2} dot={false} isAnimationActive={false} />
+              <Line type="linear" dataKey="total" name="合计" stroke="#17140f" strokeWidth={2} dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         </Card>
