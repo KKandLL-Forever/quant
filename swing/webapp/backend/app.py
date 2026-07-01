@@ -701,6 +701,7 @@ def bulltop(req: BullTopReq):
 
 
 class XiaoxifuReq(BaseModel):
+    strategy: str = "leader"     # leader | allweather | industry
     N: int = 20
     K: int = 5
     L: int = 5
@@ -710,13 +711,18 @@ class XiaoxifuReq(BaseModel):
 
 @app.post("/api/xiaoxifu")
 def xiaoxifu(req: XiaoxifuReq):
-    """龙头动量轮动策略复现:跑 xiaoxifu/leader_momentum,返回调仓动作 + 累计收益曲线 + 绩效。"""
+    """小西西弗动量轮动策略复现(龙头/全天候/行业):跑对应模块,返回调仓动作 + 累计收益曲线 + 绩效。"""
+    import importlib
     import traceback
+    mods = {"leader": "leader_momentum", "allweather": "allweather", "industry": "industry"}
     try:
         sys.path.insert(0, os.path.expanduser("~/AI/quart/xiaoxifu"))
-        import leader_momentum as lm
+        m = importlib.import_module(mods.get(req.strategy, "leader_momentum"))
         end = req.end or __import__("datetime").date.today().strftime("%Y-%m-%d")
-        return lm.to_payload(req.N, req.K, req.L, req.start, end)
+        kw = dict(n=req.N, start=req.start, end=end)
+        if req.strategy != "allweather":
+            kw.update(k=req.K, l=req.L)
+        return m.to_payload(**kw)
     except Exception:
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
