@@ -5,6 +5,7 @@ export const NAV_ITEMS = [
   { key: '/', label: 'ML 主升浪信号' },
   { key: '/advise', label: '缠论卖点提示' },
   { key: '/holdings', label: '持仓总览' },
+  { key: '/limitup', label: '涨停统计' },
 ]
 
 export const QUANT_THEME = {

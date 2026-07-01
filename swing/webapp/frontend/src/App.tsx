@@ -17,6 +17,7 @@ import { portfolio, tradeLog, INIT } from './lib/portfolio'
 import { useSignalStore } from './store/signalStore'
 import { Header, PageTitle, QUANT_THEME } from './shell'
 import HoldingsPage from './features/holdings/HoldingsPage'
+import LimitUpPage from './features/limitup/LimitUpPage'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }) {
@@ -464,6 +465,7 @@ export default function App() {
         const r = hash.replace('#', '')
         if (r === '/advise') return <AdvisePage />
         if (r === '/holdings') return <HoldingsPage />
+        if (r === '/limitup') return <LimitUpPage />
         return <MainPage />
       })()}
     </ConfigProvider>

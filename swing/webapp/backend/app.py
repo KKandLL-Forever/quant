@@ -509,6 +509,44 @@ def advise(req: AdviseReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class LimitupReq(BaseModel):
+    start: str = "20250101"
+    end: str | None = None
+
+
+@app.post("/api/limitup")
+def limitup(req: LimitupReq):
+    """涨停统计:从 DuckDB limit_list_d(limit_type=U)按区间取,按交易日分组返回 LimitStock 列表。"""
+    try:
+        import duckdb
+        from cache_tushare import DUCKDB_PATH
+        def _d(s):
+            return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if s and len(s) == 8 and s.isdigit() else s
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        args = [_d(req.start)]
+        endq = ""
+        if req.end:
+            endq = " AND trade_date<=?"; args.append(_d(req.end))
+        rows = con.execute(f"""SELECT trade_date,ts_code,name,industry,close,pct_chg,amount,turnover_ratio,
+            open_times,limit_times,fd_amount,up_stat,first_time,last_time
+            FROM limit_list_d WHERE limit_type='U' AND trade_date>=?{endq} ORDER BY trade_date""", args).fetchall()
+        con.close()
+        by_date = {}
+        for r in rows:
+            d = str(r[0])
+            by_date.setdefault(d, []).append({
+                "tsCode": r[1], "name": r[2], "industry": r[3] or "", "close": float(r[4] or 0),
+                "pctChg": float(r[5] or 0), "amount": float(r[6] or 0), "turnoverRatio": float(r[7] or 0),
+                "openTimes": int(r[8] or 0), "limitTimes": max(1, int(r[9] or 1)), "fdAmount": float(r[10] or 0),
+                "upStat": str(r[11] or ""), "firstTime": str(r[12] or ""), "lastTime": str(r[13] or ""),
+                "limitType": "U", "luDesc": "",
+            })
+        return {"ok": True, "dates": sorted(by_date), "byDate": by_date}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
