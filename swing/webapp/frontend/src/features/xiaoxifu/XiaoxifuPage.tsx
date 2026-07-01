@@ -14,7 +14,7 @@ interface Payload {
   equity: Record<string, number | string>[]; rebalances: Rebalance[]
 }
 
-interface StratCfg { key: string; label: string; hasKL: boolean; kicker: string; desc: string }
+interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; kicker: string; desc: string; actionTitle?: string }
 const STRATS: StratCfg[] = [
   { key: 'leader', label: '龙头动量轮动', hasKL: true, kicker: 'Leader Momentum · 年化~106%',
     desc: '22 只各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF' },
@@ -22,6 +22,9 @@ const STRATS: StratCfg[] = [
     desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF' },
   { key: 'industry', label: '行业动量轮动', hasKL: true, kicker: 'Industry Rotation · 年化~21%',
     desc: '13 只主流行业 ETF · 每 K 交易日调仓取前 L · 基准科创50ETF' },
+  { key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, kicker: 'Regime Switch · 年化~119% · 回撤减半',
+    desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头 · 对照纯龙头/纯全天候',
+    actionTitle: '牛熊切换记录' },
 ]
 const COLOR = (name: string) => name.includes('策略') ? '#c0392b' : name.includes('等权') ? '#1f8e5a' : '#3b82f6'
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
@@ -56,11 +59,13 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const rebColumns = [
     { title: '调仓日', dataIndex: 'date', width: 120 },
     {
-      title: '持仓(权重)', dataIndex: 'picks',
+      title: cfg.fixed ? '状态' : '持仓(权重)', dataIndex: 'picks',
       render: (picks: Pick[]) => picks.length === 0
         ? <span style={{ color: '#999' }}>空仓(无正动量标的)</span>
         : picks.map(p => (
-          <Tag key={p.code} color="red" style={{ marginBottom: 4 }}>{p.name} <span style={{ opacity: .6 }}>{p.code}</span> <b>{(p.weight * 100).toFixed(1)}%</b></Tag>
+          <Tag key={p.code || p.name} color={p.name.includes('避险') ? 'blue' : 'red'} style={{ marginBottom: 4 }}>
+            {p.name} {p.code && <span style={{ opacity: .6 }}>{p.code}</span>} {!cfg.fixed && <b>{(p.weight * 100).toFixed(1)}%</b>}
+          </Tag>
         )),
     },
   ]
@@ -68,7 +73,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   return (
     <div>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
-        <span>动量周期 N</span><InputNumber min={5} max={60} value={N} onChange={v => setN(v || 20)} size="small" />
+        {!cfg.fixed && <><span>动量周期 N</span><InputNumber min={5} max={60} value={N} onChange={v => setN(v || 20)} size="small" /></>}
         {cfg.hasKL && <><span>调仓间隔 K</span><InputNumber min={1} max={20} value={K} onChange={v => setK(v || 5)} size="small" /></>}
         {cfg.hasKL && <><span>持仓数 L</span><InputNumber min={1} max={22} value={L} onChange={v => setL(v || 5)} size="small" /></>}
         <Button type="primary" size="small" onClick={load} loading={loading}>运行回测</Button>
@@ -111,7 +116,9 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
             </ResponsiveContainer>
           </Card>
 
-          <Card size="small" title={`调仓动作(共 ${data.rebalances.length} 次${cfg.hasKL ? `,每 ${data.params.K} 交易日一次` : ',每日'},最新在前)`}>
+          <Card size="small" title={cfg.actionTitle
+            ? `${cfg.actionTitle}(共 ${data.rebalances.length} 次切换,最新在前)`
+            : `调仓动作(共 ${data.rebalances.length} 次${cfg.hasKL ? `,每 ${data.params.K} 交易日一次` : ',每日'},最新在前)`}>
             <Table rowKey="date" size="small" columns={rebColumns} dataSource={data.rebalances}
               pagination={{ pageSize: 20, showSizeChanger: false }} />
           </Card>

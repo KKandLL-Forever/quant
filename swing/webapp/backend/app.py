@@ -714,7 +714,7 @@ def xiaoxifu(req: XiaoxifuReq):
     """小西西弗动量轮动策略复现(龙头/全天候/行业):跑对应模块,返回调仓动作 + 累计收益曲线 + 绩效。"""
     import importlib
     import traceback
-    mods = {"leader": "leader_momentum", "allweather": "allweather", "industry": "industry"}
+    mods = {"leader": "leader_momentum", "allweather": "allweather", "industry": "industry", "regime": "regime_combo"}
     try:
         sys.path.insert(0, os.path.expanduser("~/AI/quart/xiaoxifu"))
         m = importlib.import_module(mods.get(req.strategy, "leader_momentum"))
