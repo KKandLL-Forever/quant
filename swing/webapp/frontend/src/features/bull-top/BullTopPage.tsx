@@ -2,7 +2,7 @@
 // 数据走后端 /api/bulltop;前四图共用一个缩放窗口(滚轮缩放+拖动平移,联动)。
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Spin, message } from 'antd'
-import { LineChart, Line, BarChart, Bar, ReferenceLine, ReferenceArea, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, BarChart, Bar, ReferenceLine, ReferenceArea, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
 import { ZoomBox } from '../../components/ZoomBox'
@@ -89,11 +89,12 @@ export default function BullTopPage() {
               {grid}{areas(valData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
               <YAxis tick={{ fontSize: 10 }} width={36} />
-              <ReferenceLine y={danger} stroke="#c0392b" strokeDasharray="4 3" />
-              <ReferenceLine y={mid} stroke="#b8860b" strokeDasharray="4 3" />
-              <ReferenceLine y={opp} stroke="#1f8e5a" strokeDasharray="4 3" />
+              <ReferenceLine y={danger} stroke="#c0392b" strokeDasharray="4 3" label={{ value: `危险 ${danger.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#c0392b' }} />
+              <ReferenceLine y={mid} stroke="#b8860b" strokeDasharray="4 3" label={{ value: `中位 ${mid.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#b8860b' }} />
+              <ReferenceLine y={opp} stroke="#1f8e5a" strokeDasharray="4 3" label={{ value: `机会 ${opp.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#1f8e5a' }} />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v}`, 'PE-TTM']} />
-              <Line type="monotone" dataKey="peTtm" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
+              <Legend />
+              <Line type="monotone" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -108,7 +109,8 @@ export default function BullTopPage() {
               <YAxis tick={{ fontSize: 10 }} width={36} tickFormatter={(v: any) => `${v}%`} />
               <ReferenceLine y={3} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '3%', fontSize: 10, fill: '#c0392b' }} />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v}%`, '两融/流通']} />
-              <Line type="monotone" dataKey="ratio" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
+              <Legend />
+              <Line type="monotone" dataKey="ratio" name="两融余额/流通市值" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -122,9 +124,10 @@ export default function BullTopPage() {
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
               <YAxis tick={{ fontSize: 10 }} width={36} tickFormatter={(v: any) => `${v}%`} />
               <ReferenceLine y={3} stroke="#c0392b" strokeDasharray="4 3" />
-              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n === 'ma5' ? '5日均' : '单日']} />
-              <Line type="monotone" dataKey="turnover" stroke="#0b6e4f" strokeWidth={1} dot={false} isAnimationActive={false} />
-              <Line type="monotone" dataKey="ma5" stroke="#c0392b" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
+              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n]} />
+              <Legend />
+              <Line type="monotone" dataKey="turnover" name="单日换手" stroke="#0b6e4f" strokeWidth={1} dot={false} isAnimationActive={false} />
+              <Line type="monotone" dataKey="ma5" name="5日均换手" stroke="#c0392b" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -138,7 +141,8 @@ export default function BullTopPage() {
             <YAxis tick={{ fontSize: 10 }} width={44} />
             <ReferenceLine y={1000} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '1000亿', fontSize: 10, fill: '#c0392b' }} />
             <Tooltip contentStyle={tip} formatter={(v: any) => [`${v} 亿`, '净减持']} />
-            <Bar dataKey="netReduce" fill="#c0392b" />
+            <Legend />
+            <Bar dataKey="netReduce" name="月度净减持(亿)" fill="#c0392b" />
           </BarChart>
         </ResponsiveContainer>
       </Card>
