@@ -62,6 +62,19 @@ export default function EtfSharePage() {
     return Object.values(byDate).sort((a, b) => (a.date < b.date ? -1 : 1))
   }, [series])
 
+  // 合计:每个交易日所有 ETF 份额相加
+  const totalData = useMemo(() => chartData.map(row => {
+    let sum = 0
+    for (const e of ETF_LIST) { const v = row[e.ts_code]; if (typeof v === 'number') sum += v }
+    return { date: row.date as string, total: Math.round(sum * 100) / 100 }
+  }), [chartData])
+  const totalSummary = useMemo(() => {
+    if (totalData.length === 0) return null
+    const last = totalData[totalData.length - 1]
+    const prev = totalData.length >= 2 ? totalData[totalData.length - 2] : null
+    return { date: last.date, total: last.total, delta: prev ? last.total - prev.total : null }
+  }, [totalData])
+
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
@@ -90,6 +103,30 @@ export default function EtfSharePage() {
                 <Line key={e.ts_code} type="monotone" dataKey={e.ts_code} name={`${e.name} ${e.ts_code}`}
                   stroke={e.color} strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden[e.ts_code]} connectNulls />
               ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </Card>
+      )}
+
+      {!loading && totalSummary && (
+        <Card size="small" style={{ marginTop: 16 }}
+          title={<span>全部 ETF 份额合计
+            <span style={{ marginLeft: 12, fontSize: 13, color: 'var(--ink-soft)' }}>最新 {fmtDate(totalSummary.date)}</span>
+            <b style={{ marginLeft: 8, fontSize: 15 }}>{totalSummary.total.toFixed(2)} 亿份</b>
+            {totalSummary.delta != null && (
+              <span style={{ marginLeft: 8, fontSize: 13, color: totalSummary.delta > 0 ? '#c0392b' : totalSummary.delta < 0 ? '#1f8e5a' : '#5b554a' }}>
+                较昨日{totalSummary.delta >= 0 ? '增加' : '减少'} {Math.abs(totalSummary.delta).toFixed(2)} 亿份
+              </span>
+            )}
+          </span>}>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={totalData} margin={{ top: 8, right: 20, bottom: 0, left: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
+              <YAxis tick={{ fontSize: 10 }} width={48} />
+              <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }}
+                labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v} 亿份`, '合计']} />
+              <Line type="monotone" dataKey="total" name="合计" stroke="#17140f" strokeWidth={2} dot={false} isAnimationActive={false} />
             </LineChart>
           </ResponsiveContainer>
         </Card>
