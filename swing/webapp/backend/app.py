@@ -644,7 +644,7 @@ def bulltop(req: BullTopReq):
             SUM(CASE WHEN f.ts_code IS NULL AND db.pe_ttm>0 THEN db.total_mv/db.pe_ttm ELSE 0 END) earn,
             SUM(db.circ_mv) cmv, SUM(db.turnover_rate*db.circ_mv) tnum
             FROM daily_basic db
-            LEFT JOIN (SELECT DISTINCT ts_code FROM sw_member WHERE l1_name IN ('银行','非银金融')) f USING(ts_code)
+            LEFT JOIN (SELECT DISTINCT ts_code FROM sw_member WHERE l1_name IN ('银行','非银金融','石油石化')) f USING(ts_code)
             WHERE db.trade_date>=? AND db.total_mv IS NOT NULL
             GROUP BY db.trade_date ORDER BY db.trade_date""", [sd]).fetch_df()
         hld = con.execute("""SELECT ann_date, in_de, change_vol, avg_price FROM stk_holdertrade
@@ -687,7 +687,8 @@ def bulltop(req: BullTopReq):
                     parts.append(df)
             if parts:
                 m = pd.concat([p.dropna(axis=1, how="all") for p in parts])
-                mg = m.groupby("trade_date")["rzye"].sum().sort_index()
+                m["two"] = m["rzye"].fillna(0) + m["rqye"].fillna(0)   # 两融=融资余额+融券余额
+                mg = m.groupby("trade_date")["two"].sum().sort_index()
                 margin = [{"date": str(d), "rzye": round(float(v) / 1e8, 1)} for d, v in mg.items()]
         except Exception:
             margin = []

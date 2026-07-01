@@ -71,13 +71,13 @@ export default function BullTopPage() {
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
-      <PageTitle kicker="Bull-market Top Radar · 全A拥挤度体检">牛市逃顶</PageTitle>
+      <PageTitle kicker="Bull-market Top Radar · 剔金融石化整体法">牛市逃顶</PageTitle>
       <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
         滚轮缩放 · 拖动平移(四图联动) {isZoomed && <a onClick={reset} style={{ color: 'var(--accent)', marginLeft: 8 }}>重置缩放</a>}
         {range && <span style={{ marginLeft: 8 }}>{range.start} ~ {range.end}</span>}
       </div>
 
-      <Card size="small" style={{ marginBottom: 14 }} title={<span>全A估值(剔金融,整体法 PE-TTM)
+      <Card size="small" style={{ marginBottom: 14 }} title={<span>全A估值(剔金融石化,整体法 PE-TTM)
         {cur && <span style={{ marginLeft: 12, fontSize: 13 }}>
           当前 <b style={{ color: tone }}>{cur.peTtm.toFixed(2)}</b> · 分位 <b style={{ color: tone }}>{(cur.pct * 100).toFixed(1)}%</b>
           · <span style={{ color: '#c0392b' }}>危险 {danger.toFixed(1)}</span> / 中位 {mid.toFixed(1)} / <span style={{ color: '#1f8e5a' }}>机会 {opp.toFixed(1)}</span>
@@ -99,7 +99,7 @@ export default function BullTopPage() {
         )}
       </Card>
 
-      <Card size="small" style={{ marginBottom: 14 }} title="融资余额 / 流通市值(拥挤度,3% 预警)">
+      <Card size="small" style={{ marginBottom: 14 }} title="两融余额 / 流通市值(融资+融券,3% 预警)">
         {zb(
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={mgnData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
