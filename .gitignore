@@ -63,3 +63,4 @@ swing/webapp/backend/.analyze_cache/
 swing/*_shap.png
 swing/*.pkl
 !swing/webapp/frontend/index.html
+xiaoxifu/龙头动量轮动策略_N*/

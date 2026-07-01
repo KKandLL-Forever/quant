@@ -31,6 +31,7 @@ A 股量化研究仓库:一个共享数据层(tushare → 本地 DuckDB)之上,*
 - **每完成一个小功能即 `git commit` 并 `git push`(master),不必逐次询问。**
 - 改 `cache_tushare.py` 后,push 前**必须**先跑 `cd quart && python test_cache_tushare.py` 全绿。
 - commit message 用中文、简洁说清「做了什么 + 为什么」。
+- **git 版本控制只在 `quart/` 根**:唯一 `.gitignore` 在根目录,禁止在任何策略子文件夹内新建 `.gitignore`;子文件夹的忽略规则一律写进根 `.gitignore`(如 `xiaoxifu/龙头动量轮动策略_N*/`)。
 
 ## Important Rules（全局保留）
 
