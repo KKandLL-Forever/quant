@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Popover, Tabs, DatePicker, ConfigProvider } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
@@ -288,13 +288,20 @@ function MainPage() {
         <div style={{ fontWeight: 700, marginBottom: 4 }}>最新交易日({today.L}) · 买入 {today.buys.length} 条 / 需卖出 {today.sells.length} 条</div>
         <div><b>买入:</b> {today.buys.length ? today.buys.map(r => <span key={'b' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> {r.tier} ML{r.score} <span style={{ color: r.mkt === '健康' ? '#c0392b' : '#27ae60' }}>[{r.board}{r.mkt}]</span></span>) : <span style={{ color: '#999' }}>无</span>}</div>
         <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
-        <div style={{ marginTop: 4 }}><b>当前持仓:</b> <span style={{ fontSize: 12, color: '#999' }}>(模型/策略仍持仓,移到名字上点分析→按最新交易日 {today.L} 判断该不该卖)</span><br />
-          {today.holds.length ? today.holds.map(r => {
-            const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
-            return <Popover key={'h' + r.ts} trigger="hover" content={<Button size="small" type="primary" ghost onClick={() => analyze(r.ts, today.L)}>分析(@{today.L})</Button>}>
-              <span style={{ marginRight: 12, fontSize: 13, cursor: 'pointer', borderBottom: '1px dashed #888' }}>{r.name}({r.ts})<sub style={{ color: '#999' }}>{who}</sub></span>
-            </Popover>
-          }) : <span style={{ color: '#999' }}>无</span>}
+        <div style={{ marginTop: 8 }}>
+          <b>当前持仓</b> <span style={{ fontSize: 12, color: '#9b958a' }}>· 点击按最新交易日 {today.L} 分析该不该卖</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: 6 }}>
+            {today.holds.length ? today.holds.map(r => {
+              const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
+              return (
+                <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L)}>
+                  <span style={{ fontWeight: 600 }}>{r.name}</span>
+                  <span className="hold-code">{r.ts.slice(0, 6)}</span>
+                  {who && <span className="hold-tag">{who}</span>}
+                </span>
+              )
+            }) : <span style={{ color: '#9b958a' }}>无</span>}
+          </div>
         </div>
       </div>}
 
