@@ -659,7 +659,8 @@ def bulltop(req: BullTopReq):
         val["pct"] = np.searchsorted(order, pe, side="right") / len(pe)
         val["ma5"] = val["turnover"].rolling(5).mean()
         valuation = [{"date": str(r.td)[:10].replace("-", ""), "peTtm": round(float(r.pe), 2), "pct": round(float(r.pct), 3),
-                      "circMv": round(float(r.cmv) / 1e4, 1), "totalMv": round(float(r.tmv) / 1e4, 1)}
+                      "circMv": round(float(r.cmv) / 1e4, 1), "totalMv": round(float(r.tmv) / 1e4, 1),
+                      "amountFull": round(float(r.tnum) / 1e6, 1)}   # 全市场成交额近似(亿)
                      for r in val.itertuples()]
         turnover = [{"date": str(r.td)[:10].replace("-", ""), "turnover": round(float(r.turnover) * 100, 3),
                      "ma5": None if r.ma5 != r.ma5 else round(float(r.ma5) * 100, 3)} for r in val.itertuples()]
@@ -688,8 +689,9 @@ def bulltop(req: BullTopReq):
             if parts:
                 m = pd.concat([p.dropna(axis=1, how="all") for p in parts])
                 m["two"] = m["rzye"].fillna(0) + m["rqye"].fillna(0)   # 两融=融资余额+融券余额
-                mg = m.groupby("trade_date")["two"].sum().sort_index()
-                margin = [{"date": str(d), "rzye": round(float(v) / 1e8, 1)} for d, v in mg.items()]
+                g = m.groupby("trade_date").agg(two=("two", "sum"), rzmre=("rzmre", "sum")).sort_index()
+                margin = [{"date": str(idx), "rzye": round(float(r.two) / 1e8, 1), "rzmre": round(float(r.rzmre) / 1e8, 1)}
+                          for idx, r in g.iterrows()]
         except Exception:
             margin = []
         return {"ok": True, "valuation": valuation, "turnover": turnover, "holder": holder, "margin": margin}

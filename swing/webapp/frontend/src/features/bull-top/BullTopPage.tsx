@@ -2,15 +2,15 @@
 // 数据走后端 /api/bulltop;前四图共用一个缩放窗口(滚轮缩放+拖动平移,联动)。
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Spin, message } from 'antd'
-import { LineChart, Line, BarChart, Bar, ReferenceLine, ReferenceArea, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
+import { ComposedChart, LineChart, Line, BarChart, Bar, ReferenceLine, ReferenceArea, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
 import { ZoomBox } from '../../components/ZoomBox'
 
-interface Val { date: string; peTtm: number; pct: number; circMv: number; totalMv: number }
+interface Val { date: string; peTtm: number; pct: number; circMv: number; totalMv: number; amountFull: number }
 interface Tov { date: string; turnover: number; ma5: number | null }
 interface Hld { month: string; netReduce: number }
-interface Mgn { date: string; rzye: number }
+interface Mgn { date: string; rzye: number; rzmre: number }
 const BULLS = [
   { s: '20140701', e: '20150630', label: '杠杆牛', c: '#c0392b' },
   { s: '20190101', e: '20210228', label: '2019结构牛', c: '#8b5cf6' },
@@ -52,11 +52,17 @@ export default function BullTopPage() {
   const opp = quantile(pes, 0.2), mid = quantile(pes, 0.5), danger = quantile(pes, 0.8)
   const cur = d?.valuation.at(-1)
   const circByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.circMv])), [d])
+  const amtByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.amountFull])), [d])
 
   const valData = useMemo(() => decimate(clipByRange(d?.valuation || [], v => v.date, range), 600), [d, range])
   const tovData = useMemo(() => decimate(clipByRange(d?.turnover || [], v => v.date, range), 600), [d, range])
-  const mgnData = useMemo(() => decimate(clipByRange(d?.margin || [], v => v.date, range)
-    .map(m => ({ date: m.date, ratio: circByDate.get(m.date) ? +(m.rzye / circByDate.get(m.date)! * 100).toFixed(2) : null, rzye: m.rzye })), 600), [d, range, circByDate])
+  const mkMgn = (m: Mgn) => ({
+    date: m.date,
+    ratio: circByDate.get(m.date) ? +(m.rzye / circByDate.get(m.date)! * 100).toFixed(2) : null,
+    buyShare: amtByDate.get(m.date) ? +(m.rzmre / amtByDate.get(m.date)! * 100).toFixed(2) : null,
+  })
+  const mgnData = useMemo(() => decimate(clipByRange(d?.margin || [], v => v.date, range).map(mkMgn), 600), [d, range, circByDate, amtByDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  const curMgn = d?.margin.length ? mkMgn(d.margin[d.margin.length - 1]) : null
 
   if (loading) return <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}><Header /><div style={{ padding: 60, textAlign: 'center' }}><Spin /></div></div>
   if (!d) return null
@@ -85,33 +91,42 @@ export default function BullTopPage() {
       </span>}>
         {zb(
           <ResponsiveContainer width="100%" height={360}>
-            <LineChart data={valData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+            <ComposedChart data={valData} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
               {grid}{areas(valData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis tick={{ fontSize: 10 }} width={36} />
-              <ReferenceLine y={danger} stroke="#c0392b" strokeDasharray="4 3" label={{ value: `危险 ${danger.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#c0392b' }} />
-              <ReferenceLine y={mid} stroke="#b8860b" strokeDasharray="4 3" label={{ value: `中位 ${mid.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#b8860b' }} />
-              <ReferenceLine y={opp} stroke="#1f8e5a" strokeDasharray="4 3" label={{ value: `机会 ${opp.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#1f8e5a' }} />
-              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v}`, 'PE-TTM']} />
+              <YAxis yAxisId="pe" tick={{ fontSize: 10 }} width={36} />
+              <YAxis yAxisId="mv" orientation="right" tick={{ fontSize: 10 }} width={52} tickFormatter={(v: any) => `${(v / 1e4).toFixed(0)}万亿`} />
+              <ReferenceLine yAxisId="pe" y={danger} stroke="#c0392b" strokeDasharray="4 3" label={{ value: `危险 ${danger.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#c0392b' }} />
+              <ReferenceLine yAxisId="pe" y={mid} stroke="#b8860b" strokeDasharray="4 3" label={{ value: `中位 ${mid.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#b8860b' }} />
+              <ReferenceLine yAxisId="pe" y={opp} stroke="#1f8e5a" strokeDasharray="4 3" label={{ value: `机会 ${opp.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#1f8e5a' }} />
+              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))}
+                formatter={(v: any, n: any) => n === '总市值' ? [`${(v / 1e4).toFixed(1)}万亿`, n] : [`${v}`, n]} />
               <Legend />
-              <Line type="monotone" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
-            </LineChart>
+              <Line yAxisId="pe" type="monotone" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
+              <Line yAxisId="mv" type="monotone" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} />
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </Card>
 
-      <Card size="small" style={{ marginBottom: 14 }} title="两融余额 / 流通市值(融资+融券,3% 预警)">
+      <Card size="small" style={{ marginBottom: 14 }} title={<span>两融拥挤度(融资+融券,3% 预警)
+        {curMgn && <span style={{ marginLeft: 12, fontSize: 13 }}>
+          当前 两融/流通 <b style={{ color: (curMgn.ratio ?? 0) >= 3 ? '#c0392b' : '#17140f' }}>{curMgn.ratio}%</b>
+          · 融资买入占成交 <b>{curMgn.buyShare}%</b></span>}
+      </span>}>
         {zb(
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={mgnData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
+            <ComposedChart data={mgnData} margin={{ top: 8, right: 44, bottom: 0, left: 8 }}>
               {grid}{areas(mgnData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis tick={{ fontSize: 10 }} width={36} tickFormatter={(v: any) => `${v}%`} />
-              <ReferenceLine y={3} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '3%', fontSize: 10, fill: '#c0392b' }} />
-              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v}%`, '两融/流通']} />
+              <YAxis yAxisId="r" tick={{ fontSize: 10 }} width={36} tickFormatter={(v: any) => `${v}%`} />
+              <YAxis yAxisId="b" orientation="right" tick={{ fontSize: 10 }} width={40} tickFormatter={(v: any) => `${v}%`} />
+              <ReferenceLine yAxisId="r" y={3} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '3%', fontSize: 10, fill: '#c0392b' }} />
+              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n]} />
               <Legend />
-              <Line type="monotone" dataKey="ratio" name="两融余额/流通市值" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
-            </LineChart>
+              <Line yAxisId="r" type="monotone" dataKey="ratio" name="两融/流通市值" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
+              <Line yAxisId="b" type="monotone" dataKey="buyShare" name="融资买入占成交" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} connectNulls />
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </Card>
