@@ -159,7 +159,7 @@ function MainPage() {
     const marks = [{ date, kind: 'buy', label: '买' }]
     if (row) {
       if (row.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
-      if (row.swexit) marks.push({ date: row.swexit, kind: 'sell', label: '波' })
+      // if (row.swexit) marks.push({ date: row.swexit, kind: 'sell', label: '波' })   // 波段先隐藏
       if (row.czexit) marks.push({ date: row.czexit, kind: 'sell', label: '缠' })
     }
     setKl({ open: true, loading: true, code, date, marks })
@@ -199,7 +199,7 @@ function MainPage() {
     const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
     const winr = a => a.length ? (a.filter(v => v > 0).length / a.length * 100).toFixed(0) + '%' : '—'
     const don = rows.filter(r => r.donret != null).map(r => r.donret)
-    const sw = rows.filter(r => r.swret != null).map(r => r.swret)
+    // const sw = rows.filter(r => r.swret != null).map(r => r.swret)   // 波段先隐藏
     const cz = rows.filter(r => r.czret != null).map(r => r.czret)
     const done = rows.filter(r => r.status !== '进行中'), hit = done.filter(r => r.status === '已走出主升浪')
     const fwds = rows.filter(r => r.maxfwd != null).map(r => r.maxfwd)
@@ -215,7 +215,7 @@ function MainPage() {
       succ: done.length ? (hit.length / done.length * 100).toFixed(0) + '%' : '—', doneN: done.length, hitN: hit.length,
       strats: [
         strat('唐奇安', don, 'hold', 'donopen'),
-        strat('波段', sw, 'swhold', 'swopen'),
+        // strat('波段', sw, 'swhold', 'swopen'),   // 波段先隐藏
         strat('缠论M3', cz, 'czhold', 'czopen'),
       ],
     }
@@ -225,7 +225,7 @@ function MainPage() {
     if (!payload) return null
     const L = payload.latest
     const buys = rows.filter(r => r.date === L).sort((a, b) => b.score - a.score)
-    const sells = rows.filter(r => r.donexit === L || r.swexit === L || r.swtp === L)
+    const sells = rows.filter(r => r.donexit === L || r.czexit === L)
     const holds = Object.values(rows.filter(r => r.donopen || r.swopen || r.czopen).reduce((m, r) => {
       const e = m[r.ts] || { ...r, donopen: false, swopen: false, czopen: false, score: -Infinity }
       m[r.ts] = { ...e, donopen: e.donopen || !!r.donopen, swopen: e.swopen || !!r.swopen, czopen: e.czopen || !!r.czopen, score: Math.max(e.score, r.score) }
@@ -245,8 +245,9 @@ function MainPage() {
     { title: '至今最大涨幅', dataIndex: 'maxfwd', sorter: (a, b) => (a.maxfwd || -999) - (b.maxfwd || -999), render: v => pct(v, true) },
     { title: '唐奇安盈亏', dataIndex: 'donret', sorter: (a, b) => (a.donret ?? -999) - (b.donret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.donopen ? '(持仓)' : ''}</span> },
     { title: '唐奇安离场', dataIndex: 'donexit', render: (v, r) => (v || '持仓中') + '(' + r.hold + '天)' },
-    { title: '波段盈亏', dataIndex: 'swret', sorter: (a, b) => (a.swret ?? -999) - (b.swret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.swopen ? '(持仓)' : ''}</span> },
-    { title: '波段离场', dataIndex: 'swexit', render: (v, r) => (v || '持仓中') + '(' + r.swhold + '天)' },
+    // 波段先隐藏
+    // { title: '波段盈亏', dataIndex: 'swret', sorter: (a, b) => (a.swret ?? -999) - (b.swret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.swopen ? '(持仓)' : ''}</span> },
+    // { title: '波段离场', dataIndex: 'swexit', render: (v, r) => (v || '持仓中') + '(' + r.swhold + '天)' },
     { title: '缠论M3盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
     { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
     { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date)}>分析</Button> },
@@ -276,8 +277,7 @@ function MainPage() {
         健康=指数收盘&gt;MA60 且 MA60上行(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。
       </p>}
       {payload && <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
-        <b>出场口径</b>(均从突破日入场、扣双边费):<b>唐奇安</b>=持有至跌破唐奇安20日下轨即离场,否则一直持有(让利润奔跑);
-        <b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。
+        <b>出场口径</b>(均从突破日入场、扣双边费):<b>唐奇安</b>=持有至跌破唐奇安20日下轨即离场,否则一直持有(让利润奔跑);<b>缠论M3</b>=缠论卖点止盈+回调缠论买点回补,跌破60日线/入场价85%终止。
       </p>}
       {payload && stats && <p style={{ fontSize: 13, margin: '4px 0' }}>
         模型用 {payload.start} 之前数据训练({payload.pivot}枢轴/{payload.mode}),打分该区间信号 |
@@ -287,10 +287,10 @@ function MainPage() {
       {today && <div style={{ background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 8, padding: '8px 12px', margin: '8px 0' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>最新交易日({today.L}) · 买入 {today.buys.length} 条 / 需卖出 {today.sells.length} 条</div>
         <div><b>买入:</b> {today.buys.length ? today.buys.map(r => <span key={'b' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> {r.tier} ML{r.score} <span style={{ color: r.mkt === '健康' ? '#c0392b' : '#27ae60' }}>[{r.board}{r.mkt}]</span></span>) : <span style={{ color: '#999' }}>无</span>}</div>
-        <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.swexit === today.L) t.push('波段清仓'); if (r.swtp === today.L) t.push('波段部分止盈(卖50%)'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
+        <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
         <div style={{ marginTop: 4 }}><b>当前持仓:</b> <span style={{ fontSize: 12, color: '#999' }}>(模型/策略仍持仓,移到名字上点分析→按最新交易日 {today.L} 判断该不该卖)</span><br />
           {today.holds.length ? today.holds.map(r => {
-            const who = [r.donopen && '唐', r.swopen && '波', r.czopen && '缠'].filter(Boolean).join('/')
+            const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
             return <Popover key={'h' + r.ts} trigger="hover" content={<Button size="small" type="primary" ghost onClick={() => analyze(r.ts, today.L)}>分析(@{today.L})</Button>}>
               <span style={{ marginRight: 12, fontSize: 13, cursor: 'pointer', borderBottom: '1px dashed #888' }}>{r.name}({r.ts})<sub style={{ color: '#999' }}>{who}</sub></span>
             </Popover>
@@ -337,14 +337,14 @@ function MainPage() {
         </div>
         <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal, parts)} />
         <div style={{ height: 8 }} />
-        <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} />
+        {/* 波段先隐藏 <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} /> */}
         <div style={{ height: 8 }} />
         <Chart title="缠论M3(卖点止盈+回调买点回补)" series={portfolio(rows, 'czexit', 'czr', payload.cal, parts)} />
       </div>}
 
       {payload && <Tabs style={{ marginBottom: 12 }} items={[
         { key: 'don', label: '唐奇安 交易记录', d: ['donexit', 'donret', 'hold', 'donopen'] },
-        { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },
+        // { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },   // 波段先隐藏
         { key: 'cz', label: '缠论M3 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
       ].map(t => {
         const log = tradeLog(rows, ...t.d, payload.cal, parts)
@@ -380,7 +380,7 @@ function MainPage() {
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
 
       {payload && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: 10, fontSize: 12, color: '#7a5d18', marginTop: 10 }}>
-        <b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈,非实际买卖收益;"唐奇安/波段离场"括号内为持仓交易日数(仍持仓算到最新交易日);
+        <b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈,非实际买卖收益;"唐奇安/缠论离场"括号内为持仓交易日数(仍持仓算到最新交易日);
         "进行中"=该出场口径下尚未离场。点表头可排序/筛选。模型严格用区间起始日之前的数据训练,无未来函数。
         「LLM分析」对该股在突破日跑 技术+消息面 多agent 分析(约1-3分钟),给分析师层(趋势感知)买/卖/持。
       </div>}
