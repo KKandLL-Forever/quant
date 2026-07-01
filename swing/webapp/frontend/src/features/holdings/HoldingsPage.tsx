@@ -1,5 +1,6 @@
 // 持仓总览:上传券商对账单(GBK伪xls)→ 本地解析 → 持仓 / 已实现盈亏 / 汇总。纯前端,不接后端。
 import { Upload, Button, Card, Table, Tag, message, Popconfirm } from 'antd'
+import { Header, PageTitle } from '../../shell'
 import { useTradesStore } from '../../store/tradesStore'
 import { parseTradeFile } from '../../lib/parser'
 import type { Holding, RealizedRecord } from '../../lib/tradeTypes'
