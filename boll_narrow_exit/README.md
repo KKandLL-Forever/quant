@@ -115,6 +115,7 @@
 ```
 python boll_narrow_exit/boll_expand_macd.py --start 2021-01-01 --squeeze-q 0.25 --cross-win 3 --pool csi1000
 python boll_narrow_exit/boll_expand_macd.py --pool ml     # ML主升浪同款股池(前800+热股)
+python boll_narrow_exit/backtest.py --pool csi2000 --parts 20   # 真实净值回测(T+1入场/扣费)
 ```
 
 ## 后续可试(均未验证)
