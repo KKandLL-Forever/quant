@@ -28,6 +28,9 @@
 
 **结论:这个信号基本没有超额。** 10 日均值 +0.81% vs 全样本无条件 +0.73%,超额仅 **+0.08%**,胜率不到 50%、中位为负——说明「BOLL 缩口扩张 + MACD 金叉」在中证1000 上不是有效择时,均值靠少数右尾拉起。
 
+### 换 ML 主升浪同款股池(前800大盘 + 热股)也一样
+`--pool ml`:信号 1.5万,10日均值 +1.14% vs 基准 +0.99% → 超额仅 **+0.15%**,中位≈0、胜率 49%。大盘绝对前瞻收益略高(时段 beta),但相对超额仍可忽略;且 ML 池上 **ATR 分桶规律消失**(低波桶反而最差),说明 ATR 那点过滤价值只在小盘(中证1000)成立。两个池子都证伪。
+
 ## ATR 的作用(有,但只在分布上)
 按入场 ATR/价 分 5 桶看 10 日收益:
 
@@ -43,7 +46,8 @@
 
 ## 用法
 ```
-python boll_narrow_exit/boll_expand_macd.py --start 2021-01-01 --squeeze-q 0.25 --cross-win 3
+python boll_narrow_exit/boll_expand_macd.py --start 2021-01-01 --squeeze-q 0.25 --cross-win 3 --pool csi1000
+python boll_narrow_exit/boll_expand_macd.py --pool ml     # ML主升浪同款股池(前800+热股)
 ```
 
 ## 后续可试(均未验证)

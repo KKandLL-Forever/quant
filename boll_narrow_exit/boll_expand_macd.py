@@ -31,6 +31,23 @@ def members_1000():
     return sorted(codes)
 
 
+def members_ml(n=800, hot_top=20, hot_mv_floor=2_000_000):
+    """ML主升浪同款股池:最新日流通市值前 n(排除北交所)+ 当日 ths_hot 前 hot_top 中流通市值≥200亿。"""
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    sel = con.execute("SELECT MAX(trade_date) FROM daily_basic").fetchone()[0]
+    liquid = [r[0] for r in con.execute(
+        "SELECT ts_code FROM daily_basic WHERE trade_date=? AND ts_code NOT LIKE '%.BJ' ORDER BY circ_mv DESC LIMIT ?",
+        [sel, n]).fetchall()]
+    hot = [r[0] for r in con.execute(
+        "SELECT ts_code FROM ths_hot WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT ?",
+        [sel.strftime("%Y%m%d"), hot_top]).fetchall()]
+    if hot:
+        mv = dict(con.execute("SELECT ts_code,circ_mv FROM daily_basic WHERE trade_date=?", [sel]).fetchall())
+        liquid = list(dict.fromkeys(liquid + [c for c in hot if not c.endswith(".BJ") and (mv.get(c) or 0) >= hot_mv_floor]))
+    con.close()
+    return sorted(liquid)
+
+
 def load(codes, start):
     """读成分股的后复权收盘 + BOLL/MACD/ATR 指标,返回按 (ts_code,trade_date) 排序的宽表。"""
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
@@ -79,10 +96,11 @@ def main():
     ap.add_argument("--start", default="2021-01-01")
     ap.add_argument("--squeeze-q", type=float, default=0.25, help="缩口分位阈值(带宽低于过去120日该分位=震荡)")
     ap.add_argument("--cross-win", type=int, default=3, help="MACD 金叉发生在最近几日内")
+    ap.add_argument("--pool", choices=["csi1000", "ml"], default="csi1000", help="股票池:中证1000 或 ML主升浪同款(前800+热股)")
     args = ap.parse_args()
 
-    codes = members_1000()
-    print(f"中证1000 成分 {len(codes)} 只,回看起点 {args.start}")
+    codes = members_ml() if args.pool == "ml" else members_1000()
+    print(f"股池={args.pool} {len(codes)} 只,回看起点 {args.start}")
     df = load(codes, args.start)
     print(f"行情+指标 {len(df):,} 行,{df['ts_code'].nunique()} 只有数据")
 
