@@ -26,7 +26,7 @@ def main():
     res = {"market_report": state.get("market_report") or "",
            "news_report": state.get("news_report") or "",
            "verdict": verdict, "risk_decision": risk_decision}
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False)
 
 

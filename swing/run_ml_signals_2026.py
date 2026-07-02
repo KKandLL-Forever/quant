@@ -558,7 +558,7 @@ def main():
 
     env = os.path.join(_ROOT, ".pyenv.local")
     if os.path.exists(env):
-        for line in open(env):
+        for line in open(env, encoding="utf-8"):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
                 os.environ["TUSHARE_TOKEN"] = line.split("=", 1)[1].strip().strip('"').strip("'")
     import tushare as ts
@@ -741,7 +741,7 @@ def main():
                    "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
                               "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 3),
                                         "pct": None if cr_pct != cr_pct else round(cr_pct, 2), "label": cr_label}}}
-        with open(args.json, "w") as f:
+        with open(args.json, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
         print(f"JSON:{args.json}")
     html = f"""<!doctype html><html lang=zh><head><meta charset=utf-8><title>{args.mode}·top{args.tier}%·{args.start}~{args.end or '今'}·{args.pivot}</title>
@@ -932,7 +932,7 @@ function App(){{
 ReactDOM.render(e(App),document.getElementById('root'));
 </script>
 </body></html>"""
-    with open(OUT, "w") as f:
+    with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"报告:{OUT}")
 

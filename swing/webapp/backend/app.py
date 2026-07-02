@@ -74,7 +74,7 @@ def train(req: TrainReq):
     """跑 ML 信号管线,返回 {signals, banner, cal, latest, ntrade, ...}。train=True 重训模型。"""
     ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_n{req.n}_{req.start}_{req.end or 'now'}.json")
     if not req.train and not req.refresh and os.path.exists(ck):
-        with open(ck) as f:
+        with open(ck, encoding="utf-8") as f:
             r = json.load(f, parse_constant=lambda *_: None)
         r["cached"] = True
         return r
@@ -89,12 +89,12 @@ def train(req: TrainReq):
         p = subprocess.run(cmd, cwd=SWING, capture_output=True, text=True, timeout=1800)
         if not os.path.exists(out) or os.path.getsize(out) == 0:
             return {"ok": False, "error": "ML 未产出数据。stderr:\n" + (p.stderr or p.stdout or "")[-2000:]}
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             payload = json.load(f, parse_constant=lambda *_: None)
         os.unlink(out)
         payload["ok"] = True
         payload["cached"] = False
-        with open(ck, "w") as f:
+        with open(ck, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
         return payload
     except Exception as e:
@@ -107,7 +107,7 @@ def analyze(req: AnalyzeReq):
     """对单只股票在指定日期跑 技术+消息面 LLM 分析,返回报告 + 分析师层买卖持判断。"""
     cf = os.path.join(CACHE_DIR, f"{req.code.split('.')[0]}_{req.date}.json")
     if not req.force and os.path.exists(cf):
-        with open(cf) as f:
+        with open(cf, encoding="utf-8") as f:
             r = json.load(f)
         r["cached"] = True
         return r
@@ -125,21 +125,21 @@ def analyze(req: AnalyzeReq):
     if proc.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
         return {"ok": False, "error": "分析已取消或失败", "cancelled": proc.returncode is not None and proc.returncode < 0}
     try:
-        with open(out) as f:
+        with open(out, encoding="utf-8") as f:
             j = json.load(f)
         os.unlink(out)
         import ta_analyze
         ta_analyze._load_keys()
         bf = os.path.join(CACHE_DIR, f"biz_{req.code.split('.')[0]}.json")
         if os.path.exists(bf):
-            business = json.load(open(bf))
+            business = json.load(open(bf, encoding="utf-8"))
         else:
             business = ta_analyze.business_profile(req.code)
-            json.dump(business, open(bf, "w"), ensure_ascii=False)
+            json.dump(business, open(bf, "w", encoding="utf-8"), ensure_ascii=False)
         res = {"ok": True, "code": req.code, "date": req.date,
                "market_report": j["market_report"], "news_report": j["news_report"],
                "verdict": j["verdict"], "business": business, "risk_decision": j["risk_decision"], "cached": False}
-        with open(cf, "w") as f:
+        with open(cf, "w", encoding="utf-8") as f:
             json.dump(res, f, ensure_ascii=False)
         return res
     except Exception:
@@ -329,7 +329,7 @@ def _index_ohlc(ts):
     tok = os.environ.get("TUSHARE_TOKEN", "")
     pe = os.path.join(_ROOT, ".pyenv.local")
     if not tok and os.path.exists(pe):
-        for line in open(pe):
+        for line in open(pe, encoding="utf-8"):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
                 tok = line.split("=", 1)[1].strip().strip('"').strip("'")
     pro = tsl.pro_api(tok)
@@ -357,7 +357,7 @@ def _fund_ohlc(ts):
     tok = os.environ.get("TUSHARE_TOKEN", "")
     pe = os.path.join(_ROOT, ".pyenv.local")
     if not tok and os.path.exists(pe):
-        for line in open(pe):
+        for line in open(pe, encoding="utf-8"):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
                 tok = line.split("=", 1)[1].strip().strip('"').strip("'")
     pro = tsl.pro_api(tok)
@@ -621,7 +621,7 @@ def etfshare(req: EtfShareReq):
         tok = os.environ.get("TUSHARE_TOKEN", "")
         pe = os.path.join(_ROOT, ".pyenv.local")
         if not tok and os.path.exists(pe):
-            for line in open(pe):
+            for line in open(pe, encoding="utf-8"):
                 if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
                     tok = line.split("=", 1)[1].strip().strip('"').strip("'")
         pro = tsl.pro_api(tok)
@@ -697,7 +697,7 @@ def bulltop(req: BullTopReq):
             tok = os.environ.get("TUSHARE_TOKEN", "")
             pe_env = os.path.join(_ROOT, ".pyenv.local")
             if not tok and os.path.exists(pe_env):
-                for line in open(pe_env):
+                for line in open(pe_env, encoding="utf-8"):
                     if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
                         tok = line.split("=", 1)[1].strip().strip('"').strip("'")
             pro = tsl.pro_api(tok)

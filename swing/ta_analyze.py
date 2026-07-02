@@ -24,7 +24,7 @@ def _load_keys():
     def _read(path, keys):
         if not path or not os.path.exists(path):
             return
-        for line in open(path):
+        for line in open(path, encoding="utf-8"):
             s = line.strip()
             for k in keys:
                 if s.startswith(k) and "=" in s:
