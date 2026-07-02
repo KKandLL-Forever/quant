@@ -24,7 +24,7 @@ const STRATS: StratCfg[] = [
   { key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~20%(含手续费)',
     desc: '13 只主流行业 ETF · 每 K 交易日调仓取前 L · 基准科创50ETF' },
   { key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, kicker: 'Regime Switch · 年化~112%(含手续费) · 回撤减半',
-    desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头 · 对照纯龙头/纯全天候',
+    desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头(用「龙头动量」页设定的股票池) · 对照纯龙头/纯全天候',
     actionTitle: '牛熊切换记录' },
 ]
 const PALETTE = ['#c0392b', '#1f8e5a', '#3b82f6']
@@ -60,10 +60,14 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const load = async () => {
     setLoading(true)
     try {
-      const codes = pool.map(p => p.code).filter(Boolean)
+      let codes = pool.map(p => p.code).filter(Boolean)
+      if (cfg.key === 'regime') {   // 牛熊组合的龙头腿也用编辑好的股票池(存在 localStorage)
+        const saved = localStorage.getItem('xiaoxifu:leaderPool')
+        if (saved) codes = (JSON.parse(saved) as PoolItem[]).map(p => p.code).filter(Boolean)
+      }
       const r = await fetch('/api/xiaoxifu', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategy: cfg.key, N, K, L, start: '2024-01-01', codes: cfg.showPool && codes.length ? codes : undefined }),
+        body: JSON.stringify({ strategy: cfg.key, N, K, L, start: '2024-01-01', codes: (cfg.showPool || cfg.key === 'regime') && codes.length ? codes : undefined }),
       })
       const j: Payload = await r.json()
       if (!j.ok) throw new Error(j.error || '请求失败')

@@ -52,10 +52,13 @@ def _perf_row(name, r):
     return {"策略": name, **{k: v for k, v in p.items()}}
 
 
-def to_payload(start="2024-01-01", end=None, **_):
-    """给前后端用:跑牛熊切换组合并组装 JSON(净值/绩效/切换记录)。"""
+def to_payload(start="2024-01-01", end=None, codes=None, **_):
+    """给前后端用:跑牛熊切换组合并组装 JSON(净值/绩效/切换记录)。codes 传了则龙头腿用自定义股票池。"""
     end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    lead, lead_w = _daily(lm.STOCKS, engine.load_stock_qfq, 20, 5, 5, WARM, end, engine.COMM_STOCK, engine.STAMP_STOCK)
+    stocks = lm._names([c for c in codes if c]) if codes else lm.STOCKS
+    if not stocks:
+        stocks = lm.STOCKS
+    lead, lead_w = _daily(stocks, engine.load_stock_qfq, 20, 5, 5, WARM, end, engine.COMM_STOCK, engine.STAMP_STOCK)
     allw, allw_w = _daily(aw.ETFS, engine.load_fund_qfq, 20, 1, 3, WARM, end, engine.COMM_ETF, engine.STAMP_ETF)
     defensive = _hs300_regime(WARM, end)
     idx = lead.index.intersection(allw.index)
@@ -81,7 +84,7 @@ def to_payload(start="2024-01-01", end=None, **_):
     for d, dv in ap.items():
         state = "全天候(避险)" if dv else "龙头(进攻)"
         if state != prev:
-            picks = _holdings(allw_w, aw.ETFS, d) if dv else _holdings(lead_w, lm.STOCKS, d)
+            picks = _holdings(allw_w, aw.ETFS, d) if dv else _holdings(lead_w, stocks, d)
             switches.append({"date": str(pd.Timestamp(d).date()), "state": state, "picks": picks})
             prev = state
     return {

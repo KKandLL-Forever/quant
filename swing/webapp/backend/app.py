@@ -729,7 +729,7 @@ def xiaoxifu(req: XiaoxifuReq):
         kw = dict(n=req.N, start=req.start, end=end)
         if req.strategy != "allweather":
             kw.update(k=req.K, l=req.L)
-        if req.strategy == "leader" and req.codes:
+        if req.strategy in ("leader", "regime") and req.codes:
             kw["codes"] = req.codes
         return m.to_payload(**kw)
     except Exception:
