@@ -113,6 +113,19 @@ function MainPage() {
   const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
   const [ana, setAna] = useState<any>(null)   // {open, loading, code, date, data}
   const [kl, setKl] = useState<any>(null)     // K线弹窗 {open, loading, code, date, data}
+  const [adv, setAdv] = useState<any>(null)   // 缠论卖点提示弹窗 {open, loading, code, date, data}
+
+  const openAdvise = async (code, date) => {
+    setAdv({ open: true, loading: true, code, date })
+    try {
+      const r = await fetch('/api/advise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, buy_date: date }) })
+      const j = await r.json()
+      setAdv(a => (a && a.code === code && a.date === date) ? { open: true, loading: false, code, date, data: j } : a)
+    } catch (e) {
+      setAdv(a => (a && a.code === code) ? { open: true, loading: false, code, date, data: { ok: false, error: String(e) } } : a)
+    }
+  }
 
   const openKline = async (code, date, row) => {
     const marks = [{ date, kind: 'buy', label: '买' }]
@@ -214,6 +227,7 @@ function MainPage() {
     { title: '缠论M3盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
     { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
     { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date)}>分析</Button> },
+    { title: '缠论提示', fixed: 'right', render: (_, r) => <Button size="small" ghost style={{ color: '#0b6e4f', borderColor: '#0b6e4f' }} onClick={() => openAdvise(r.ts, r.date)}>卖点</Button> },
   ]
 
   const banner = payload?.banner
@@ -391,6 +405,13 @@ function MainPage() {
               <h4 style={{ marginTop: 12 }}>消息面(公告/新闻/研报)</h4><MD>{ana.data.news_report}</MD>
             </div>}
       </Modal>
+
+      <Modal open={!!adv?.open} width={1560} footer={null} onCancel={() => setAdv(null)}
+        title={<span>缠论卖点提示 {adv?.code} · 突破日 {adv?.date} 买入</span>}>
+        {adv?.loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="缠论回放中..." /><div style={{ height: 30 }} /></div> :
+          adv?.data?.ok === false ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{adv.data.error}</pre> :
+            adv?.data && <AdviceResult res={adv.data} />}
+      </Modal>
     </div>
   )
 }
@@ -413,7 +434,6 @@ function AdvisePage() {
     } catch (e) { message.error('请求失败,后端起了吗? ' + e) } finally { setLoading(false) }
   }
 
-  const a = res?.advice
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
@@ -425,7 +445,15 @@ function AdvisePage() {
         <Button type="primary" loading={loading} onClick={run}>确定</Button>
       </div>
       {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
-      {res && <div>
+      {res && <AdviceResult res={res} />}
+    </div>
+  )
+}
+
+function AdviceResult({ res }: { res: any }) {
+  const a = res?.advice
+  return (
+      <div>
         <Card size="small" style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 600 }}>{res.name}({res.code}) 买入 {res.bo} @ {res.entry} 元(前复权){a.legs > 1 ? `,已滚动 ${a.legs} 腿` : ''}</div>
           {a.state === 'holding' ? (
@@ -450,8 +478,7 @@ function AdvisePage() {
         </Card>
         <KLineChart data={res} marks={res.marks} />
         <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔;橙框=中枢;红▲=买/回补(补=回调买回)、绿▼=缠论卖点止盈;红涨绿跌(前复权)。规则(M3):缠论卖点止盈 → 回调缠论买点回补 → 跌破60日线或入场价85%终止。</div>
-      </div>}
-    </div>
+      </div>
   )
 }
 
