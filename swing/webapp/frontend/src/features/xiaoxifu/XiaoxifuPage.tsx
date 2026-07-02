@@ -45,17 +45,20 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
 
   useEffect(() => {
     if (!cfg.showPool) return
-    fetch('/api/leader_pool').then(r => r.json()).then((j: { ok: boolean; default: PoolItem[]; universe: PoolItem[] }) => {
+    fetch('/api/leader_pool').then(r => r.json()).then((j: { ok: boolean; default: PoolItem[]; universe: PoolItem[]; saved?: PoolItem[] }) => {
       if (!j.ok) return
       setStockOpts(j.universe.map(it => ({ label: `${it.name} ${it.code}`, value: it.code })))
       setNameMap(Object.fromEntries(j.universe.map(it => [it.code, it.name])))
       setDefaultPool(j.default)
-      const saved = localStorage.getItem('xiaoxifu:leaderPool')
-      setPool(saved ? JSON.parse(saved) : j.default)
+      setPool(j.saved && j.saved.length ? j.saved : j.default)   // 后端保存的池优先
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const savePool = (p: PoolItem[]) => { setPool(p); localStorage.setItem('xiaoxifu:leaderPool', JSON.stringify(p)) }
+  const savePool = (p: PoolItem[]) => {
+    setPool(p)
+    localStorage.setItem('xiaoxifu:leaderPool', JSON.stringify(p))
+    fetch('/api/leader_pool_save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pool: p }) }).catch(() => {})
+  }
 
   const load = async () => {
     setLoading(true)
@@ -115,7 +118,10 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         {cfg.showShares && <><span>资金</span><InputNumber min={10000} step={10000} value={capital}
           onChange={v => setCapital(v || 100000)} size="small" style={{ width: 130 }}
           formatter={v => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => Number((v || '').replace(/[^\d]/g, ''))} /></>}
-        {cfg.showPool && <Button size="small" onClick={() => setPoolOpen(true)}>编辑股票池({pool.length}只)</Button>}
+        {cfg.showPool && <Button size="small" onClick={() => setPoolOpen(true)}
+          style={{ background: 'linear-gradient(135deg,#0b6e4f,#0f8a63)', color: '#fff', border: 'none',
+            fontWeight: 500, boxShadow: '0 2px 8px -3px rgba(11,110,79,.6)' }}>
+          ✎ 编辑股票池 <b style={{ marginLeft: 2 }}>{pool.length}</b> 只</Button>}
         <Button type="primary" size="small" onClick={load} loading={loading}>运行回测</Button>
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 2024-01-01 起 · 权重滞后1天(T+1执行)</span>
       </div>

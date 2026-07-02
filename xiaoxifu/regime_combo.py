@@ -79,7 +79,8 @@ def to_payload(start="2024-01-01", end=None, codes=None, l=5, k=5, **_):
     """给前后端用:跑牛熊切换组合并组装 JSON(净值/绩效/切换记录+下次调仓预测)。
     codes 传了则龙头腿用自定义股票池;l=龙头腿持仓数。"""
     end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    stocks = lm._names([c for c in codes if c]) if codes else lm.STOCKS
+    codes = [c for c in codes if c] if codes else lm.saved_codes()
+    stocks = lm._names(codes) if codes else lm.STOCKS
     if not stocks:
         stocks = lm.STOCKS
     lead, lead_w, lead_px, lead_mom, lead_adj = _legs(stocks, engine.load_stock_qfq, 20, 5, l, WARM, end, engine.COMM_STOCK, engine.STAMP_STOCK)

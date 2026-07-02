@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 SWING = os.path.join(_ROOT, "swing")
 PY = os.path.join(_ROOT, ".venv312/bin/python")
+POOL_FILE = os.path.join(_ROOT, "xiaoxifu", "leader_pool.json")   # 自定义龙头股票池持久化(非数据库)
 sys.path.insert(0, SWING)
 sys.path.insert(0, _ROOT)
 
@@ -754,8 +755,26 @@ def leader_pool():
         con.close()
         universe = [{"code": c, "name": n, "industry": ind or "其他"} for c, n, ind in rows]
         default = [{"code": c, "name": n, "industry": ind} for c, n, ind in lm.DEFAULT_POOL]
-        return {"ok": True, "default": default, "universe": universe}
+        saved = default
+        if os.path.exists(POOL_FILE):
+            saved = json.load(open(POOL_FILE, encoding="utf-8"))
+        return {"ok": True, "default": default, "universe": universe, "saved": saved}
     except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+class PoolSaveReq(BaseModel):
+    pool: list[dict]
+
+
+@app.post("/api/leader_pool_save")
+def leader_pool_save(req: PoolSaveReq):
+    """把自定义龙头股票池落地到后端文件(非数据库),供跨浏览器/重启后仍可用。"""
+    try:
+        json.dump(req.pool, open(POOL_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+        return {"ok": True, "n": len(req.pool)}
+    except Exception:
+        import traceback
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 

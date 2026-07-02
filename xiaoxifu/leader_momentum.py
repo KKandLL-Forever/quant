@@ -6,10 +6,14 @@
 用法:python xiaoxifu/leader_momentum.py [--N 20 --K 5 --L 5 --start 2024-01-01]
 """
 import argparse
+import os
+import json
 import pandas as pd
 import duckdb
 import engine
 import cache_tushare as ct
+
+POOL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "leader_pool.json")
 
 DEFAULT_POOL = [
     ("600111.SH", "北方稀土", "稀土"), ("002460.SZ", "赣锋锂业", "锂"), ("601899.SH", "紫金矿业", "有色"),
@@ -33,10 +37,21 @@ def _names(codes):
     return {c: m.get(c, STOCKS.get(c, c)) for c in codes}
 
 
+def saved_codes():
+    """读后端持久化的自定义池代码;无文件返回默认 22 只代码。"""
+    if os.path.exists(POOL_FILE):
+        try:
+            return [r["code"] for r in json.load(open(POOL_FILE, encoding="utf-8")) if r.get("code")]
+        except Exception:
+            pass
+    return list(STOCKS)
+
+
 def to_payload(n=20, k=5, l=5, start="2024-01-01", end=None, codes=None):
-    """给前后端用:跑龙头策略回测并组装 JSON。codes 传了则用自定义股票池,否则用默认 22 只。"""
+    """给前后端用:跑龙头策略回测并组装 JSON。codes 传了用之,否则用后端保存的池(无则默认 22 只)。"""
     end = end or pd.Timestamp.today().strftime("%Y-%m-%d")
-    universe = _names([c for c in codes if c]) if codes else STOCKS
+    codes = [c for c in codes if c] if codes else saved_codes()
+    universe = _names(codes) if codes else STOCKS
     if not universe:
         universe = STOCKS
     return engine.to_payload(universe, engine.load_stock_qfq, BENCH_CODE, BENCH_NAME, STRAT_NAME, n, k, l, start, end)
