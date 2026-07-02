@@ -31,6 +31,15 @@ def members_1000():
     return sorted(codes)
 
 
+def members_2000():
+    """取中证2000最新成分代码列表(本地 DuckDB csi2000_members 最新快照)。"""
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    codes = [r[0] for r in con.execute(
+        "SELECT con_code FROM csi2000_members WHERE trade_date=(SELECT MAX(trade_date) FROM csi2000_members)").fetchall()]
+    con.close()
+    return sorted(codes)
+
+
 def members_ml(n=800, hot_top=20, hot_mv_floor=2_000_000):
     """ML主升浪同款股池:最新日流通市值前 n(排除北交所)+ 当日 ths_hot 前 hot_top 中流通市值≥200亿。"""
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
@@ -52,7 +61,7 @@ def load(codes, start):
     """读成分股的后复权收盘 + BOLL/MACD/ATR 指标,返回按 (ts_code,trade_date) 排序的宽表。"""
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
     df = con.execute(
-        """SELECT f.ts_code, f.trade_date td, d.close*a.adj_factor AS adjc,
+        """SELECT f.ts_code, f.trade_date td, d.close*a.adj_factor AS adjc, d.vol AS vol,
                   f.macd_dif_hfq dif, f.macd_dea_hfq dea,
                   f.boll_upper_hfq bu, f.boll_mid_hfq bm, f.boll_lower_hfq bl, f.atr_hfq atr
            FROM stk_factor_pro f
@@ -102,7 +111,9 @@ def build_signals(df, squeeze_q, cross_win):
         f10 = adjc.shift(-10) / adjc - 1
         f20 = adjc.shift(-20) / adjc - 1
         atr_pct = g["atr"] / adjc
-        s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20, "atr_pct": atr_pct})[sig]
+        vol_ratio = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
+        s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
+                          "atr_pct": atr_pct, "vol_ratio": vol_ratio})[sig]
         out.append(s[s["f10"].notna()])
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
@@ -113,10 +124,10 @@ def main():
     ap.add_argument("--start", default="2021-01-01")
     ap.add_argument("--squeeze-q", type=float, default=0.25, help="缩口分位阈值(带宽低于过去120日该分位=震荡)")
     ap.add_argument("--cross-win", type=int, default=3, help="MACD 金叉发生在最近几日内")
-    ap.add_argument("--pool", choices=["csi1000", "ml"], default="csi1000", help="股票池:中证1000 或 ML主升浪同款(前800+热股)")
+    ap.add_argument("--pool", choices=["csi1000", "csi2000", "ml"], default="csi1000", help="股票池:中证1000 / 中证2000 / ML主升浪同款")
     args = ap.parse_args()
 
-    codes = members_ml() if args.pool == "ml" else members_1000()
+    codes = {"ml": members_ml, "csi2000": members_2000, "csi1000": members_1000}[args.pool]()
     print(f"股池={args.pool} {len(codes)} 只,回看起点 {args.start}")
     df = load(codes, args.start)
     print(f"行情+指标 {len(df):,} 行,{df['ts_code'].nunique()} 只有数据")
@@ -158,6 +169,19 @@ def main():
         print(f"\n=== 只在大盘上涨日入场:5/7/10 日对比(n={len(up)})===")
         for k, lbl in (("f5", "5日"), ("f7", "7日"), ("f10", "10日")):
             v = up[k].dropna()
+            print(f"  {lbl:<4} 均值 {v.mean()*100:+.2f}%  中位 {v.median()*100:+.2f}%  胜率 {(v>0).mean()*100:.0f}%  (n={len(v)})")
+
+        print("\n=== 量能:信号当日 量比(vol/20日均量)分5桶,看10日 ===")
+        sig3 = sig.copy()
+        sig3["vol_bucket"] = pd.qcut(sig3["vol_ratio"], 5, labels=["Q1缩量", "Q2", "Q3", "Q4", "Q5放量"])
+        for idx, r in sig3.groupby("vol_bucket", observed=True)["f10"].agg(["mean", "median", "count"]).iterrows():
+            print(f"  {idx}: 均值 {r['mean']*100:+.2f}%  中位 {r['median']*100:+.2f}%  胜率 {'—'}  (n={int(r['count'])})")
+
+        print("\n=== 综合过滤:大盘上涨 + 低ATR(≤中位)+ 放量(量比>1)===")
+        atr_med = sig["atr_pct"].median()
+        comb = sm[(sm["mkt_up"] == True) & (sm["atr_pct"] <= atr_med) & (sm["vol_ratio"] > 1)]
+        for k, lbl in (("f5", "5日"), ("f7", "7日"), ("f10", "10日")):
+            v = comb[k].dropna()
             print(f"  {lbl:<4} 均值 {v.mean()*100:+.2f}%  中位 {v.median()*100:+.2f}%  胜率 {(v>0).mean()*100:.0f}%  (n={len(v)})")
 
 
