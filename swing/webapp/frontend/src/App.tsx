@@ -251,7 +251,7 @@ function MainPage() {
         <span>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{banner.crowd.pct != null ? (banner.crowd.pct * 100).toFixed(0) + '%' : '—'},{banner.crowd.label})</span>
       </div>}
       {payload && <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
-        健康=指数收盘&gt;MA60 且 MA60上行(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。
+        健康/走坏=同小西西弗牛熊开关:走坏=MA30与MA60同时走坏(收盘&lt;均线且均线下行),至少一条多头即健康(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。
       </p>}
       {payload && <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
         <b>出场口径</b>(均从突破日入场、扣双边费):<b>唐奇安</b>=持有至跌破唐奇安20日下轨即离场,否则一直持有(让利润奔跑);<b>缠论M3</b>=缠论卖点止盈+回调缠论买点回补,跌破60日线/入场价85%终止。

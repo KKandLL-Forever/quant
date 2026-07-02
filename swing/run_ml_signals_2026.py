@@ -115,12 +115,15 @@ def _fetch_idx(pro, code, start):
 
 
 def _idx_regime(pro, code, start="2020-09-01"):
-    """返回 (regime字典{Timestamp:bool}, 当前状态字符串)。健康=收盘>MA60 且 MA60上行。"""
+    """返回 (regime字典{Timestamp:bool}, 当前状态字符串)。走坏=MA30与MA60同时走坏(收盘<均线且均线下行);健康=至少一条多头(同小西西弗牛熊开关)。"""
     d = _fetch_idx(pro, code, start)
     if d is None or len(d) < 70:
         return {}, "无数据"
-    ima = d["close"].rolling(60).mean()
-    hb = ((d["close"] > ima) & (ima > ima.shift(10))).fillna(False)
+    ma30 = d["close"].rolling(30).mean()
+    ma60 = d["close"].rolling(60).mean()
+    h30 = (d["close"] > ma30) & (ma30 > ma30.shift(5))
+    h60 = (d["close"] > ma60) & (ma60 > ma60.shift(5))
+    hb = (h30 | h60).fillna(False)
     return dict(zip(d["trade_date"], hb)), ("健康" if hb.iloc[-1] else "走坏")
 
 
@@ -753,7 +756,7 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 <p style="font-size:15px;margin-bottom:4px">当前大盘状态:&nbsp;
 {''.join(f'<b>{nm}</b> <span style="color:{chr(35)+("c0392b" if curs[nm]=="健康" else "27ae60")}">{curs[nm]}</span>&nbsp;&nbsp;' for nm in INDEXES)}
 &nbsp;|&nbsp; 抱团度风险 <b>{cur_cr:.4f}</b> <span style="color:{'#c0392b' if cr_pct>0.7 else '#27ae60' if cr_pct<0.3 else '#888'}">{cr_label}</span>(历史分位 {cr_pct*100:.0f}%)</p>
-<p style="font-size:12px;color:#999;margin-top:0">健康=指数收盘&gt;MA60 且 MA60上行(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。</p>
+<p style="font-size:12px;color:#999;margin-top:0">健康/走坏=同小西西弗牛熊开关:走坏=MA30与MA60同时走坏(收盘&lt;均线且均线下行),至少一条多头即健康(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。</p>
 <p style="font-size:12px;color:#999;margin-top:0"><b>出场口径</b>(均从突破日入场、扣双边费):
 <b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)即离场,否则一直持有(让利润奔跑);
 <b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。</p>
