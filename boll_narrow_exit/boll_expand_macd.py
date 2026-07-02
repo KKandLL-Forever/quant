@@ -66,6 +66,22 @@ def load(codes, start):
     return df
 
 
+def hs300_market(start):
+    """沪深300 逐日大盘口径:返回 DataFrame[date, mkt_up(当天涨), mkt_bad(MA30与MA60同时走坏,同ML主升浪)]。"""
+    import tushare as ts
+    pro = ts.pro_api(ct._get_token())
+    ix = pro.index_daily(ts_code="000300.SH", start_date="20200101",
+                         end_date=pd.Timestamp.today().strftime("%Y%m%d"), fields="trade_date,close,pct_chg")
+    ix["date"] = pd.to_datetime(ix["trade_date"])
+    ix = ix.sort_values("date").reset_index(drop=True)
+    c, ma30, ma60 = ix["close"], ix["close"].rolling(30).mean(), ix["close"].rolling(60).mean()
+    h30 = (c > ma30) & (ma30 > ma30.shift(5))
+    h60 = (c > ma60) & (ma60 > ma60.shift(5))
+    ix["mkt_up"] = ix["pct_chg"] > 0
+    ix["mkt_bad"] = ((~h30) & (~h60)).fillna(False)
+    return ix[["date", "mkt_up", "mkt_bad"]]
+
+
 def build_signals(df, squeeze_q, cross_win):
     """逐股算 BOLL缩口→扩张 + MACD近期金叉 + 站上中轨 的买点,返回带前瞻收益/ATR 的信号表。"""
     out = []
@@ -122,6 +138,20 @@ def main():
             print(f"  {idx}: 均值 {row['mean']*100:+.2f}%  中位 {row['median']*100:+.2f}%  (n={int(row['count'])})")
         lo = sig2[sig2["atr_pct"] <= sig2["atr_pct"].median()]["f10"]
         print(f"  低ATR过滤(≤中位):10日均值 {lo.mean()*100:+.2f}%  胜率 {(lo>0).mean()*100:.0f}%  (n={len(lo)})")
+
+        mkt = hs300_market(args.start)
+        sm = sig.merge(mkt, on="date", how="left")
+
+        def _row(name, s):
+            v = s["f10"].dropna()
+            return f"  {name:<16} 10日均值 {v.mean()*100:+.2f}%  中位 {v.median()*100:+.2f}%  胜率 {(v>0).mean()*100:.0f}%  (n={len(v)})"
+
+        print("\n=== 口径1:信号当天 沪深300 涨/跌 ===")
+        print(_row("大盘当天涨", sm[sm["mkt_up"] == True]))
+        print(_row("大盘当天跌", sm[sm["mkt_up"] == False]))
+        print("\n=== 口径2:沪深300 走坏(MA30&MA60同时走坏,同ML)===")
+        print(_row("大盘健康", sm[sm["mkt_bad"] == False]))
+        print(_row("大盘走坏", sm[sm["mkt_bad"] == True]))
 
 
 if __name__ == "__main__":
