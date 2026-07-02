@@ -98,10 +98,11 @@ def build_signals(df, squeeze_q, cross_win):
         sig = narrow.shift(1, fill_value=False) & widen & crossed & up
         adjc = g["adjc"]
         f5 = adjc.shift(-5) / adjc - 1
+        f7 = adjc.shift(-7) / adjc - 1
         f10 = adjc.shift(-10) / adjc - 1
         f20 = adjc.shift(-20) / adjc - 1
         atr_pct = g["atr"] / adjc
-        s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f10": f10, "f20": f20, "atr_pct": atr_pct})[sig]
+        s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20, "atr_pct": atr_pct})[sig]
         out.append(s[s["f10"].notna()])
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
@@ -152,6 +153,12 @@ def main():
         print("\n=== 口径2:沪深300 走坏(MA30&MA60同时走坏,同ML)===")
         print(_row("大盘健康", sm[sm["mkt_bad"] == False]))
         print(_row("大盘走坏", sm[sm["mkt_bad"] == True]))
+
+        up = sm[sm["mkt_up"] == True]
+        print(f"\n=== 只在大盘上涨日入场:5/7/10 日对比(n={len(up)})===")
+        for k, lbl in (("f5", "5日"), ("f7", "7日"), ("f10", "10日")):
+            v = up[k].dropna()
+            print(f"  {lbl:<4} 均值 {v.mean()*100:+.2f}%  中位 {v.median()*100:+.2f}%  胜率 {(v>0).mean()*100:.0f}%  (n={len(v)})")
 
 
 if __name__ == "__main__":
