@@ -19,10 +19,17 @@ import astock_news
 
 
 def _deepseek_key():
-    for line in open(os.path.expanduser("~/.claude/skills/x2strategy/.env")):
-        if line.startswith("DEEPSEEK_API_KEY") and "=" in line:
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise RuntimeError("未找到 DEEPSEEK_API_KEY")
+    """取 DEEPSEEK_API_KEY:优先仓库根 .pyenv.local,回退旧的 x2strategy skill .env。"""
+    root = os.path.dirname(os.path.abspath(__file__))
+    while root != "/" and not os.path.exists(os.path.join(root, "cache_tushare.py")):
+        root = os.path.dirname(root)
+    for path in (os.path.join(root, ".pyenv.local"), os.path.expanduser("~/.claude/skills/x2strategy/.env")):
+        if not os.path.exists(path):
+            continue
+        for line in open(path):
+            if line.strip().startswith("DEEPSEEK_API_KEY") and "=" in line:
+                return line.split("=", 1)[1].strip().strip('"').strip("'")
+    raise RuntimeError("未找到 DEEPSEEK_API_KEY(请在 .pyenv.local 配置)")
 
 
 def verdict(code, end_date, name=""):

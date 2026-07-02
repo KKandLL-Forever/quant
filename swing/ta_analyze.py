@@ -20,15 +20,19 @@ sys.path.insert(0, _ROOT)
 
 
 def _load_keys():
-    env = os.path.expanduser("~/.claude/skills/x2strategy/.env")
-    for line in open(env):
-        if line.startswith("DEEPSEEK_API_KEY") and "=" in line:
-            os.environ["DEEPSEEK_API_KEY"] = line.split("=", 1)[1].strip().strip('"').strip("'")
-    pe = os.path.join(_ROOT, ".pyenv.local")
-    if os.path.exists(pe):
-        for line in open(pe):
-            if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
-                os.environ["TUSHARE_TOKEN"] = line.split("=", 1)[1].strip().strip('"').strip("'")
+    """加载 DEEPSEEK_API_KEY / TUSHARE_TOKEN:优先仓库根 .pyenv.local,回退旧的 x2strategy skill .env(仅本机)。"""
+    def _read(path, keys):
+        if not path or not os.path.exists(path):
+            return
+        for line in open(path):
+            s = line.strip()
+            for k in keys:
+                if s.startswith(k) and "=" in s:
+                    os.environ[k] = s.split("=", 1)[1].strip().strip('"').strip("'")
+
+    _read(os.path.join(_ROOT, ".pyenv.local"), ("DEEPSEEK_API_KEY", "TUSHARE_TOKEN"))
+    if not os.environ.get("DEEPSEEK_API_KEY"):
+        _read(os.path.expanduser("~/.claude/skills/x2strategy/.env"), ("DEEPSEEK_API_KEY",))
 
 
 def analyze(code, date, analysts=("market", "news")):
