@@ -116,13 +116,43 @@ def perf(returns):
                 卡玛比率=round(ann / abs(mdd), 3) if mdd else None)
 
 
+def _price(px, d, c):
+    """取前复权价,缺失返回 None。"""
+    try:
+        v = float(px.loc[d, c])
+        return round(v, 3) if v == v else None
+    except Exception:
+        return None
+
+
+def _next_reb(universe, mom, adj, px, n, k, l):
+    """按最新一日动量预测下一调仓日的持仓 + 预计调仓时间(按本策略 K 日节奏)。返回 rebalance 记录 dict。"""
+    import numpy as np
+    d = mom.index[-1]
+    cm, ca = mom.iloc[-1], adj.iloc[-1]
+    pos = cm[(cm > 0) & cm.notna()].index
+    top = ca[pos].dropna().sort_values(ascending=False).head(l)
+    picks = []
+    if len(top) and top.sum() > 0:
+        ww = top / top.sum()
+        picks = [{"code": c, "name": universe.get(c, c), "weight": round(float(v), 4), "price": _price(px, d, c)}
+                 for c, v in ww.items()]
+    reb = list(range(n - 1, len(px), k))
+    last = max([r for r in reb if r <= len(px) - 1], default=len(px) - 1)
+    off = max(1, last + k - (len(px) - 1))
+    nd = pd.Timestamp(np.busday_offset(px.index[-1].date(), off, roll="forward")).date()
+    label = f"预计 {nd}(下一交易日)" if k == 1 else f"预计 {nd}(约{off}个交易日后)"
+    return {"date": label, "picks": picks, "next": True}
+
+
 def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
         commission=COMM_STOCK, stamp=STAMP_STOCK):
-    """跑回测(扣手续费),返回 (summary DataFrame, cum 累计收益宽表, dd 回撤宽表, actions, px)。"""
+    """跑回测(扣手续费),返回 (summary DataFrame, cum, dd, actions, px, next_reb 下次调仓预测)。"""
     px = loader(universe.keys(), start, end)
     rets = px.pct_change(fill_method=None)
     mom, adj = calc_momentum(rets, n)
     w, actions = build_weights(mom, adj, n, k, l)
+    nxt = _next_reb(universe, mom, adj, px, n, k, l)
     strat = net_returns(w, rets, commission, stamp).rename(strat_name)
     equal = rets.mean(axis=1).rename(EQUAL_NAME)
     series = {strat_name: strat, EQUAL_NAME: equal}
@@ -139,14 +169,14 @@ def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, en
     cum, dd = growth - 1, growth.div(growth.cummax()) - 1
     summary = pd.DataFrame({name: perf(rdf[name]) for name in rdf.columns}).T
     summary.index.name = "策略"
-    return summary, cum, dd, actions, px
+    return summary, cum, dd, actions, px, nxt
 
 
 def to_payload(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
                commission=COMM_STOCK, stamp=STAMP_STOCK):
-    """组装前后端 JSON:params/cols/summary/equity/rebalances(每个持仓带当日前复权价 price)。"""
-    summary, cum, dd, actions, px = run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
-                                        commission=commission, stamp=stamp)
+    """组装前后端 JSON:params/cols/summary/equity/rebalances(第一条为下次调仓预测,每个持仓带当日前复权价 price)。"""
+    summary, cum, dd, actions, px, nxt = run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
+                                             commission=commission, stamp=stamp)
     equity = [{"date": str(pd.Timestamp(d).date()),
                **{c: round(float(cum.loc[d, c]), 4) for c in cum.columns}} for d in cum.index]
     for a in actions:
@@ -164,5 +194,5 @@ def to_payload(universe, loader, bench_code, bench_name, strat_name, n, k, l, st
         "summary": [{"策略": idx, **{c: (None if pd.isna(v) else v) for c, v in row.items()}}
                     for idx, row in summary.iterrows()],
         "equity": equity,
-        "rebalances": list(reversed(actions)),
+        "rebalances": [nxt] + list(reversed(actions)),
     }
