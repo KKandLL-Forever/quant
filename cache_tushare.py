@@ -15,7 +15,8 @@ cache_tushare.py — Tushare A股日线数据缓存到 ClickHouse
   python cache_tushare.py --update --cyq-rate 150  # 调低 cyq_perf 每分钟限速（频率报错多时用）
 
   数据更新成功后会自动重建本地 DuckDB 的 market_state 表（连板生态 + 中证1000 指数位置
-  + 全市场抱团度 market_crowding_di）。沪深300成分(fetch_hs300_members→hs300_members 表)与
+  + 全市场抱团度 market_crowding_di）。沪深300/中证1000/中证2000 成分
+  (fetch_hs300_members/csi1000/csi2000→hs300_members/csi1000_members/csi2000_members 表)与
   抱团度(_update_market_crowding→market_crowding 表)均自动增量更新，无需手工维护。
   SQL 见 _MARKET_STATE_SQL / rebuild_market_state。
   仅在配置了 LOCAL_DUCKDB_PATH 时执行；中断（Ctrl+C）则跳过重建。
@@ -1177,35 +1178,50 @@ _THS_HOT_FIRST = "2024-01-01"
 _THS_HOT_TYPES = ("热股", "概念板块", "行业板块")
 
 
-def fetch_hs300_members(pro, duck_path: str) -> None:
-    """增量拉沪深300成分(index_weight 000300.SH)写入 DuckDB hs300_members 表，供抱团度用。
+def _fetch_index_members(pro, duck_path: str, index_code: str, table: str, first_year: int, tag: str) -> None:
+    """通用:增量拉指数成分(index_weight)写入 DuckDB <table> 表(con_code/trade_date/weight)。
 
-    成分每半年调整、月度快照。表为空则从 _HS300_FIRST_YEAR 起全拉，否则只补最近年份。"""
+    成分定期调整、月度快照。表为空则从 first_year 起全拉，否则只补最近年份。"""
     con = _duckdb.connect(duck_path)
     try:
-        con.execute("CREATE TABLE IF NOT EXISTS hs300_members "
+        con.execute(f"CREATE TABLE IF NOT EXISTS {table} "
                     "(con_code VARCHAR, trade_date VARCHAR, weight DOUBLE, PRIMARY KEY (con_code, trade_date))")
-        last = con.execute("SELECT MAX(trade_date) FROM hs300_members").fetchone()[0]
-        start_year = _HS300_FIRST_YEAR if last is None else int(last[:4])
+        last = con.execute(f"SELECT MAX(trade_date) FROM {table}").fetchone()[0]
+        start_year = first_year if last is None else int(last[:4])
         parts = []
         for y in range(start_year, datetime.today().year + 1):
             s = last if (last is not None and y == int(last[:4])) else f"{y}0101"
             try:
-                df = pro.index_weight(index_code="000300.SH", start_date=s, end_date=f"{y}1231")
+                df = pro.index_weight(index_code=index_code, start_date=s, end_date=f"{y}1231")
             except Exception as e:
-                print(f"[hs300] {y} 拉取失败({e})，跳过 ", end="")
+                print(f"[{tag}] {y} 拉取失败({e})，跳过 ", end="")
                 continue
             if df is not None and len(df):
                 parts.append(df[["con_code", "trade_date", "weight"]])
         if parts:
             allp = pd.concat(parts, ignore_index=True).drop_duplicates(["con_code", "trade_date"])
             con.register("_w", allp)
-            con.execute("INSERT OR REPLACE INTO hs300_members SELECT con_code, trade_date, weight FROM _w")
+            con.execute(f"INSERT OR REPLACE INTO {table} SELECT con_code, trade_date, weight FROM _w")
             con.unregister("_w")
-        n = con.execute("SELECT COUNT(DISTINCT trade_date) FROM hs300_members").fetchone()[0]
+        n = con.execute(f"SELECT COUNT(DISTINCT trade_date) FROM {table}").fetchone()[0]
     finally:
         con.close()
-    print(f"[hs300] 成分快照 {n} 期")
+    print(f"[{tag}] 成分快照 {n} 期")
+
+
+def fetch_hs300_members(pro, duck_path: str) -> None:
+    """沪深300成分(index_weight 000300.SH)→ hs300_members 表,供抱团度用。"""
+    _fetch_index_members(pro, duck_path, "000300.SH", "hs300_members", _HS300_FIRST_YEAR, "hs300")
+
+
+def fetch_csi1000_members(pro, duck_path: str) -> None:
+    """中证1000成分(index_weight 000852.SH)→ csi1000_members 表。"""
+    _fetch_index_members(pro, duck_path, "000852.SH", "csi1000_members", 2019, "csi1000")
+
+
+def fetch_csi2000_members(pro, duck_path: str) -> None:
+    """中证2000成分(index_weight 932000.CSI,2023年8月发布)→ csi2000_members 表。"""
+    _fetch_index_members(pro, duck_path, "932000.CSI", "csi2000_members", 2023, "csi2000")
 
 
 def fetch_sw_members(pro, duck_path: str) -> None:
@@ -2705,6 +2721,14 @@ def main() -> None:
             fetch_hs300_members(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[hs300] 成分更新跳过({e})")
+        try:
+            fetch_csi1000_members(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[csi1000] 成分更新跳过({e})")
+        try:
+            fetch_csi2000_members(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[csi2000] 成分更新跳过({e})")
         try:
             fetch_sw_members(pro, DUCKDB_PATH)
         except Exception as e:

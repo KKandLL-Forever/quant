@@ -23,12 +23,12 @@ import cache_tushare as ct
 
 
 def members_1000():
-    """取中证1000最新成分代码列表(tushare index_weight)。"""
-    import tushare as ts
-    pro = ts.pro_api(ct._get_token())
-    w = pro.index_weight(index_code="000852.SH", start_date="20260101", end_date="20261231")
-    w = w[w["trade_date"] == w["trade_date"].max()]
-    return sorted(w["con_code"].unique().tolist())
+    """取中证1000最新成分代码列表(本地 DuckDB csi1000_members 最新快照)。"""
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    codes = [r[0] for r in con.execute(
+        "SELECT con_code FROM csi1000_members WHERE trade_date=(SELECT MAX(trade_date) FROM csi1000_members)").fetchall()]
+    con.close()
+    return sorted(codes)
 
 
 def load(codes, start):
