@@ -1,6 +1,6 @@
 // 小西西弗动量轮动策略复现(龙头/全天候/行业):Tab 切换,每策略 = 绩效卡 + 累计收益曲线 + 调仓动作表。数据走 /api/xiaoxifu。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, message } from 'antd'
+import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, message } from 'antd'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 
@@ -14,10 +14,11 @@ interface Payload {
   equity: Record<string, number | string>[]; rebalances: Rebalance[]
 }
 
-interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; showShares?: boolean; kicker: string; desc: string; actionTitle?: string }
+interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; showShares?: boolean; showPool?: boolean; kicker: string; desc: string; actionTitle?: string }
+interface PoolItem { code: string; name: string; industry: string }
 const STRATS: StratCfg[] = [
-  { key: 'leader', label: '龙头动量轮动', hasKL: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
-    desc: '22 只各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF' },
+  { key: 'leader', label: '龙头动量轮动', hasKL: true, showPool: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
+    desc: '各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF · 股票池可自定义' },
   { key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~39%(含手续费)',
     desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF' },
   { key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~20%(含手续费)',
@@ -34,15 +35,30 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const [K, setK] = useState(5)
   const [L, setL] = useState(5)
   const [capital, setCapital] = useState(100000)
+  const [poolOpts, setPoolOpts] = useState<{ label: string; options: { label: string; value: string }[] }[]>([])
+  const [codes, setCodes] = useState<string[]>([])
+  const [defCodes, setDefCodes] = useState<string[]>([])
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!cfg.showPool) return
+    fetch('/api/leader_pool').then(r => r.json()).then((j: { ok: boolean; default: PoolItem[]; universe: PoolItem[] }) => {
+      if (!j.ok) return
+      const byInd: Record<string, { label: string; value: string }[]> = {}
+      for (const it of j.universe) (byInd[it.industry] = byInd[it.industry] || []).push({ label: `${it.name} ${it.code}`, value: it.code })
+      setPoolOpts(Object.entries(byInd).sort((a, b) => a[0].localeCompare(b[0])).map(([ind, opts]) => ({ label: ind, options: opts })))
+      const dc = j.default.map(d => d.code)
+      setCodes(dc); setDefCodes(dc)
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = async () => {
     setLoading(true)
     try {
       const r = await fetch('/api/xiaoxifu', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategy: cfg.key, N, K, L, start: '2024-01-01' }),
+        body: JSON.stringify({ strategy: cfg.key, N, K, L, start: '2024-01-01', codes: cfg.showPool && codes.length ? codes : undefined }),
       })
       const j: Payload = await r.json()
       if (!j.ok) throw new Error(j.error || '请求失败')
@@ -89,6 +105,10 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         {cfg.showShares && <><span>资金</span><InputNumber min={10000} step={10000} value={capital}
           onChange={v => setCapital(v || 100000)} size="small" style={{ width: 130 }}
           formatter={v => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => Number((v || '').replace(/[^\d]/g, ''))} /></>}
+        {cfg.showPool && <><span>股票池</span><Select mode="multiple" size="small" style={{ minWidth: 340, maxWidth: 560 }}
+          value={codes} onChange={setCodes} options={poolOpts} optionFilterProp="label" maxTagCount={6}
+          placeholder="搜索代码/名称添加" allowClear />
+          <Button size="small" onClick={() => setCodes(defCodes)}>恢复默认22只</Button></>}
         <Button type="primary" size="small" onClick={load} loading={loading}>运行回测</Button>
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 2024-01-01 起 · 权重滞后1天(T+1执行)</span>
       </div>

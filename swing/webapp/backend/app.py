@@ -707,12 +707,13 @@ def bulltop(req: BullTopReq):
 
 
 class XiaoxifuReq(BaseModel):
-    strategy: str = "leader"     # leader | allweather | industry
+    strategy: str = "leader"     # leader | allweather | industry | regime
     N: int = 20
     K: int = 5
     L: int = 5
     start: str = "2024-01-01"
     end: str | None = None
+    codes: list[str] | None = None    # 龙头自定义股票池;None=默认22只
 
 
 @app.post("/api/xiaoxifu")
@@ -728,7 +729,29 @@ def xiaoxifu(req: XiaoxifuReq):
         kw = dict(n=req.N, start=req.start, end=end)
         if req.strategy != "allweather":
             kw.update(k=req.K, l=req.L)
+        if req.strategy == "leader" and req.codes:
+            kw["codes"] = req.codes
         return m.to_payload(**kw)
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+@app.get("/api/leader_pool")
+def leader_pool():
+    """龙头股票池选择器数据:默认池(带 md 行业)+ 全市场个股(带 tushare 行业,供搜索添加)。"""
+    import traceback
+    try:
+        import duckdb
+        from cache_tushare import DUCKDB_PATH
+        sys.path.insert(0, os.path.expanduser("~/AI/quart/xiaoxifu"))
+        import leader_momentum as lm
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        rows = con.execute("""SELECT ts_code, name, industry FROM stock_meta
+            WHERE ts_code NOT LIKE '%.BJ' AND (delist_date IS NULL OR delist_date='') ORDER BY ts_code""").fetchall()
+        con.close()
+        universe = [{"code": c, "name": n, "industry": ind or "其他"} for c, n, ind in rows]
+        default = [{"code": c, "name": n, "industry": ind} for c, n, ind in lm.DEFAULT_POOL]
+        return {"ok": True, "default": default, "universe": universe}
     except Exception:
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
