@@ -122,7 +122,9 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
           style={{ background: 'linear-gradient(135deg,#0b6e4f,#0f8a63)', color: '#fff', border: 'none',
             fontWeight: 500, boxShadow: '0 2px 8px -3px rgba(11,110,79,.6)' }}>
           ✎ 编辑股票池 <b style={{ marginLeft: 2 }}>{pool.length}</b> 只</Button>}
-        <Button type="primary" size="small" onClick={load} loading={loading}>运行回测</Button>
+        <Button type="primary" size="small" onClick={load} loading={loading}
+          style={{ background: 'linear-gradient(135deg,#c0392b,#e05a3f)', border: 'none', fontWeight: 600,
+            letterSpacing: 1, boxShadow: '0 2px 10px -3px rgba(192,57,43,.6)' }}>▶ 运行回测</Button>
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 2024-01-01 起 · 权重滞后1天(T+1执行)</span>
       </div>
 
