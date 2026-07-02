@@ -21,7 +21,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 SWING = os.path.join(_ROOT, "swing")
-PY = os.path.join(_ROOT, ".venv312/bin/python")
+
+
+def _venv_python():
+    """跨平台定位仓库内 .venv312 的解释器(Windows: Scripts\\python.exe;类Unix: bin/python);找不到回退当前解释器。"""
+    for rel in (os.path.join(".venv312", "Scripts", "python.exe"), os.path.join(".venv312", "bin", "python")):
+        p = os.path.join(_ROOT, rel)
+        if os.path.exists(p):
+            return p
+    return sys.executable
+
+
+PY = _venv_python()
 POOL_FILE = os.path.join(_ROOT, "xiaoxifu", "leader_pool.json")   # 自定义龙头股票池持久化(非数据库)
 sys.path.insert(0, SWING)
 sys.path.insert(0, _ROOT)
