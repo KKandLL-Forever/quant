@@ -107,11 +107,15 @@ def _make_news_tool(toolkit=None):
     import astock_news
 
     def get_stock_news_unified(stock_code: str, max_news: int = 10, model_info: str = "") -> str:
-        """获取个股新闻+研报+公告(东财/巨潮),返回带日期摘要;PIT_END 设了则按该日截断。"""
+        """获取个股新闻+研报+公告(东财/巨潮),返回带日期摘要;新闻/公告仅近7天,研报放长窗;PIT_END 设了则按该日截断。"""
+        import datetime as _dt
         code = str(stock_code).split(".")[0]
         end = PIT_END
+        ref = end or _dt.date.today().isoformat()
+        floor7 = (_dt.date.fromisoformat(ref) - _dt.timedelta(days=7)).isoformat()
         try:
-            news = [n for n in astock_news.stock_news(code) if not end or n["time"][:10] <= end][:max_news]
+            news = [n for n in astock_news.stock_news(code)
+                    if floor7 <= n["time"][:10] <= ref][:max_news]
         except Exception:
             news = []
         try:
@@ -119,14 +123,15 @@ def _make_news_tool(toolkit=None):
         except Exception:
             reps = []
         try:
-            anns = astock_news.stock_announcements(code, end=end)[:12]
+            anns = [a for a in astock_news.stock_announcements(code, end=end)
+                    if a["date"] >= floor7][:12]
         except Exception:
             anns = []
-        at = "\n".join(f"- {a['date']} {a['title']}" for a in anns) or "(无公告)"
-        nt = "\n".join(f"- {n['time'][:16]} {n['source']}: {n['title']}" for n in news) or "(无新闻)"
+        at = "\n".join(f"- {a['date']} {a['title']}" for a in anns) or "(近7天无公告)"
+        nt = "\n".join(f"- {n['time'][:16]} {n['source']}: {n['title']}" for n in news) or "(近7天无新闻)"
         rt = "\n".join(f"- {r['date']} {r['org']} 评级{r['rating']}: {r['title']}" for r in reps) or "(无研报)"
-        return (f"# {code} 消息面\n\n## 官方公告(巨潮,利空/利好催化最关键)\n{at}\n\n"
-                f"## 个股新闻(东财)\n{nt}\n\n## 研报评级(东财)\n{rt}\n")
+        return (f"# {code} 消息面\n\n## 官方公告(巨潮,近7天,利空/利好催化最关键)\n{at}\n\n"
+                f"## 个股新闻(东财,近7天)\n{nt}\n\n## 研报评级(东财,近期)\n{rt}\n")
 
     get_stock_news_unified.name = "get_stock_news_unified"
     get_stock_news_unified.description = "获取个股近期新闻与研报(东财),返回带日期的中文摘要,用于消息面分析"
