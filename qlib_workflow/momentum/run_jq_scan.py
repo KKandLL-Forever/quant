@@ -12,9 +12,12 @@ run_jq_scan.py — 对市值残差因子的 SVR 做参数稳健性扫描(C × �
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.dirname(__file__))
 
 import duckdb

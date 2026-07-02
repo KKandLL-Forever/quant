@@ -28,9 +28,12 @@ cne6_factors.py — Barra CNE6 中国风格因子库(全套 16 因子,从 DuckDB
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import numpy as np

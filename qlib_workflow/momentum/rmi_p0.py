@@ -26,13 +26,16 @@ rmi_p0.py — 残差互信息因子 P0：单时点跑通 + MST 可视化
 
 import argparse
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 import duckdb
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 from cache_tushare import DUCKDB_PATH
 
 WINDOW = 300

@@ -11,10 +11,13 @@ run_momentum_regime_oos.py — 反向抱团 gate 的样本外验证(分 IS/OOS �
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import numpy as np
 import pandas as pd

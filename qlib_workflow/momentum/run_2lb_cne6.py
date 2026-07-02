@@ -15,9 +15,12 @@ run_2lb_cne6.py — 用 CNE6 风格维度给 2lb(连板)做风险归因/风格�
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import numpy as np

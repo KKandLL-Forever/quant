@@ -16,9 +16,12 @@ import argparse
 import base64
 import io
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import matplotlib
@@ -29,12 +32,12 @@ import pandas as pd
 
 from cache_tushare import DUCKDB_PATH
 
-OUT = os.path.expanduser("~/AI/quart/swing/segment_report.html")
+OUT = os.path.join(_ROOT, "swing/segment_report.html")
 
 
 def _fetch_index_tushare(code, start):
     """库里没有该指数时,从 tushare index_daily 拉(读 .pyenv.local 的 token),分年拉避免8000行上限。"""
-    env = os.path.expanduser("~/AI/quart/.pyenv.local")
+    env = os.path.join(_ROOT, ".pyenv.local")
     if os.path.exists(env):
         for line in open(env):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:

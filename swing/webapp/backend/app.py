@@ -9,6 +9,9 @@
 
 import json
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import subprocess
 import sys
 import tempfile
@@ -17,10 +20,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-SWING = os.path.expanduser("~/AI/quart/swing")
-PY = os.path.expanduser("~/AI/quart/.venv312/bin/python")
+SWING = os.path.join(_ROOT, "swing")
+PY = os.path.join(_ROOT, ".venv312/bin/python")
 sys.path.insert(0, SWING)
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 app = FastAPI(title="ML信号 + LLM分析")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -312,7 +315,7 @@ def _index_ohlc(ts):
     import pandas as pd
     import tushare as tsl
     tok = os.environ.get("TUSHARE_TOKEN", "")
-    pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+    pe = os.path.join(_ROOT, ".pyenv.local")
     if not tok and os.path.exists(pe):
         for line in open(pe):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
@@ -340,7 +343,7 @@ def _fund_ohlc(ts):
     import pandas as pd
     import tushare as tsl
     tok = os.environ.get("TUSHARE_TOKEN", "")
-    pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+    pe = os.path.join(_ROOT, ".pyenv.local")
     if not tok and os.path.exists(pe):
         for line in open(pe):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
@@ -604,7 +607,7 @@ def etfshare(req: EtfShareReq):
         import datetime as dt
         import tushare as tsl
         tok = os.environ.get("TUSHARE_TOKEN", "")
-        pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+        pe = os.path.join(_ROOT, ".pyenv.local")
         if not tok and os.path.exists(pe):
             for line in open(pe):
                 if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
@@ -680,7 +683,7 @@ def bulltop(req: BullTopReq):
         try:
             import tushare as tsl
             tok = os.environ.get("TUSHARE_TOKEN", "")
-            pe_env = os.path.expanduser("~/AI/quart/.pyenv.local")
+            pe_env = os.path.join(_ROOT, ".pyenv.local")
             if not tok and os.path.exists(pe_env):
                 for line in open(pe_env):
                     if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
@@ -723,7 +726,7 @@ def xiaoxifu(req: XiaoxifuReq):
     import traceback
     mods = {"leader": "leader_momentum", "allweather": "allweather", "industry": "industry", "regime": "regime_combo"}
     try:
-        sys.path.insert(0, os.path.expanduser("~/AI/quart/xiaoxifu"))
+        sys.path.insert(0, os.path.join(_ROOT, "xiaoxifu"))
         m = importlib.import_module(mods.get(req.strategy, "leader_momentum"))
         end = req.end or __import__("datetime").date.today().strftime("%Y-%m-%d")
         kw = dict(n=req.N, start=req.start, end=end)
@@ -743,7 +746,7 @@ def leader_pool():
     try:
         import duckdb
         from cache_tushare import DUCKDB_PATH
-        sys.path.insert(0, os.path.expanduser("~/AI/quart/xiaoxifu"))
+        sys.path.insert(0, os.path.join(_ROOT, "xiaoxifu"))
         import leader_momentum as lm
         con = duckdb.connect(DUCKDB_PATH, read_only=True)
         rows = con.execute("""SELECT ts_code, name, industry FROM stock_meta

@@ -22,10 +22,13 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
 
 import argparse
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import numpy as np
@@ -64,7 +67,7 @@ FEATS_ALL = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", 
 FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "atrp", "ret20", "ret60",
          "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv", "rsturn",
          "crowd", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
-OUT = os.path.expanduser("~/AI/quart/swing/ml_signals_2026.html")
+OUT = os.path.join(_ROOT, "swing/ml_signals_2026.html")
 FEAT_CN = {
     "ptype": "形态类型", "brk": "突破强度", "pos1y": "一年价格位置", "basew": "底部宽度",
     "dma20": "距20日线", "atrp": "波动率ATR%", "ret20": "20日涨幅", "ret60": "60日涨幅",
@@ -92,7 +95,7 @@ def _shap_plot(model, X, path):
     plt.tight_layout()
     plt.savefig(path, dpi=130, bbox_inches="tight")
     plt.close()
-MODEL_PATH = os.path.expanduser("~/AI/quart/swing/ml_signals_2026_model.pkl")
+MODEL_PATH = os.path.join(_ROOT, "swing/ml_signals_2026_model.pkl")
 
 
 def _fetch_idx(pro, code, start):
@@ -508,8 +511,8 @@ def main():
     args = ap.parse_args()
     global MW_HURDLE_K, MODEL_PATH, OUT
     MW_HURDLE_K = {"quick": 0.06, "long": 0.09}[args.mode]
-    MODEL_PATH = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_model_{args.mode}_{args.pivot}.pkl")
-    OUT = os.path.expanduser(f"~/AI/quart/swing/ml_signals_2026_{args.mode}_{args.pivot}.html")
+    MODEL_PATH = os.path.join(_ROOT, f"swing/ml_signals_2026_model_{args.mode}_{args.pivot}.pkl")
+    OUT = os.path.join(_ROOT, f"swing/ml_signals_2026_{args.mode}_{args.pivot}.html")
     start_ts = pd.Timestamp(args.start)
     end_ts = pd.Timestamp(args.end) if args.end else None
 
@@ -550,7 +553,7 @@ def main():
         WHERE ann_date>='20200101'""").fetch_df()
     con.close()
 
-    env = os.path.expanduser("~/AI/quart/.pyenv.local")
+    env = os.path.join(_ROOT, ".pyenv.local")
     if os.path.exists(env):
         for line in open(env):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
@@ -609,7 +612,7 @@ def main():
     cyq = cyq.set_index(["ts_code", "trade_date"]); mf = mf.set_index(["ts_code", "trade_date"])
 
     import pickle
-    _evdir = os.path.expanduser("~/AI/quart/swing/.evcache")
+    _evdir = os.path.join(_ROOT, "swing/.evcache")
     _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_hot{HOT_TOP}_don2_{sel}.pkl")
     if (not args.eval) and os.path.exists(_evkey):
         df = pd.read_pickle(_evkey)

@@ -14,6 +14,9 @@ first10/cache/hs300_members.parquet)。这样只用调仓时点已知的信息�
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
@@ -26,7 +29,7 @@ from qlib.contrib.strategy import TopkDropoutStrategy
 from qlib.contrib.evaluate import risk_analysis
 
 PROVIDER_URI = os.path.expanduser("~/.qlib/qlib_data/duck_cn")
-MEMBERS_PARQUET = os.path.expanduser("~/AI/quart/first10/cache/hs300_members.parquet")
+MEMBERS_PARQUET = os.path.join(_ROOT, "first10/cache/hs300_members.parquet")
 
 RETURN_PERIOD = 20
 HOLDING_PERIOD = 20

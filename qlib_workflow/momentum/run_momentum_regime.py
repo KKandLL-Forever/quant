@@ -15,10 +15,13 @@ run_momentum_regime.py — RMI 抱团度择时的动量策略(动量 + 残差互
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import numpy as np
 import pandas as pd
@@ -38,8 +41,8 @@ N = 10
 HP = 20
 BINS = 7
 MED_WIN = 6          # 抱团度滚动中位数窗口(期)
-CROWD_CACHE = os.path.expanduser("~/AI/quart/first10/cache/market_crowding.parquet")
-MEMBERS_PARQUET = os.path.expanduser("~/AI/quart/first10/cache/hs300_members.parquet")
+CROWD_CACHE = os.path.join(_ROOT, "first10/cache/market_crowding.parquet")
+MEMBERS_PARQUET = os.path.join(_ROOT, "first10/cache/hs300_members.parquet")
 
 
 def _members_con_asof():

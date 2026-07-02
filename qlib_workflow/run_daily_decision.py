@@ -23,10 +23,13 @@ run_daily_decision.py — 给定股票列表,输出每只的「全市场分位 +
 
 import argparse
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-sys.path.insert(0, os.path.expanduser("~/AI/quart/first10"))
+sys.path.insert(0, os.path.join(_ROOT, "first10"))
 
 import duckdb
 import lightgbm as lgb
@@ -38,7 +41,7 @@ from qlib.utils import init_instance_by_config
 from qlib.data.dataset.handler import DataHandlerLP
 
 PROVIDER_URI = os.path.expanduser("~/.qlib/qlib_data/duck_cn")
-DUCKDB_PATH = os.path.expanduser("~/AI/quart/stock_data_tushare.duckdb")
+DUCKDB_PATH = os.path.join(_ROOT, "stock_data_tushare.duckdb")
 
 
 def _to_qlib(ts):

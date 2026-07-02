@@ -13,10 +13,13 @@ cyq_perf 自 2020 起，故 train 2020~2022 / valid 2023 / test 2024~2026.05。
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import lightgbm as lgb

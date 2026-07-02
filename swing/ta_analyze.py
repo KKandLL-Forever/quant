@@ -10,10 +10,13 @@
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 
 def _load_keys():
@@ -21,7 +24,7 @@ def _load_keys():
     for line in open(env):
         if line.startswith("DEEPSEEK_API_KEY") and "=" in line:
             os.environ["DEEPSEEK_API_KEY"] = line.split("=", 1)[1].strip().strip('"').strip("'")
-    pe = os.path.expanduser("~/AI/quart/.pyenv.local")
+    pe = os.path.join(_ROOT, ".pyenv.local")
     if os.path.exists(pe):
         for line in open(pe):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:

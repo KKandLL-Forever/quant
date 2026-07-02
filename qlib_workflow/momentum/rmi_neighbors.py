@@ -17,13 +17,16 @@ rmi_neighbors.py — 给定一只股票，找出与它关系最近的其他股�
 
 import argparse
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 import duckdb
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 from cache_tushare import DUCKDB_PATH
 from rmi_p0 import (WINDOW, LIST_MIN_DAYS, _universe, _returns_matrix,
                     _equal_freq_codes, _mi_from_codes, _gaussian_mi_curve)

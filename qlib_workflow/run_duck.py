@@ -17,6 +17,9 @@ duckdb_to_qlib.py 产出的 ~/.qlib/qlib_data/duck_cn(本项目全市场后复�
 """
 
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 
 os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
@@ -28,7 +31,7 @@ from qlib.workflow import R
 from qlib.workflow.record_temp import SignalRecord, SigAnaRecord, PortAnaRecord
 
 PROVIDER_URI = os.path.expanduser("~/.qlib/qlib_data/duck_cn")
-DUCKDB_PATH = os.path.expanduser("~/AI/quart/stock_data_tushare.duckdb")
+DUCKDB_PATH = os.path.join(_ROOT, "stock_data_tushare.duckdb")
 BENCHMARK = "SH000001"
 TOPN = 800
 PIT_NAME = "pit800"

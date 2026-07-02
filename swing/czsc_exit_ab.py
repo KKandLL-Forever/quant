@@ -7,8 +7,11 @@
 依赖：czsc, run_ml_signals_2026(_swing_exit/常量), kernel_pivots(_detect_kernel), DuckDB。
 """
 import os, sys
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb, numpy as np, pandas as pd
 import czsc

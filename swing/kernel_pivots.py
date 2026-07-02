@@ -10,10 +10,13 @@
 
 import argparse
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import numpy as np
@@ -141,7 +144,7 @@ def main():
         ax.scatter(gd[i], c[i], c="#c0392b" if not lo else "#2980b9", s=28, zorder=5)
     ax.set_title(f"{name} 核平滑枢轴(红=高 蓝=低)")
     ax.legend(); fig.tight_layout()
-    out = os.path.expanduser(f"~/AI/quart/swing/kernel_pivots_{args.ts}.png")
+    out = os.path.join(_ROOT, f"swing/kernel_pivots_{args.ts}.png")
     fig.savefig(out, dpi=110); plt.close(fig)
     print(f"\n图: {out}")
 

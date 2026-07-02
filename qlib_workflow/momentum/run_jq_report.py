@@ -13,9 +13,12 @@ import argparse
 import base64
 import io
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.dirname(__file__))
 
 import duckdb
@@ -31,7 +34,7 @@ from cache_tushare import DUCKDB_PATH
 import run_jq_residual as R
 
 STEP, TOPK, C = 10, 10, 1.0
-OUT = os.path.expanduser("~/AI/quart/qlib_workflow/momentum/jq_residual_report.html")
+OUT = os.path.join(_ROOT, "qlib_workflow/momentum/jq_residual_report.html")
 
 
 def _fig_b64(navs, bench_nav, dates):

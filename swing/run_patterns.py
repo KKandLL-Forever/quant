@@ -14,10 +14,13 @@ import argparse
 import base64
 import io
 import os
+_ROOT = os.path.dirname(os.path.abspath(__file__))
+while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
+    _ROOT = os.path.dirname(_ROOT)
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-sys.path.insert(0, os.path.expanduser("~/AI/quart"))
+sys.path.insert(0, _ROOT)
 
 import duckdb
 import matplotlib
@@ -29,7 +32,7 @@ import pandas as pd
 from cache_tushare import DUCKDB_PATH
 from run_segment_zigzag import _zigzag
 
-OUT = os.path.expanduser("~/AI/quart/swing/patterns_samples.html")
+OUT = os.path.join(_ROOT, "swing/patterns_samples.html")
 W_TOL = 0.06
 NEWHIGH = 10
 
