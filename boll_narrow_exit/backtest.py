@@ -72,6 +72,7 @@ def main():
     ap.add_argument("--hold", type=int, default=10, help="持有交易日")
     ap.add_argument("--fee", type=float, default=0.0008, help="单边费率(佣金+印花+滑点粗估)")
     ap.add_argument("--start", default="2021-01-01")
+    ap.add_argument("--healthy-only", action="store_true", help="仅在大盘健康日入场(沪深300 MA30&MA60 未同时走坏)")
     args = ap.parse_args()
 
     codes = {"ml": bm.members_ml, "csi2000": bm.members_2000, "csi1000": bm.members_1000}[args.pool]()
@@ -81,6 +82,8 @@ def main():
     mkt = bm.hs300_market(args.start)
     sig = sig.merge(mkt, on="date", how="left")
     sig = sig[(sig["mkt_up"] == True) & (sig["vol_ratio"] > 1) & sig["entry_date"].notna() & sig["exit_date"].notna()]
+    if args.healthy_only:
+        sig = sig[sig["mkt_bad"] == False]
 
     taken = _slots(sig, args.parts)
     df["td"] = pd.to_datetime(df["td"])
@@ -99,6 +102,11 @@ def main():
     print(f"  最大回撤 {mdd*100:.1f}%   夏普 {shp:.2f}   卡玛 {cal_r:.2f}")
     print(f"\n=== 单笔(扣双边费)===")
     print(f"  笔数 {len(net)}  胜率 {(net>0).mean()*100:.0f}%  均值 {net.mean()*100:+.2f}%  中位 {net.median()*100:+.2f}%")
+    print(f"\n=== 分年收益(组合净值,扣费)===")
+    for y, r in port.groupby(port.index.year):
+        eqy = (1 + r).prod() - 1
+        ddy = ((1 + r).cumprod() / (1 + r).cumprod().cummax() - 1).min()
+        print(f"  {y}: 收益 {eqy*100:+6.1f}%   回撤 {ddy*100:5.1f}%   ({len(r)}日)")
 
 
 if __name__ == "__main__":
