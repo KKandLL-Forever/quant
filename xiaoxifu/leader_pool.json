@@ -1,0 +1,112 @@
+[
+  {
+    "code": "600111.SH",
+    "name": "北方稀土",
+    "industry": "稀土"
+  },
+  {
+    "code": "002460.SZ",
+    "name": "赣锋锂业",
+    "industry": "锂"
+  },
+  {
+    "code": "601899.SH",
+    "name": "紫金矿业",
+    "industry": "有色"
+  },
+  {
+    "code": "600988.SH",
+    "name": "赤峰黄金",
+    "industry": "黄金"
+  },
+  {
+    "code": "002230.SZ",
+    "name": "科大讯飞",
+    "industry": "AI"
+  },
+  {
+    "code": "300750.SZ",
+    "name": "宁德时代",
+    "industry": "电池"
+  },
+  {
+    "code": "002594.SZ",
+    "name": "比亚迪",
+    "industry": "新能车"
+  },
+  {
+    "code": "603259.SH",
+    "name": "药明康德",
+    "industry": "医药"
+  },
+  {
+    "code": "601939.SH",
+    "name": "建设银行",
+    "industry": "银行"
+  },
+  {
+    "code": "688256.SH",
+    "name": "寒武纪",
+    "industry": "芯片"
+  },
+  {
+    "code": "601606.SH",
+    "name": "长城军工",
+    "industry": "军工"
+  },
+  {
+    "code": "688981.SH",
+    "name": "中芯国际",
+    "industry": "芯片"
+  },
+  {
+    "code": "300502.SZ",
+    "name": "新易盛",
+    "industry": "光模块"
+  },
+  {
+    "code": "601138.SH",
+    "name": "工业富联",
+    "industry": "代工"
+  },
+  {
+    "code": "300308.SZ",
+    "name": "中际旭创",
+    "industry": "光模块"
+  },
+  {
+    "code": "300476.SZ",
+    "name": "胜宏科技",
+    "industry": "PCB"
+  },
+  {
+    "code": "300394.SZ",
+    "name": "天孚通信",
+    "industry": "光器件"
+  },
+  {
+    "code": "688041.SH",
+    "name": "海光信息",
+    "industry": "芯片"
+  },
+  {
+    "code": "601336.SH",
+    "name": "新华保险",
+    "industry": "保险"
+  },
+  {
+    "code": "600519.SH",
+    "name": "贵州茅台",
+    "industry": "白酒"
+  },
+  {
+    "code": "601288.SH",
+    "name": "农业银行",
+    "industry": "银行"
+  },
+  {
+    "code": "601319.SH",
+    "name": "中国人保",
+    "industry": "保险"
+  }
+]
