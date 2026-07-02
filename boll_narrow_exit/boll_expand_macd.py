@@ -91,8 +91,8 @@ def hs300_market(start):
     return ix[["date", "mkt_up", "mkt_bad"]]
 
 
-def build_signals(df, squeeze_q, cross_win):
-    """逐股算 BOLL缩口→扩张 + MACD近期金叉 + 站上中轨 的买点,返回带前瞻收益/ATR 的信号表。"""
+def build_signals(df, squeeze_q, cross_win, up_mode="mid"):
+    """逐股算 BOLL缩口→扩张 + MACD近期金叉 + 站上(中轨/上轨) 的买点,返回带前瞻收益/ATR/量能 的信号表。"""
     out = []
     for ts, g in df.groupby("ts_code", sort=False):
         g = g.reset_index(drop=True)
@@ -103,7 +103,7 @@ def build_signals(df, squeeze_q, cross_win):
         widen = bw > bw.shift(1)
         d = g["dif"] - g["dea"]
         crossed = (d > 0) & pd.concat([d.shift(k) <= 0 for k in range(1, cross_win + 1)], axis=1).any(axis=1)
-        up = g["adjc"] > g["bm"]
+        up = g["adjc"] > (g["bu"] if up_mode == "upper" else g["bm"])
         sig = narrow.shift(1, fill_value=False) & widen & crossed & up
         adjc = g["adjc"]
         f5 = adjc.shift(-5) / adjc - 1
@@ -125,6 +125,7 @@ def main():
     ap.add_argument("--squeeze-q", type=float, default=0.25, help="缩口分位阈值(带宽低于过去120日该分位=震荡)")
     ap.add_argument("--cross-win", type=int, default=3, help="MACD 金叉发生在最近几日内")
     ap.add_argument("--pool", choices=["csi1000", "csi2000", "ml"], default="csi1000", help="股票池:中证1000 / 中证2000 / ML主升浪同款")
+    ap.add_argument("--up", choices=["mid", "upper"], default="mid", help="向上确认:站上中轨(mid)或站上上轨(upper)")
     args = ap.parse_args()
 
     codes = {"ml": members_ml, "csi2000": members_2000, "csi1000": members_1000}[args.pool]()
@@ -132,7 +133,8 @@ def main():
     df = load(codes, args.start)
     print(f"行情+指标 {len(df):,} 行,{df['ts_code'].nunique()} 只有数据")
 
-    sig = build_signals(df, args.squeeze_q, args.cross_win)
+    sig = build_signals(df, args.squeeze_q, args.cross_win, args.up)
+    print(f"向上确认:站上{'上轨' if args.up == 'upper' else '中轨'}")
     base = df["adjc"].groupby(df["ts_code"]).transform(lambda x: x.shift(-10) / x - 1).dropna()
     print(f"\n=== 信号(BOLL缩口→扩张 + MACD近{args.cross_win}日金叉 + 站上中轨)===")
     print(f"信号数 {len(sig)}")
