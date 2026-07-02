@@ -430,8 +430,8 @@ function AdvisePage() {
           <div style={{ fontSize: 15, fontWeight: 600 }}>{res.name}({res.code}) 买入 {res.bo} @ {res.entry} 元(前复权){a.legs > 1 ? `,已滚动 ${a.legs} 腿` : ''}</div>
           {a.state === 'holding' ? (
             a.czsc_sell_today
-              ? <div style={{ color: '#27ae60', fontSize: 15, marginTop: 6 }}><b>⚠️ 最新交易日({a.latest_date})触发「{a.sell_rule}」→ 明日开盘止盈卖出</b>(卖后若回调出现缠论买点、价在60日线上方可回补)。当前 {a.latest_close} 元,累计 {a.total_ret_pct}%</div>
-              : <div style={{ fontSize: 15, marginTop: 6 }}><b>继续持有。</b>明日若收盘<b style={{ color: '#27ae60' }}>跌破 {a.trigger} 元</b>则卖出(60日线 {a.ma60} / 现价回撤15%止损 {a.stop},取高者)。当前 {a.latest_close} 元,累计 {a.total_ret_pct}%</div>
+              ? <div style={{ color: '#27ae60', fontSize: 15, marginTop: 6 }}><b>⚠️ 最新交易日({a.latest_date})触发「{a.sell_rule}」→ 明日开盘止盈卖出</b>(卖后若回调出现缠论买点、价在60日线上方可回补)。当前 {a.latest_close} 元,累计 {a.total_ret_pct}%{a.sell_top != null && <span>。缠论顶分型 顶 <b>{a.sell_top}</b> 元({a.sell_top_date}),跌破 <b style={{ color: '#27ae60' }}>{a.sell_confirm}</b> 元确认转势</span>}</div>
+              : <div style={{ fontSize: 15, marginTop: 6 }}><b>继续持有。</b>明日若收盘<b style={{ color: '#27ae60' }}>跌破 {a.trigger} 元</b>则卖出(60日线 {a.ma60} / 现价回撤15%止损 {a.stop},取高者)。当前 {a.latest_close} 元,累计 {a.total_ret_pct}%{a.sell_top != null && <span>。最近缠论顶分型 顶 <b>{a.sell_top}</b> 元({a.sell_top_date}),一卖确认价(跌破)<b style={{ color: '#27ae60' }}>{a.sell_confirm}</b> 元</span>}</div>
           ) : a.state === 'waiting' ? (
             <div style={{ fontSize: 15, marginTop: 6 }}>已于 <b>{a.sold_date}</b> 触发「{a.sell_rule}」止盈 @ {a.sold_price} 元(已实现 <b style={{ color: a.realized_pct >= 0 ? '#c0392b' : '#27ae60' }}>{a.realized_pct >= 0 ? '+' : ''}{a.realized_pct}%</b>),<b>现空仓等回补</b>。{a.buy_today ? <b style={{ color: '#c0392b' }}>最新交易日已现缠论买点 → 明日可回补 @ 现价 {a.latest_close}</b> : <span>出现缠论买点且价在60日线({a.ma60})上方则买回;若先跌破60日线则放弃这波。当前 {a.latest_close} 元</span>}</div>
           ) : (

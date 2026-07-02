@@ -482,6 +482,12 @@ def advise(req: AdviseReq):
                       "trigger": round(trig, 2), "latest_close": round(float(cc[latest]), 2),
                       "latest_date": d(latest),
                       "total_ret_pct": round(float(mult * float_ret - 1) * 100, 1)}
+        top_fxs = [x for x in getattr(c, "fx_list", []) if "顶" in str(x.mark)]
+        if top_fxs:
+            tf = top_fxs[-1]
+            advice["sell_top"] = round(float(tf.fx), 2)
+            advice["sell_confirm"] = round(float(tf.low), 2)
+            advice["sell_top_date"] = str(tf.dt.date())
         bis = [[str(c.bi_list[0].fx_a.dt.date()), round(float(c.bi_list[0].fx_a.fx), 2)]] if c.bi_list else []
         for b in c.bi_list:
             bis.append([str(b.fx_b.dt.date()), round(float(b.fx_b.fx), 2)])
