@@ -69,15 +69,26 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), ".analyze_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
+def _read_cache(path, **kw):
+    """读 JSON 缓存;文件缺失/损坏/旧 gbk 编码等一律返回 None(当作未命中,重算),避免 500。"""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f, **kw)
+    except Exception:
+        return None
+
+
 @app.post("/api/train")
 def train(req: TrainReq):
     """跑 ML 信号管线,返回 {signals, banner, cal, latest, ntrade, ...}。train=True 重训模型。"""
     ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_n{req.n}_{req.start}_{req.end or 'now'}.json")
-    if not req.train and not req.refresh and os.path.exists(ck):
-        with open(ck, encoding="utf-8") as f:
-            r = json.load(f, parse_constant=lambda *_: None)
-        r["cached"] = True
-        return r
+    if not req.train and not req.refresh:
+        r = _read_cache(ck, parse_constant=lambda *_: None)
+        if r is not None:
+            r["cached"] = True
+            return r
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     cmd = [PY, "run_ml_signals_2026.py", "--mode", req.mode, "--tier", str(req.tier),
            "--n", str(req.n), "--start", req.start, "--json", out]
@@ -106,11 +117,11 @@ def train(req: TrainReq):
 def analyze(req: AnalyzeReq):
     """对单只股票在指定日期跑 技术+消息面 LLM 分析,返回报告 + 分析师层买卖持判断。"""
     cf = os.path.join(CACHE_DIR, f"{req.code.split('.')[0]}_{req.date}.json")
-    if not req.force and os.path.exists(cf):
-        with open(cf, encoding="utf-8") as f:
-            r = json.load(f)
-        r["cached"] = True
-        return r
+    if not req.force:
+        r = _read_cache(cf)
+        if r is not None:
+            r["cached"] = True
+            return r
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     proc = subprocess.Popen([PY, "ta_analyze_job.py", req.code, req.date, out], cwd=SWING)
     if req.rid:
@@ -131,11 +142,11 @@ def analyze(req: AnalyzeReq):
         import ta_analyze
         ta_analyze._load_keys()
         bf = os.path.join(CACHE_DIR, f"biz_{req.code.split('.')[0]}.json")
-        if os.path.exists(bf):
-            business = json.load(open(bf, encoding="utf-8"))
-        else:
+        business = _read_cache(bf)
+        if business is None:
             business = ta_analyze.business_profile(req.code)
-            json.dump(business, open(bf, "w", encoding="utf-8"), ensure_ascii=False)
+            with open(bf, "w", encoding="utf-8") as f:
+                json.dump(business, f, ensure_ascii=False)
         res = {"ok": True, "code": req.code, "date": req.date,
                "market_report": j["market_report"], "news_report": j["news_report"],
                "verdict": j["verdict"], "business": business, "risk_decision": j["risk_decision"], "cached": False}
