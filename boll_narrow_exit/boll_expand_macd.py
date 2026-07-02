@@ -75,11 +75,11 @@ def load(codes, start):
     return df
 
 
-def hs300_market(start):
-    """沪深300 逐日大盘口径:返回 DataFrame[date, mkt_up(当天涨), mkt_bad(MA30与MA60同时走坏,同ML主升浪)]。"""
+def hs300_market(start, index_code="000300.SH"):
+    """大盘口径(默认沪深300,可传中证2000等):返回 DataFrame[date, mkt_up(当天涨), mkt_bad(MA30与MA60同时走坏)]。"""
     import tushare as ts
     pro = ts.pro_api(ct._get_token())
-    ix = pro.index_daily(ts_code="000300.SH", start_date="20200101",
+    ix = pro.index_daily(ts_code=index_code, start_date="20200101",
                          end_date=pd.Timestamp.today().strftime("%Y%m%d"), fields="trade_date,close,pct_chg")
     ix["date"] = pd.to_datetime(ix["trade_date"])
     ix = ix.sort_values("date").reset_index(drop=True)

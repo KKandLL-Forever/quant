@@ -72,14 +72,15 @@ def main():
     ap.add_argument("--hold", type=int, default=10, help="持有交易日")
     ap.add_argument("--fee", type=float, default=0.0008, help="单边费率(佣金+印花+滑点粗估)")
     ap.add_argument("--start", default="2021-01-01")
-    ap.add_argument("--healthy-only", action="store_true", help="仅在大盘健康日入场(沪深300 MA30&MA60 未同时走坏)")
+    ap.add_argument("--healthy-only", action="store_true", help="仅在大盘健康日入场(择时指数 MA30&MA60 未同时走坏)")
+    ap.add_argument("--mkt", choices=["hs300", "csi2000"], default="hs300", help="择时用哪个指数(涨跌/健康)")
     args = ap.parse_args()
 
     codes = {"ml": bm.members_ml, "csi2000": bm.members_2000, "csi1000": bm.members_1000}[args.pool]()
     df = bm.load(codes, args.start)
     df["ret"] = df.groupby("ts_code")["adjc"].pct_change(fill_method=None)
     sig = bm.build_signals(df, 0.25, 3, args.up, args.hold)
-    mkt = bm.hs300_market(args.start)
+    mkt = bm.hs300_market(args.start, "932000.CSI" if args.mkt == "csi2000" else "000300.SH")
     sig = sig.merge(mkt, on="date", how="left")
     sig = sig[(sig["mkt_up"] == True) & (sig["vol_ratio"] > 1) & sig["entry_date"].notna() & sig["exit_date"].notna()]
     if args.healthy_only:
