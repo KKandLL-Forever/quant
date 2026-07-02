@@ -1,6 +1,6 @@
 // 小西西弗动量轮动策略复现(龙头/全天候/行业):Tab 切换,每策略 = 绩效卡 + 累计收益曲线 + 调仓动作表。数据走 /api/xiaoxifu。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, message } from 'antd'
+import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, Modal, Input, message } from 'antd'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 
@@ -35,9 +35,11 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const [K, setK] = useState(5)
   const [L, setL] = useState(5)
   const [capital, setCapital] = useState(100000)
-  const [poolOpts, setPoolOpts] = useState<{ label: string; options: { label: string; value: string }[] }[]>([])
-  const [codes, setCodes] = useState<string[]>([])
-  const [defCodes, setDefCodes] = useState<string[]>([])
+  const [stockOpts, setStockOpts] = useState<{ label: string; value: string }[]>([])
+  const [nameMap, setNameMap] = useState<Record<string, string>>({})
+  const [defaultPool, setDefaultPool] = useState<PoolItem[]>([])
+  const [pool, setPool] = useState<PoolItem[]>([])
+  const [poolOpen, setPoolOpen] = useState(false)
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -45,17 +47,20 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
     if (!cfg.showPool) return
     fetch('/api/leader_pool').then(r => r.json()).then((j: { ok: boolean; default: PoolItem[]; universe: PoolItem[] }) => {
       if (!j.ok) return
-      const byInd: Record<string, { label: string; value: string }[]> = {}
-      for (const it of j.universe) (byInd[it.industry] = byInd[it.industry] || []).push({ label: `${it.name} ${it.code}`, value: it.code })
-      setPoolOpts(Object.entries(byInd).sort((a, b) => a[0].localeCompare(b[0])).map(([ind, opts]) => ({ label: ind, options: opts })))
-      const dc = j.default.map(d => d.code)
-      setCodes(dc); setDefCodes(dc)
+      setStockOpts(j.universe.map(it => ({ label: `${it.name} ${it.code}`, value: it.code })))
+      setNameMap(Object.fromEntries(j.universe.map(it => [it.code, it.name])))
+      setDefaultPool(j.default)
+      const saved = localStorage.getItem('xiaoxifu:leaderPool')
+      setPool(saved ? JSON.parse(saved) : j.default)
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const savePool = (p: PoolItem[]) => { setPool(p); localStorage.setItem('xiaoxifu:leaderPool', JSON.stringify(p)) }
 
   const load = async () => {
     setLoading(true)
     try {
+      const codes = pool.map(p => p.code).filter(Boolean)
       const r = await fetch('/api/xiaoxifu', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ strategy: cfg.key, N, K, L, start: '2024-01-01', codes: cfg.showPool && codes.length ? codes : undefined }),
@@ -105,10 +110,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         {cfg.showShares && <><span>资金</span><InputNumber min={10000} step={10000} value={capital}
           onChange={v => setCapital(v || 100000)} size="small" style={{ width: 130 }}
           formatter={v => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => Number((v || '').replace(/[^\d]/g, ''))} /></>}
-        {cfg.showPool && <><span>股票池</span><Select mode="multiple" size="small" style={{ minWidth: 340, maxWidth: 560 }}
-          value={codes} onChange={setCodes} options={poolOpts} optionFilterProp="label" maxTagCount={6}
-          placeholder="搜索代码/名称添加" allowClear />
-          <Button size="small" onClick={() => setCodes(defCodes)}>恢复默认22只</Button></>}
+        {cfg.showPool && <Button size="small" onClick={() => setPoolOpen(true)}>编辑股票池({pool.length}只)</Button>}
         <Button type="primary" size="small" onClick={load} loading={loading}>运行回测</Button>
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 2024-01-01 起 · 权重滞后1天(T+1执行)</span>
       </div>
@@ -157,6 +159,30 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
           </Card>
         </>
       )}
+
+      {cfg.showPool && <Modal open={poolOpen} width={640} title="编辑龙头股票池(赛道 : 股票)" onCancel={() => setPoolOpen(false)}
+        footer={<div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>
+            <Button size="small" onClick={() => savePool([...pool, { industry: '', code: '', name: '' }])}>+ 添加一行</Button>
+            <Button size="small" style={{ marginLeft: 8 }} onClick={() => savePool(defaultPool)}>恢复默认22只</Button>
+          </span>
+          <Button type="primary" onClick={() => setPoolOpen(false)}>完成</Button>
+        </div>}>
+        <div style={{ maxHeight: 460, overflow: 'auto' }}>
+          {pool.map((row, i) => (
+            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+              <Input style={{ width: 90 }} placeholder="赛道" value={row.industry}
+                onChange={e => savePool(pool.map((r, j) => j === i ? { ...r, industry: e.target.value } : r))} />
+              <span>:</span>
+              <Select showSearch style={{ flex: 1 }} placeholder="搜索代码/名称" value={row.code || undefined}
+                options={stockOpts} optionFilterProp="label"
+                onChange={v => savePool(pool.map((r, j) => j === i ? { ...r, code: v, name: nameMap[v] || v } : r))} />
+              <Button size="small" danger onClick={() => savePool(pool.filter((_, j) => j !== i))}>删</Button>
+            </div>
+          ))}
+          {pool.length === 0 && <div style={{ color: '#999', padding: 20, textAlign: 'center' }}>空池,点「添加一行」或「恢复默认」</div>}
+        </div>
+      </Modal>}
     </div>
   )
 }
