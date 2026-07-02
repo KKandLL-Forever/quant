@@ -91,8 +91,8 @@ def hs300_market(start):
     return ix[["date", "mkt_up", "mkt_bad"]]
 
 
-def build_signals(df, squeeze_q, cross_win, up_mode="mid"):
-    """逐股算 BOLL缩口→扩张 + MACD近期金叉 + 站上(中轨/上轨) 的买点,返回带前瞻收益/ATR/量能 的信号表。"""
+def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
+    """逐股算 BOLL缩口→扩张 + MACD近期金叉 + 站上(中轨/上轨) 的买点,返回带前瞻收益/ATR/量能 + T+1进出场 的信号表。"""
     out = []
     for ts, g in df.groupby("ts_code", sort=False):
         g = g.reset_index(drop=True)
@@ -112,8 +112,11 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid"):
         f20 = adjc.shift(-20) / adjc - 1
         atr_pct = g["atr"] / adjc
         vol_ratio = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
+        entry_p, exit_p = adjc.shift(-1), adjc.shift(-(1 + hold))
         s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
-                          "atr_pct": atr_pct, "vol_ratio": vol_ratio})[sig]
+                          "atr_pct": atr_pct, "vol_ratio": vol_ratio,
+                          "entry_date": g["td"].shift(-1), "exit_date": g["td"].shift(-(1 + hold)),
+                          "ret_gross": exit_p / entry_p - 1})[sig]
         out.append(s[s["f10"].notna()])
     return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
 
