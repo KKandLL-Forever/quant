@@ -152,7 +152,7 @@ function MainPage() {
         body: JSON.stringify({ code, date, force, rid }), signal: ctrl.signal })
       const j = await r.json()
       setAna(a => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: j } : a)
-    } catch (e) {
+    } catch (e: any) {
       if (e.name === 'AbortError') return                 // 用户关弹窗主动中止,忽略
       setAna(a => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: { error: String(e) } } : a)
     }
@@ -167,8 +167,8 @@ function MainPage() {
     setAna(null)
   }
 
-  const rows = useMemo(() => !payload ? [] : payload.signals.filter(r =>
-    (showKc || r.board !== '科创') && (showCy || r.board !== '创业') && (!only50 || r.price <= 50)), [payload, showKc, showCy, only50])
+  const rows = useMemo<any[]>(() => !payload ? [] : payload.signals.filter((r: any) =>
+    (showKc || r.board !== '科创') && (showCy || r.board !== '创业') && (!only50 || (r.price ?? 0) <= 50)), [payload, showKc, showCy, only50])
 
   const stats = useMemo(() => {
     if (!rows.length) return null
@@ -186,7 +186,7 @@ function MainPage() {
       on: rows.filter(r => r[openKey]).length,
     })
     return {
-      n: rows.length, perday: (rows.length / payload.ntrade).toFixed(2),
+      n: rows.length, perday: (rows.length / (payload?.ntrade || 1)).toFixed(2),
       avgfwd: avg(fwds),
       succ: done.length ? (hit.length / done.length * 100).toFixed(0) + '%' : '—', doneN: done.length, hitN: hit.length,
       strats: [
@@ -202,15 +202,15 @@ function MainPage() {
     const L = payload.latest
     const buys = rows.filter(r => r.date === L).sort((a, b) => b.score - a.score)
     const sells = rows.filter(r => r.donexit === L || r.czexit === L)
-    const holds = Object.values(rows.filter(r => r.donopen || r.swopen || r.czopen).reduce((m, r) => {
+    const holds = (Object.values(rows.filter(r => r.donopen || r.swopen || r.czopen).reduce((m: any, r: any) => {
       const e = m[r.ts] || { ...r, donopen: false, swopen: false, czopen: false, score: -Infinity }
       m[r.ts] = { ...e, donopen: e.donopen || !!r.donopen, swopen: e.swopen || !!r.swopen, czopen: e.czopen || !!r.czopen, score: Math.max(e.score, r.score) }
       return m
-    }, {})).sort((a, b) => b.score - a.score)
+    }, {})) as any[]).sort((a, b) => b.score - a.score)
     return { L, buys, sells, holds }
   }, [rows, payload])
 
-  const cols = [
+  const cols: any[] = [
     { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
     { title: '板块', dataIndex: 'board', filters: ['主板', '科创', '创业'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.board === v },
     { title: '档位/ML分', dataIndex: 'score', defaultSortOrder: 'descend', sorter: (a, b) => a.score - b.score, render: (v, r) => <span><b>{r.tier}</b> {v}</span> },
@@ -230,7 +230,7 @@ function MainPage() {
     { title: '缠论提示', fixed: 'right', render: (_, r) => <Button size="small" ghost style={{ color: '#0b6e4f', borderColor: '#0b6e4f' }} onClick={() => openAdvise(r.ts, r.date)}>卖点</Button> },
   ]
 
-  const banner = payload?.banner
+  const banner: any = payload?.banner
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
@@ -239,7 +239,7 @@ function MainPage() {
         <span>模式</span>
         <Select value={params.mode} style={{ width: 110 }} onChange={v => setParams({ ...params, mode: v })}
           options={[{ value: 'quick', label: 'quick(小赚)' }, { value: 'long', label: 'long(大赚)' }]} />
-        <span>档位top</span><InputNumber min={1} max={100} value={params.tier} onChange={v => setParams({ ...params, tier: v })} />
+        <span>档位top</span><InputNumber min={1} max={100} value={params.tier} onChange={v => setParams({ ...params, tier: v ?? 5 })} />
         <span>起始</span><Input style={{ width: 110 }} value={params.start} onChange={e => setParams({ ...params, start: e.target.value })} />
         <Checkbox checked={params.train} onChange={e => setParams({ ...params, train: e.target.checked })}>重新训练模型</Checkbox>
         <Button type="primary" loading={loading} onClick={() => train()}>训练模型 / 出信号</Button>
@@ -247,7 +247,7 @@ function MainPage() {
       </div>
 
       {banner && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
-        {Object.entries(banner.indices).map(([nm, st]) => <span key={nm} style={{ marginRight: 16 }}><b>{nm}</b> <span style={{ color: st === '健康' ? '#c0392b' : '#27ae60' }}>{st}</span></span>)}
+        {Object.entries(banner.indices).map(([nm, st]: [string, any]) => <span key={nm} style={{ marginRight: 16 }}><b>{nm}</b> <span style={{ color: st === '健康' ? '#c0392b' : '#27ae60' }}>{st}</span></span>)}
         <span>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{banner.crowd.pct != null ? (banner.crowd.pct * 100).toFixed(0) + '%' : '—'},{banner.crowd.label})</span>
       </div>}
       {payload && <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
@@ -264,7 +264,7 @@ function MainPage() {
       {today && <div style={{ background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 8, padding: '8px 12px', margin: '8px 0' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>最新交易日({today.L}) · 买入 {today.buys.length} 条 / 需卖出 {today.sells.length} 条</div>
         <div><b>买入:</b> {today.buys.length ? today.buys.map(r => <span key={'b' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> {r.tier} ML{r.score} <span style={{ color: r.mkt === '健康' ? '#c0392b' : '#27ae60' }}>[{r.board}{r.mkt}]</span></span>) : <span style={{ color: '#999' }}>无</span>}</div>
-        <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
+        <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t: string[] = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
         <div style={{ marginTop: 8 }}>
           <b>当前持仓</b> <span style={{ fontSize: 12, color: '#9b958a' }}>· 点击按最新交易日 {today.L} 分析该不该卖</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: 6 }}>
@@ -289,7 +289,7 @@ function MainPage() {
       </div>}
 
       {stats && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        <Stat v={`${stats.n} / ${stats.perday}`} label="信号数 / 平均每日" calc={`当前筛选下的信号条数,及 ÷ 区间总交易日数(${stats.n}/${payload.ntrade})`} />
+        <Stat v={`${stats.n} / ${stats.perday}`} label="信号数 / 平均每日" calc={`当前筛选下的信号条数,及 ÷ 区间总交易日数(${stats.n}/${payload?.ntrade ?? '—'})`} />
         <Stat v={stats.avgfwd} label="平均最大涨幅" calc="所有信号突破后至今(或满60日)最高浮盈的均值;非实际买卖收益" />
         <Card size="small" style={{ flex: '1 1 460px' }}>
           <div style={{ fontSize: 13, color: '#444', marginBottom: 4 }}>三种出场口径对比</div>
@@ -319,11 +319,11 @@ function MainPage() {
             options={[2, 3, 4, 5, 6, 8, 10].map(v => ({ value: v, label: v + '份' }))} />
           等份,出现信号占一份买入(同股不加仓,最多{parts}只,满仓放弃),费率已计
         </div>
-        <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal, parts)} />
+        <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal ?? [], parts)} />
         <div style={{ height: 8 }} />
         {/* 波段先隐藏 <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} /> */}
         <div style={{ height: 8 }} />
-        <Chart title="缠论M3(卖点止盈+回调买点回补)" series={portfolio(rows, 'czexit', 'czr', payload.cal, parts)} />
+        <Chart title="缠论M3(卖点止盈+回调买点回补)" series={portfolio(rows, 'czexit', 'czr', payload.cal ?? [], parts)} />
       </div>}
 
       {payload && <Tabs style={{ marginBottom: 12 }} items={[
@@ -331,8 +331,8 @@ function MainPage() {
         // { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },   // 波段先隐藏
         { key: 'cz', label: '缠论M3 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
       ].map(t => {
-        const log = tradeLog(rows, ...t.d, payload.cal, parts)
-        const tcols = [
+        const log: any[] = tradeLog(rows, t.d[0], t.d[1], t.d[2], t.d[3], payload.cal ?? [], parts)
+        const tcols: any[] = [
           { title: '股票', render: (_, r) => `${r.name}(${r.ts})` },
           { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
           { title: '状态', dataIndex: 'status', filters: ['已交易', '满仓错过'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.status === v,
@@ -441,7 +441,7 @@ function AdvisePage() {
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
         <span>代码</span><Input style={{ width: 190 }} placeholder="个股/ETF 如 300903 / 510300" value={code} onChange={e => setCode(e.target.value.trim())} onPressEnter={run} />
         <span>买入日期</span><DatePicker style={{ width: 150 }} value={date ? dayjs(date) : null}
-          onChange={(_, ds) => setDate(ds)} disabledDate={d => d && d > dayjs().endOf('day')} />
+          onChange={(_, ds) => setDate(ds as string)} disabledDate={d => d && d > dayjs().endOf('day')} />
         <Button type="primary" loading={loading} onClick={run}>确定</Button>
       </div>
       {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
