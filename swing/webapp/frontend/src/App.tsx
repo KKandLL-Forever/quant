@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react'
 import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider } from 'antd'
+import type { TableColumnsType } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
@@ -7,13 +8,28 @@ dayjs.locale('zh-cn')
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-const MD = ({ children }) => (
+const MD = ({ children }: { children?: string }) => (
   <div className="md" style={{ fontSize: 13, maxHeight: 320, overflow: 'auto', background: '#f4f0e7', padding: 10 }}>
     <ReactMarkdown remarkPlugins={[remarkGfm]}>{children || '(空)'}</ReactMarkdown>
   </div>
 )
 
 import { portfolio, tradeLog, INIT } from './lib/portfolio'
+import type { SignalRow, TradeRec } from './lib/portfolio'
+
+type OHLC = [string, number, number, number, number]
+type BiPt = [string, number]
+interface ZsBox { sdt: string; edt: string; zg: number; zd: number }
+interface KData { ohlc: OHLC[]; bis: BiPt[]; zs: ZsBox[]; bo: string }
+interface Mark { date: string; kind: string; label: string }
+type Series = [string, number][]
+type Sig = SignalRow & {
+  board?: string; tier?: number | string; price?: number | null; typ?: string; mkt?: string; status?: string
+  maxfwd?: number | null
+  donret?: number | null; donr?: number | null; donexit?: string | null; donopen?: boolean; hold?: number | null
+  czret?: number | null; czr?: number | null; czexit?: string | null; czopen?: boolean; czhold?: number | null
+  swret?: number | null; swr?: number | null; swexit?: string | null; swopen?: boolean; swhold?: number | null
+}
 import { useSignalStore } from './store/signalStore'
 import { Header, PageTitle, QUANT_THEME } from './shell'
 import HoldingsPage from './features/holdings/HoldingsPage'
@@ -23,16 +39,16 @@ import BullTopPage from './features/bull-top/BullTopPage'
 import XiaoxifuPage from './features/xiaoxifu/XiaoxifuPage'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
-function KLineChart({ data, marks }) {
+function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
   const { ohlc, bis, zs, bo } = data
   if (!ohlc || ohlc.length < 2) return <div>无数据</div>
   const W = 1500, H = 580, padL = 52, padR = 14, padT = 14, padB = 26
   const n = ohlc.length
   const lo = Math.min(...ohlc.map(b => b[3])), hi = Math.max(...ohlc.map(b => b[2]))
-  const X = i => padL + i * (W - padL - padR) / (n - 1)
-  const Y = v => padT + (hi - v) * (H - padT - padB) / (hi - lo)
+  const X = (i: number) => padL + i * (W - padL - padR) / (n - 1)
+  const Y = (v: number) => padT + (hi - v) * (H - padT - padB) / (hi - lo)
   const cw = Math.max(1.5, (W - padL - padR) / n * 0.6)
-  const di = Object.fromEntries(ohlc.map((b, i) => [b[0], i]))
+  const di: Record<string, number> = Object.fromEntries(ohlc.map((b, i) => [b[0], i]))
   const months: number[] = []
   for (let i = 0; i < n; i++) if (i === 0 || ohlc[i][0].slice(0, 7) !== ohlc[i - 1][0].slice(0, 7)) months.push(i)
   const biPts = (bis || []).filter(p => di[p[0]] != null).map(p => `${X(di[p[0]]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
@@ -40,11 +56,11 @@ function KLineChart({ data, marks }) {
     <svg width={W} height={H} style={{ maxWidth: '100%', background: '#fffdf8' }}>
       <text x={4} y={Y(hi) + 4} fontSize={11} fill="#999">{hi.toFixed(2)}</text>
       <text x={4} y={Y(lo) + 4} fontSize={11} fill="#999">{lo.toFixed(2)}</text>
-      {(zs || []).map((z, k) => di[z.sdt] != null && di[z.edt] != null && (
+      {(zs || []).map((z: ZsBox, k: number) => di[z.sdt] != null && di[z.edt] != null && (
         <rect key={k} x={X(di[z.sdt])} y={Y(z.zg)} width={X(di[z.edt]) - X(di[z.sdt])} height={Y(z.zd) - Y(z.zg)}
           fill="rgba(255,165,0,0.12)" stroke="rgba(230,126,34,0.6)" strokeWidth={1} />
       ))}
-      {ohlc.map((b, i) => {
+      {ohlc.map((b: OHLC, i: number) => {
         const up = b[4] >= b[1], col = up ? '#c0392b' : '#27ae60'
         return <g key={i}>
           <line x1={X(i)} y1={Y(b[2])} x2={X(i)} y2={Y(b[3])} stroke={col} strokeWidth={1} />
@@ -53,7 +69,7 @@ function KLineChart({ data, marks }) {
       })}
       {biPts && <polyline points={biPts} fill="none" stroke="#1677ff" strokeWidth={1.6} />}
       {di[bo] != null && <line x1={X(di[bo])} y1={padT} x2={X(di[bo])} y2={H - padB} stroke="#999" strokeDasharray="3 3" />}
-      {(() => { const seen = {}; return (marks || []).map((m, k) => {
+      {(() => { const seen: Record<string, number> = {}; return (marks || []).map((m: Mark, k: number) => {
         const i = di[m.date]; if (i == null) return null
         if (m.kind === 'buy') {
           const y = Y(ohlc[i][3]) + 10
@@ -64,19 +80,19 @@ function KLineChart({ data, marks }) {
         return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 9},${y - 16} ${X(i) + 9},${y - 16}`} fill="#27ae60" />
           <text x={X(i)} y={y - 20} fontSize={15} fontWeight={700} fill="#27ae60" textAnchor="middle">{m.label}</text></g>
       }) })()}
-      {months.map(gi => <text key={gi} x={X(gi)} y={H - 6} fontSize={9} fill="#aaa" textAnchor="middle">{ohlc[gi][0].slice(2, 7)}</text>)}
+      {months.map((gi: number) => <text key={gi} x={X(gi)} y={H - 6} fontSize={9} fill="#aaa" textAnchor="middle">{ohlc[gi][0].slice(2, 7)}</text>)}
     </svg>
   )
 }
 
-function Chart({ title, series }) {
+function Chart({ title, series }: { title: string; series: Series }) {
   if (!series || series.length < 2) return null
   const W = 1600, H = 240, pad = 50
   const vals = series.map(p => p[1])
   let mn = Math.min(...vals), mx = Math.max(...vals); if (mn === mx) { mn *= 0.99; mx *= 1.01 }
   const n = series.length
-  const X = i => pad + i * (W - 2 * pad) / (n - 1)
-  const Y = v => H - pad - (v - mn) * (H - 2 * pad) / (mx - mn)
+  const X = (i: number) => pad + i * (W - 2 * pad) / (n - 1)
+  const Y = (v: number) => H - pad - (v - mn) * (H - 2 * pad) / (mx - mn)
   let d = ''; for (let i = 0; i < n; i++) d += (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(series[i][1]).toFixed(1)
   const last = series[n - 1][1], ret = ((last / INIT - 1) * 100).toFixed(1), up = last >= INIT
   const months: number[] = []
@@ -88,7 +104,7 @@ function Chart({ title, series }) {
       <line x1={pad} y1={Y(INIT)} x2={W - pad} y2={Y(INIT)} stroke="#bbb" strokeDasharray="4 4" />
       <text x={6} y={Y(mx) + 4} fontSize={11} fill="#999">{Math.round(mx).toLocaleString()}</text>
       <text x={6} y={Y(mn) + 4} fontSize={11} fill="#999">{Math.round(mn).toLocaleString()}</text>
-      {months.filter((_, k) => k % step === 0).map(gi => (
+      {months.filter((_: number, k: number) => k % step === 0).map((gi: number) => (
         <g key={gi}><line x1={X(gi)} y1={H - pad} x2={X(gi)} y2={H - pad + 4} stroke="#ccc" />
           <text x={X(gi)} y={H - 8} fontSize={10} fill="#999" textAnchor="middle">{series[gi][0].slice(0, 7)}</text></g>
       ))}
@@ -97,10 +113,10 @@ function Chart({ title, series }) {
   )
 }
 
-const pct = (v, sign) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#27ae60' }}>{(v >= 0 && sign ? '+' : '') + v + '%'}</span>
+const pct = (v: number | null | undefined, sign?: boolean) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#27ae60' }}>{(v >= 0 && sign ? '+' : '') + v + '%'}</span>
 
 // 统计卡:大数字 + 标签 + 计算方式小字(还原 py 版的 .calc)
-const Stat = ({ v, label, calc }) => (
+const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: string }) => (
   <Card size="small" style={{ minWidth: 150, maxWidth: 230 }}>
     <div style={{ fontSize: 20, fontWeight: 700 }}>{v}</div>
     <div style={{ fontSize: 13, color: '#444' }}>{label}</div>
@@ -115,20 +131,20 @@ function MainPage() {
   const [kl, setKl] = useState<any>(null)     // K线弹窗 {open, loading, code, date, data}
   const [adv, setAdv] = useState<any>(null)   // 缠论卖点提示弹窗 {open, loading, code, date, data}
 
-  const openAdvise = async (code, date) => {
+  const openAdvise = async (code: string, date: string) => {
     setAdv({ open: true, loading: true, code, date })
     try {
       const r = await fetch('/api/advise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, buy_date: date }) })
       const j = await r.json()
-      setAdv(a => (a && a.code === code && a.date === date) ? { open: true, loading: false, code, date, data: j } : a)
+      setAdv((a: any) => (a && a.code === code && a.date === date) ? { open: true, loading: false, code, date, data: j } : a)
     } catch (e) {
-      setAdv(a => (a && a.code === code) ? { open: true, loading: false, code, date, data: { ok: false, error: String(e) } } : a)
+      setAdv((a: any) => (a && a.code === code) ? { open: true, loading: false, code, date, data: { ok: false, error: String(e) } } : a)
     }
   }
 
-  const openKline = async (code, date, row) => {
-    const marks = [{ date, kind: 'buy', label: '买' }]
+  const openKline = async (code: string, date: string, row?: Sig) => {
+    const marks: Mark[] = [{ date, kind: 'buy', label: '买' }]
     if (row) {
       if (row.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
       // if (row.swexit) marks.push({ date: row.swexit, kind: 'sell', label: '波' })   // 波段先隐藏
@@ -143,7 +159,7 @@ function MainPage() {
 
   useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
 
-  const analyze = async (code, date, force = false) => {
+  const analyze = async (code: string, date: string, force = false) => {
     const rid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())
     const ctrl = new AbortController()
     setAna({ open: true, loading: true, code, date, rid, ctrl })
@@ -151,10 +167,10 @@ function MainPage() {
       const r = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }), signal: ctrl.signal })
       const j = await r.json()
-      setAna(a => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: j } : a)
+      setAna((a: any) => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: j } : a)
     } catch (e: any) {
       if (e.name === 'AbortError') return                 // 用户关弹窗主动中止,忽略
-      setAna(a => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: { error: String(e) } } : a)
+      setAna((a: any) => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: { error: String(e) } } : a)
     }
   }
 
@@ -167,22 +183,22 @@ function MainPage() {
     setAna(null)
   }
 
-  const rows = useMemo<any[]>(() => !payload ? [] : payload.signals.filter((r: any) =>
+  const rows = useMemo<Sig[]>(() => !payload ? [] : (payload.signals as Sig[]).filter((r) =>
     (showKc || r.board !== '科创') && (showCy || r.board !== '创业') && (!only50 || (r.price ?? 0) <= 50)), [payload, showKc, showCy, only50])
 
   const stats = useMemo(() => {
     if (!rows.length) return null
-    const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
-    const winr = a => a.length ? (a.filter(v => v > 0).length / a.length * 100).toFixed(0) + '%' : '—'
-    const don = rows.filter(r => r.donret != null).map(r => r.donret)
+    const avg = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
+    const winr = (a: number[]) => a.length ? (a.filter(v => v > 0).length / a.length * 100).toFixed(0) + '%' : '—'
+    const don = rows.filter(r => r.donret != null).map(r => r.donret as number)
     // const sw = rows.filter(r => r.swret != null).map(r => r.swret)   // 波段先隐藏
-    const cz = rows.filter(r => r.czret != null).map(r => r.czret)
+    const cz = rows.filter(r => r.czret != null).map(r => r.czret as number)
     const done = rows.filter(r => r.status !== '进行中'), hit = done.filter(r => r.status === '已走出主升浪')
-    const fwds = rows.filter(r => r.maxfwd != null).map(r => r.maxfwd)
-    const days = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0) + '天' : '—'
-    const strat = (name, arr, holdKey, openKey) => ({
+    const fwds = rows.filter(r => r.maxfwd != null).map(r => r.maxfwd as number)
+    const days = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0) + '天' : '—'
+    const strat = (name: string, arr: number[], holdKey: string, openKey: string) => ({
       name, n: arr.length, win: winr(arr), avg: avg(arr), dd: avg(arr.filter(v => v < 0)),
-      hold: days(rows.filter(r => r[holdKey] != null).map(r => r[holdKey])),
+      hold: days(rows.filter(r => r[holdKey] != null).map(r => r[holdKey] as number)),
       on: rows.filter(r => r[openKey]).length,
     })
     return {
@@ -199,7 +215,7 @@ function MainPage() {
 
   const today = useMemo(() => {
     if (!payload) return null
-    const L = payload.latest
+    const L = payload.latest ?? ''
     const buys = rows.filter(r => r.date === L).sort((a, b) => b.score - a.score)
     const sells = rows.filter(r => r.donexit === L || r.czexit === L)
     const holds = (Object.values(rows.filter(r => r.donopen || r.swopen || r.czopen).reduce((m: any, r: any) => {
@@ -210,13 +226,13 @@ function MainPage() {
     return { L, buys, sells, holds }
   }, [rows, payload])
 
-  const cols: any[] = [
+  const cols: TableColumnsType<Sig> = [
     { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
     { title: '板块', dataIndex: 'board', filters: ['主板', '科创', '创业'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.board === v },
     { title: '档位/ML分', dataIndex: 'score', defaultSortOrder: 'descend', sorter: (a, b) => a.score - b.score, render: (v, r) => <span><b>{r.tier}</b> {v}</span> },
     { title: '代码', dataIndex: 'ts' },
     { title: '名称', dataIndex: 'name', render: (v, r) => <a onClick={() => openKline(r.ts, r.date, r)}>{v}</a> },
-    { title: '价格', dataIndex: 'price', sorter: (a, b) => a.price - b.price, render: v => v + '元' },
+    { title: '价格', dataIndex: 'price', sorter: (a, b) => (a.price ?? 0) - (b.price ?? 0), render: v => v + '元' },
     { title: '形态', dataIndex: 'typ', filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v, r) => r.typ === v },
     { title: '至今最大涨幅', dataIndex: 'maxfwd', sorter: (a, b) => (a.maxfwd || -999) - (b.maxfwd || -999), render: v => pct(v, true) },
     { title: '唐奇安盈亏', dataIndex: 'donret', sorter: (a, b) => (a.donret ?? -999) - (b.donret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.donopen ? '(持仓)' : ''}</span> },
@@ -331,8 +347,8 @@ function MainPage() {
         // { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },   // 波段先隐藏
         { key: 'cz', label: '缠论M3 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
       ].map(t => {
-        const log: any[] = tradeLog(rows, t.d[0], t.d[1], t.d[2], t.d[3], payload.cal ?? [], parts)
-        const tcols: any[] = [
+        const log = tradeLog(rows, t.d[0], t.d[1], t.d[2], t.d[3], payload.cal ?? [], parts)
+        const tcols: TableColumnsType<TradeRec> = [
           { title: '股票', render: (_, r) => `${r.name}(${r.ts})` },
           { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
           { title: '状态', dataIndex: 'status', filters: ['已交易', '满仓错过'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.status === v,
@@ -341,16 +357,16 @@ function MainPage() {
           { title: '盈亏', dataIndex: 'ret', sorter: (a, b) => (a.ret ?? -999) - (b.ret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.open ? '(持仓)' : ''}{r.status !== '已交易' ? ' (未参与)' : ''}</span> },
         ]
         const done = log.filter(r => r.status === '已交易'), missed = log.filter(r => r.status !== '已交易')
-        const cl = done.map(r => r.ret)
-        const avg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
+        const cl = done.map(r => r.ret).filter((v): v is number => v != null)
+        const avg = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
         const summary = (
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
             <span>已交易 <b>{done.length}</b> 笔(持仓中 {done.filter(r => r.open).length})</span>
             <span>胜率 <b>{cl.length ? (cl.filter(v => v > 0).length / cl.length * 100).toFixed(0) + '%' : '—'}</b></span>
             <span>平均盈亏 <b style={{ color: '#c0392b' }}>{avg(cl)}</b></span>
             <span>平均回撤 <b style={{ color: '#27ae60' }}>{avg(cl.filter(v => v < 0))}</b></span>
-            <span>平均持仓 <b>{done.length ? (done.reduce((s, r) => s + (r.hold || 0), 0) / done.length).toFixed(0) + '天' : '—'}</b></span>
-            <span style={{ color: '#999' }}>错过 <b>{missed.length}</b> 笔(其中本可盈利 {missed.filter(r => r.ret > 0).length} 笔,均值 {avg(missed.filter(r => r.ret > 0).map(r => r.ret))})</span>
+            <span>平均持仓 <b>{done.length ? (done.reduce((s, r) => s + (Number(r.hold) || 0), 0) / done.length).toFixed(0) + '天' : '—'}</b></span>
+            <span style={{ color: '#999' }}>错过 <b>{missed.length}</b> 笔(其中本可盈利 {missed.filter(r => (r.ret ?? -1) > 0).length} 笔,均值 {avg(missed.map(r => r.ret).filter((v): v is number => v != null && v > 0))})</span>
             <span style={{ color: '#bbb', fontSize: 12 }}>胜率/盈亏含持仓中按现价</span>
           </div>
         )
