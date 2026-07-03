@@ -4,7 +4,7 @@ import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, ReferenceLine, ReferenceArea, Tooltip, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 
-interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; quadrant: string; main: boolean }
+interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean }
 interface Payload { ok: boolean; error?: string; date: string; bench: string; concepts: Cpt[] }
 
 const BENCH = [{ value: '000852.SH', label: '中证1000' }, { value: '000001.SH', label: '上证综指' }, { value: '399852.SZ', label: '中证2000' }]
@@ -39,6 +39,8 @@ export default function ConceptPage() {
     { title: '', dataIndex: 'main', width: 56, render: (v: boolean) => v ? <Tag color="red">主线</Tag> : null },
     { title: '概念', dataIndex: 'name', render: (v: string, r: Cpt) => <span><b>{v}</b> <span style={{ opacity: .5, fontSize: 11 }}>{r.code}</span></span> },
     { title: '象限', dataIndex: 'quadrant', width: 80, filters: Object.keys(QC).map(q => ({ text: q, value: q })), onFilter: (v: any, r: Cpt) => r.quadrant === v, render: (v: string) => <Tag color={QC[v]} style={{ color: '#fff', border: 'none' }}>{v}</Tag> },
+    { title: '当日涨跌', dataIndex: 'chg', width: 90, sorter: (a: Cpt, b: Cpt) => (a.chg ?? 0) - (b.chg ?? 0), render: (v: number | null) => v == null ? '—' : <b style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</b> },
+    { title: '超额(vs基准)', dataIndex: 'excess', width: 100, sorter: (a: Cpt, b: Cpt) => (a.excess ?? 0) - (b.excess ?? 0), render: (v: number | null, r: Cpt) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%{r.main && v <= -3 ? ' ⚠️' : ''}</span> },
     { title: '扩散(MA20)', dataIndex: 'diffusion', defaultSortOrder: 'descend' as const, sorter: (a: Cpt, b: Cpt) => a.diffusion - b.diffusion, render: (v: number) => <b>{pct(v)}</b> },
     { title: '当日原始', dataIndex: 'diffusion_raw', sorter: (a: Cpt, b: Cpt) => a.diffusion_raw - b.diffusion_raw, render: (v: number, r: Cpt) => <span style={{ color: r.diffusion_raw < r.diffusion - 0.15 ? '#1f8e5a' : '#5b554a' }}>{pct(v)}</span> },
     { title: '20日扩散动量', dataIndex: 'mom20', sorter: (a: Cpt, b: Cpt) => (a.mom20 ?? -9) - (b.mom20 ?? -9), render: (v: number | null) => <span style={{ color: (v ?? 0) > 0 ? '#c0392b' : '#1f8e5a' }}>{v == null ? '—' : (v > 0 ? '+' : '') + pct(v)}</span> },
@@ -88,6 +90,7 @@ export default function ConceptPage() {
                   const d: Cpt = payload[0].payload
                   return <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, padding: '6px 10px', fontSize: 12 }}>
                     <b>{d.name}</b> <Tag color={QC[d.quadrant]} style={{ color: '#fff', border: 'none', marginLeft: 4 }}>{d.quadrant}</Tag>
+                    <div>当日 {d.chg == null ? '—' : (d.chg > 0 ? '+' : '') + d.chg + '%'} · 超额 {d.excess == null ? '—' : (d.excess > 0 ? '+' : '') + d.excess + '%'}</div>
                     <div>扩散 {pct(d.diffusion)} · 20日动量 {d.mom20 == null ? '—' : pct(d.mom20)}</div>
                     <div>RS强度 {d.rs_ratio.toFixed(1)} · RS动量 {d.rs_momentum.toFixed(1)}</div>
                   </div>

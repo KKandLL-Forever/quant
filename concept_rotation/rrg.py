@@ -43,9 +43,9 @@ def _jdk(rs: pd.Series, win: int = 60, mwin: int = 10) -> tuple[pd.Series, pd.Se
 def compute_rrg(bench: str = "000852.SH", win: int = 60) -> pd.DataFrame:
     """算全市场概念的 RRG 时序,返回 [ts_code,name,trade_date,rs_ratio,rs_momentum,quadrant]。"""
     con = duckdb.connect(c.DUCKDB_PATH, read_only=True)
-    cp = con.execute("SELECT t.ts_code, t.trade_date, t.close, i.name FROM ths_daily t "
+    cp = con.execute("SELECT t.ts_code, t.trade_date, t.close, t.pct_change AS chg, i.name FROM ths_daily t "
                      "JOIN ths_index i USING (ts_code)").df()
-    bm = con.execute("SELECT strftime(trade_date,'%Y%m%d') AS trade_date, close AS bclose "
+    bm = con.execute("SELECT strftime(trade_date,'%Y%m%d') AS trade_date, close AS bclose, pct_chg AS bchg "
                      "FROM index_daily WHERE ts_code = ?", [bench]).df()
     con.close()
 
@@ -59,7 +59,8 @@ def compute_rrg(bench: str = "000852.SH", win: int = 60) -> pd.DataFrame:
     r = pd.concat(out, ignore_index=True)
     r = r.dropna(subset=["rs_ratio", "rs_momentum"])
     r["quadrant"] = [_QUAD[(a > 100, b > 100)] for a, b in zip(r["rs_ratio"], r["rs_momentum"])]
-    return r[["ts_code", "name", "trade_date", "rs_ratio", "rs_momentum", "quadrant"]]
+    r["excess"] = r["chg"] - r["bchg"]
+    return r[["ts_code", "name", "trade_date", "rs_ratio", "rs_momentum", "quadrant", "chg", "excess"]]
 
 
 def combine(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -> pd.DataFrame:
@@ -71,7 +72,7 @@ def combine(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -> p
     d = g["td"].max()
     gg = g[(g["td"] == d) & g["diffusion"].notna()][["ts_code", "name", "diffusion", "diffusion_raw", "mom20"]]
     rd = r["trade_date"].max()
-    rr = r[r["trade_date"] == rd][["ts_code", "rs_ratio", "rs_momentum", "quadrant"]]
+    rr = r[r["trade_date"] == rd][["ts_code", "rs_ratio", "rs_momentum", "quadrant", "chg", "excess"]]
     m = gg.merge(rr, on="ts_code", how="inner")
     m["diff_rank"] = m["diffusion"].rank(ascending=False)
     m["主线候选"] = (m["diff_rank"] <= diff_top) & m["quadrant"].isin(["领先", "改善"])
@@ -87,6 +88,8 @@ def to_payload(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -
              "diffusion": round(r.diffusion, 4), "diffusion_raw": round(r.diffusion_raw, 4),
              "mom20": round(r.mom20, 4) if pd.notna(r.mom20) else None,
              "rs_ratio": round(r.rs_ratio, 2), "rs_momentum": round(r.rs_momentum, 2),
+             "chg": round(r.chg, 2) if pd.notna(r.chg) else None,
+             "excess": round(r.excess, 2) if pd.notna(r.excess) else None,
              "quadrant": r.quadrant, "main": bool(r["主线候选"])}
             for _, r in m.iterrows()]
     return {"date": d, "bench": bench, "concepts": rows}
