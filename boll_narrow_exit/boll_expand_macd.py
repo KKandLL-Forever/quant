@@ -66,11 +66,13 @@ def load(codes, start):
                   f.boll_upper_hfq bu, f.boll_mid_hfq bm, f.boll_lower_hfq bl, f.atr_hfq atr,
                   (m.buy_lg_amount+m.buy_elg_amount-m.sell_lg_amount-m.sell_elg_amount)
                     / NULLIF(m.buy_sm_amount+m.buy_md_amount+m.buy_lg_amount+m.buy_elg_amount
-                             +m.sell_sm_amount+m.sell_md_amount+m.sell_lg_amount+m.sell_elg_amount,0) AS mf_ratio
+                             +m.sell_sm_amount+m.sell_md_amount+m.sell_lg_amount+m.sell_elg_amount,0) AS mf_ratio,
+                  q.winner_rate AS winner, (q.cost_85pct-q.cost_15pct)/NULLIF(q.cost_50pct,0) AS chip_conc
            FROM stk_factor_pro f
            JOIN daily d ON d.ts_code=f.ts_code AND d.trade_date=f.trade_date
            JOIN adj_factor a ON a.ts_code=f.ts_code AND a.trade_date=f.trade_date
            LEFT JOIN moneyflow m ON m.ts_code=f.ts_code AND m.trade_date=f.trade_date
+           LEFT JOIN cyq_perf q ON q.ts_code=f.ts_code AND q.trade_date=f.trade_date
            WHERE f.ts_code IN (SELECT UNNEST(?)) AND f.trade_date>=?
            ORDER BY f.ts_code, f.trade_date""",
         [list(codes), start],
@@ -169,6 +171,7 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
                           "atr_pct": atr_pct, "vol_ratio": vol_ratio,
                           "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5), "macd_above0": g["dif"] > 0,
                           "mf_ratio": g["mf_ratio"], "mom20": adjc / adjc.shift(20) - 1,
+                          "winner": g["winner"], "chip_conc": g["chip_conc"],
                           "entry_date": g["td"].shift(-1), "exit_date": g["td"].shift(-(1 + hold)),
                           "ret_gross": exit_p / entry_p - 1})[sig]
         out.append(s[s["f10"].notna()])
@@ -252,6 +255,18 @@ def main():
         sm["rs"] = sm["mom20"] - sm["hs300_mom20"]
         print(_row("跑赢大盘 RS>0", sm[sm["rs"] > 0]))
         print(_row("跑输大盘 RS≤0", sm[sm["rs"] <= 0]))
+
+        print("\n=== 口径7:筹码 获利盘比例 winner_rate(信号日,按中位分,10日)===")
+        wm = sig["winner"].median()
+        print(f"  (winner中位={wm:.1f})")
+        print(_row("获利盘高(≥中位)", sig[sig["winner"] >= wm]))
+        print(_row("获利盘低(<中位)", sig[sig["winner"] < wm]))
+
+        print("\n=== 口径8:筹码集中度(cost85-15)/cost50,越小越集中(按中位分,10日)===")
+        cm = sig["chip_conc"].median()
+        print(f"  (集中度中位={cm:.2f})")
+        print(_row("筹码集中(<中位)", sig[sig["chip_conc"] < cm]))
+        print(_row("筹码分散(≥中位)", sig[sig["chip_conc"] >= cm]))
 
         print("\n=== 综合过滤:大盘上涨 + 低ATR(≤中位)+ 放量(量比>1)===")
         atr_med = sig["atr_pct"].median()
