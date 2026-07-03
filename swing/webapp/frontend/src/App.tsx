@@ -22,24 +22,29 @@ const ChatMsg = ({ av, bg, role, children }: { av: string; bg: string; role: str
 )
 const Typing = () => <span className="typing"><span /><span /><span /></span>
 
-// 研究员内部讨论:可折叠、灰字小号、左边线,和正式报告区分(类"思考过程")
-function DebatePanel({ turns }: { turns: any[] }) {
+// 研究员内部讨论:可折叠、灰字小号、每人配色左边线,和正式报告区分(类"思考过程")
+const DBG_COLOR: Record<string, string> = { 看涨研究员: '#c0392b', 看跌研究员: '#1f8e5a', 研究经理: '#6d5bd0', 交易员: '#c98a2b' }
+function DebatePanel({ turns, live }: { turns: any[]; live: boolean }) {
   const [open, setOpen] = useState(true)
+  React.useEffect(() => { if (!live) setOpen(false) }, [live])   // 讨论进行中保持展开,四人说完(转下一阶段)自动收起
   if (!turns?.length) return null
   return (
     <div style={{ margin: '0 0 14px 44px', borderLeft: '2px solid #e2ddd0', paddingLeft: 12 }}>
       <div onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', color: '#8a8378', fontSize: 12.5, fontWeight: 600, userSelect: 'none' }}>
-        💭 研究员内部讨论 · {turns.length} 段发言 <span style={{ fontSize: 11 }}>{open ? '▾ 收起' : '▸ 展开'}</span>
+        💭 研究员内部讨论 · {turns.length} 段发言 {live && <Typing />} <span style={{ fontSize: 11 }}>{open ? '▾ 收起' : '▸ 展开'}</span>
       </div>
       {open && <div style={{ marginTop: 8 }}>
-        {turns.map((d: any, i: number) => (
-          <div key={i} style={{ marginBottom: 10 }} className="dbg-in">
-            <div style={{ fontSize: 11.5, color: '#a49b8b', fontWeight: 600, marginBottom: 2 }}>{d.av} {d.role}</div>
-            <div className="md dbg-md" style={{ fontSize: 12.5, color: '#8f887b', lineHeight: 1.7, background: 'none', padding: 0 }}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.text || ''}</ReactMarkdown>
+        {turns.map((d: any, i: number) => {
+          const c = DBG_COLOR[d.role] || '#a49b8b'
+          return (
+            <div key={i} className="dbg-in" style={{ marginBottom: 10, borderLeft: `3px solid ${c}`, paddingLeft: 10 }}>
+              <div style={{ fontSize: 11.5, color: c, fontWeight: 700, marginBottom: 2 }}>{d.av} {d.role}</div>
+              <div className="md dbg-md" style={{ fontSize: 12.5, color: '#8f887b', lineHeight: 1.7, background: 'none', padding: 0 }}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.text || ''}</ReactMarkdown>
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>}
     </div>
   )
@@ -468,7 +473,7 @@ function MainPage() {
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div>
           {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
           {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
-          <DebatePanel turns={ana.shownDlg || []} />
+          <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} />
 
           {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
             <ChatMsg av="🤖" bg="#8a8378" role="进行中">
