@@ -61,7 +61,7 @@ def load(codes, start):
     """读成分股的后复权收盘 + BOLL/MACD/ATR 指标,返回按 (ts_code,trade_date) 排序的宽表。"""
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
     df = con.execute(
-        """SELECT f.ts_code, f.trade_date td, d.close*a.adj_factor AS adjc, d.vol AS vol,
+        """SELECT f.ts_code, f.trade_date td, d.close*a.adj_factor AS adjc, d.close AS close_raw, d.vol AS vol,
                   f.macd_dif_hfq dif, f.macd_dea_hfq dea,
                   f.boll_upper_hfq bu, f.boll_mid_hfq bm, f.boll_lower_hfq bl, f.atr_hfq atr
            FROM stk_factor_pro f
@@ -73,6 +73,48 @@ def load(codes, start):
     ).fetch_df()
     con.close()
     return df
+
+
+def latest_signals(pool="ml", up_mode="mid"):
+    """取最新交易日的当日信号(供前端信号页):每条带 量比/ATR/距上次信号天数/是否第二次/原始价 + 当日大盘涨跌与健康。"""
+    codes = {"ml": members_ml, "csi2000": members_2000, "csi1000": members_1000}[pool]()
+    df = load(codes, (pd.Timestamp.today() - pd.Timedelta(days=400)).strftime("%Y-%m-%d"))
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
+    con.close()
+    rows = []
+    for ts, g in df.groupby("ts_code", sort=False):
+        g = g.reset_index(drop=True)
+        if len(g) < 140:
+            continue
+        bw = (g["bu"] - g["bl"]) / g["bm"]
+        narrow = bw <= bw.rolling(120, min_periods=60).quantile(0.25)
+        widen = bw > bw.shift(1)
+        d = g["dif"] - g["dea"]
+        crossed = (d > 0) & pd.concat([d.shift(k) <= 0 for k in range(1, 4)], axis=1).any(axis=1)
+        up = g["adjc"] > (g["bu"] if up_mode == "upper" else g["bm"])
+        sig = narrow.shift(1, fill_value=False) & widen & crossed & up
+        sd = g["td"][sig]
+        days_since = sd.diff().dt.days
+        vr = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
+        f = pd.DataFrame({"ts_code": ts, "date": g["td"], "close": g["close_raw"],
+                          "vol_ratio": vr, "atr_pct": g["atr"] / g["adjc"]})[sig].copy()
+        f["days_since"] = days_since.reindex(f.index)
+        rows.append(f)
+    data = pd.concat(rows, ignore_index=True)
+    last = data["date"].max()
+    mk = hs300_market((pd.Timestamp.today() - pd.Timedelta(days=400)).strftime("%Y-%m-%d"))
+    mrow = mk[mk["date"] == last]
+    mkt_up = bool(mrow["mkt_up"].iloc[0]) if len(mrow) else None
+    mkt_bad = bool(mrow["mkt_bad"].iloc[0]) if len(mrow) else None
+    cur = data[data["date"] == last].copy()
+    cur["is_rep30"] = (cur["days_since"] <= 30).fillna(False)
+    out = [{"code": r.ts_code, "name": names.get(r.ts_code, ""), "price": round(float(r.close), 2),
+            "vol_ratio": round(float(r.vol_ratio), 2), "atr_pct": round(float(r.atr_pct) * 100, 1),
+            "days_since": None if pd.isna(r.days_since) else int(r.days_since), "is_rep30": bool(r.is_rep30)}
+           for r in cur.itertuples()]
+    out.sort(key=lambda x: (not x["is_rep30"], -x["vol_ratio"]))
+    return {"date": str(last.date()), "mkt_up": mkt_up, "mkt_bad": mkt_bad, "pool": pool, "signals": out}
 
 
 def hs300_market(start, index_code="000300.SH"):

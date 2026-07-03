@@ -791,6 +791,24 @@ def leader_pool_save(req: PoolSaveReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class BollReq(BaseModel):
+    pool: str = "ml"
+    up: str = "mid"
+
+
+@app.post("/api/boll")
+def boll(req: BollReq):
+    """BOLL缩口扩张+MACD金叉 当日信号(大盘池):返回最新交易日信号 + 第二次标记 + 大盘状态。"""
+    import traceback
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, "boll_narrow_exit"))
+        import boll_expand_macd as bem
+        r = bem.latest_signals(req.pool, req.up)
+        return {"ok": True, **r}
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}

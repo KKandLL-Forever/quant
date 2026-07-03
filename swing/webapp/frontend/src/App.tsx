@@ -37,6 +37,7 @@ import LimitUpPage from './features/limitup/LimitUpPage'
 import EtfSharePage from './features/etf-share/EtfSharePage'
 import BullTopPage from './features/bull-top/BullTopPage'
 import XiaoxifuPage from './features/xiaoxifu/XiaoxifuPage'
+import BollPage from './features/boll/BollPage'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
@@ -515,6 +516,7 @@ export default function App() {
         if (r === '/etfshare') return <EtfSharePage />
         if (r === '/bulltop') return <BullTopPage />
         if (r === '/xiaoxifu') return <XiaoxifuPage />
+        if (r === '/boll') return <BollPage />
         return <MainPage />
       })()}
     </ConfigProvider>
