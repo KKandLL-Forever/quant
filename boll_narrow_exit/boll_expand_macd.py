@@ -63,10 +63,14 @@ def load(codes, start):
     df = con.execute(
         """SELECT f.ts_code, f.trade_date td, d.close*a.adj_factor AS adjc, d.close AS close_raw, d.vol AS vol,
                   f.macd_dif_hfq dif, f.macd_dea_hfq dea,
-                  f.boll_upper_hfq bu, f.boll_mid_hfq bm, f.boll_lower_hfq bl, f.atr_hfq atr
+                  f.boll_upper_hfq bu, f.boll_mid_hfq bm, f.boll_lower_hfq bl, f.atr_hfq atr,
+                  (m.buy_lg_amount+m.buy_elg_amount-m.sell_lg_amount-m.sell_elg_amount)
+                    / NULLIF(m.buy_sm_amount+m.buy_md_amount+m.buy_lg_amount+m.buy_elg_amount
+                             +m.sell_sm_amount+m.sell_md_amount+m.sell_lg_amount+m.sell_elg_amount,0) AS mf_ratio
            FROM stk_factor_pro f
            JOIN daily d ON d.ts_code=f.ts_code AND d.trade_date=f.trade_date
            JOIN adj_factor a ON a.ts_code=f.ts_code AND a.trade_date=f.trade_date
+           LEFT JOIN moneyflow m ON m.ts_code=f.ts_code AND m.trade_date=f.trade_date
            WHERE f.ts_code IN (SELECT UNNEST(?)) AND f.trade_date>=?
            ORDER BY f.ts_code, f.trade_date""",
         [list(codes), start],
@@ -100,7 +104,7 @@ def latest_signals(pool="ml", up_mode="mid"):
         ma60 = g["adjc"].rolling(60).mean()
         f = pd.DataFrame({"ts_code": ts, "date": g["td"], "close": g["close_raw"],
                           "vol_ratio": vr, "atr_pct": g["atr"] / g["adjc"],
-                          "ma60_up": ma60 > ma60.shift(5)})[sig].copy()
+                          "ma60_up": ma60 > ma60.shift(5), "mom20": g["adjc"] / g["adjc"].shift(20) - 1})[sig].copy()
         f["days_since"] = days_since.reindex(f.index)
         rows.append(f)
     data = pd.concat(rows, ignore_index=True)
@@ -109,14 +113,15 @@ def latest_signals(pool="ml", up_mode="mid"):
     mrow = mk[mk["date"] == last]
     mkt_up = bool(mrow["mkt_up"].iloc[0]) if len(mrow) else None
     mkt_bad = bool(mrow["mkt_bad"].iloc[0]) if len(mrow) else None
+    hs_mom = float(mrow["hs300_mom20"].iloc[0]) if len(mrow) and not pd.isna(mrow["hs300_mom20"].iloc[0]) else 0.0
     cur = data[data["date"] == last].copy()
     cur["is_rep30"] = (cur["days_since"] <= 30).fillna(False)
     out = [{"code": r.ts_code, "name": names.get(r.ts_code, ""), "price": round(float(r.close), 2),
             "vol_ratio": round(float(r.vol_ratio), 2), "atr_pct": round(float(r.atr_pct) * 100, 1),
             "days_since": None if pd.isna(r.days_since) else int(r.days_since), "is_rep30": bool(r.is_rep30),
-            "ma60_up": bool(r.ma60_up)}
+            "ma60_up": bool(r.ma60_up), "rs_win": bool((r.mom20 - hs_mom) > 0)}
            for r in cur.itertuples()]
-    out.sort(key=lambda x: (not (x["is_rep30"] and x["ma60_up"]), not x["ma60_up"], -x["vol_ratio"]))
+    out.sort(key=lambda x: (not (x["is_rep30"] and x["ma60_up"] and x["rs_win"]), not x["ma60_up"], not x["rs_win"], -x["vol_ratio"]))
     return {"date": str(last.date()), "mkt_up": mkt_up, "mkt_bad": mkt_bad, "pool": pool, "signals": out}
 
 
@@ -133,7 +138,8 @@ def hs300_market(start, index_code="000300.SH"):
     h60 = (c > ma60) & (ma60 > ma60.shift(5))
     ix["mkt_up"] = ix["pct_chg"] > 0
     ix["mkt_bad"] = ((~h30) & (~h60)).fillna(False)
-    return ix[["date", "mkt_up", "mkt_bad"]]
+    ix["hs300_mom20"] = c / c.shift(20) - 1
+    return ix[["date", "mkt_up", "mkt_bad", "hs300_mom20"]]
 
 
 def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
@@ -162,6 +168,7 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
                           "atr_pct": atr_pct, "vol_ratio": vol_ratio,
                           "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5), "macd_above0": g["dif"] > 0,
+                          "mf_ratio": g["mf_ratio"], "mom20": adjc / adjc.shift(20) - 1,
                           "entry_date": g["td"].shift(-1), "exit_date": g["td"].shift(-(1 + hold)),
                           "ret_gross": exit_p / entry_p - 1})[sig]
         out.append(s[s["f10"].notna()])
@@ -236,6 +243,15 @@ def main():
         print("\n=== 口径4:MACD 金叉位置 0轴上方/下方(信号日 DIF,10日)===")
         print(_row("0轴上方金叉", sig[sig["macd_above0"] == True]))
         print(_row("0轴下方金叉", sig[sig["macd_above0"] == False]))
+
+        print("\n=== 口径5:主力资金净流入(信号日 大单+超大单净额占比,10日)===")
+        print(_row("主力净流入>0", sig[sig["mf_ratio"] > 0]))
+        print(_row("主力净流出≤0", sig[sig["mf_ratio"] <= 0]))
+
+        print("\n=== 口径6:相对强弱 RS(个股20日 − 沪深300 20日涨幅,10日)===")
+        sm["rs"] = sm["mom20"] - sm["hs300_mom20"]
+        print(_row("跑赢大盘 RS>0", sm[sm["rs"] > 0]))
+        print(_row("跑输大盘 RS≤0", sm[sm["rs"] <= 0]))
 
         print("\n=== 综合过滤:大盘上涨 + 低ATR(≤中位)+ 放量(量比>1)===")
         atr_med = sig["atr_pct"].median()
