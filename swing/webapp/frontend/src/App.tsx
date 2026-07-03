@@ -26,14 +26,16 @@ const Typing = () => <span className="typing"><span /><span /><span /></span>
 const DBG_COLOR: Record<string, string> = { 看涨研究员: '#c0392b', 看跌研究员: '#1f8e5a', 研究经理: '#6d5bd0', 交易员: '#c98a2b' }
 function DebatePanel({ turns, live }: { turns: any[]; live: boolean }) {
   const [open, setOpen] = useState(true)
+  const bodyRef = React.useRef<HTMLDivElement | null>(null)
   React.useEffect(() => { if (!live) setOpen(false) }, [live])   // 讨论进行中保持展开,四人说完(转下一阶段)自动收起
+  React.useEffect(() => { if (live && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight }, [turns.length, live])
   if (!turns?.length) return null
   return (
     <div style={{ margin: '0 0 14px 44px', borderLeft: '2px solid #e2ddd0', paddingLeft: 12 }}>
       <div onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', color: '#8a8378', fontSize: 12.5, fontWeight: 600, userSelect: 'none' }}>
         💭 研究员内部讨论 · {turns.length} 段发言 {live && <Typing />} <span style={{ fontSize: 11 }}>{open ? '▾ 收起' : '▸ 展开'}</span>
       </div>
-      {open && <div style={{ marginTop: 8 }}>
+      {open && <div ref={bodyRef} style={{ marginTop: 8, maxHeight: 260, overflowY: 'auto', paddingRight: 4 }}>
         {turns.map((d: any, i: number) => {
           const c = DBG_COLOR[d.role] || '#a49b8b'
           return (
@@ -200,6 +202,12 @@ function MainPage() {
   const pollRef = React.useRef<any>(null)
   const curRid = React.useRef<string | null>(null)
   const timers = React.useRef<any[]>([])
+  const scrollRef = React.useRef<HTMLDivElement | null>(null)
+  const stickRef = React.useRef(true)
+  React.useEffect(() => {   // 新内容到达时:若停在底部就跟随,若上滑了则不打扰
+    const el = scrollRef.current
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight
+  }, [ana?.market_report, ana?.news_report, (ana?.shownDlg || []).length, ana?.bizText, ana?.verText, ana?.phase, ana?.verdict, ana?.business])
   const up = (rid: string, patch: any) => setAna((a: any) => (a && a.rid === rid) ? { ...a, ...patch } : a)
 
   const _startStream = (rid: string, code: string, date: string) => {
@@ -470,7 +478,9 @@ function MainPage() {
         title={<span>LLM 分析 {ana?.code} @ {ana?.date}
           {ana?.phase === 'done' && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
         </span>}>
-        {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div>
+        {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
+          ref={scrollRef} onScroll={(e) => { const el = e.currentTarget; stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
+          style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 6 }}>
           {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
           {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
           <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} />
