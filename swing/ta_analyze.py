@@ -94,6 +94,51 @@ def verdict_stream(state):
     yield {"final": _parse_verdict(buf)}
 
 
+_LIVE_NODES = {
+    "Market Analyst": ("技术面分析师", "📊", "market"),
+    "News Analyst": ("消息面分析师", "📰", "news"),
+    "Bull Researcher": ("看涨研究员", "🐂", "debate"),
+    "Bear Researcher": ("看跌研究员", "🐻", "debate"),
+    "Research Manager": ("研究经理", "👔", "manager"),
+    "Trader": ("交易员", "💼", "trader"),
+}
+
+
+def analyze_live(code, date, on_event, analysts=("market", "news")):
+    """自己迭代 LangGraph stream(updates 模式),每个 agent 节点一产出就 on_event(role,av,kind,text);返回 final state。"""
+    import ta_bridge
+    ta_bridge.apply()
+    ta_bridge.PIT_END = date
+    from tradingagents.default_config import DEFAULT_CONFIG
+    from tradingagents.graph.trading_graph import TradingAgentsGraph
+    cfg = dict(DEFAULT_CONFIG)
+    cfg.update({"llm_provider": "deepseek", "deep_think_llm": "deepseek-v4-pro",
+                "quick_think_llm": "deepseek-v4-flash", "backend_url": "https://api.deepseek.com",
+                "online_tools": True, "max_debate_rounds": 1})
+    ta = TradingAgentsGraph(selected_analysts=list(analysts), debug=False, config=cfg)
+    company = str(code).split(".")[0]
+    ta.ticker = company
+    init = ta.propagator.create_initial_state(company, date)
+    args = ta.propagator.get_graph_args(use_progress_callback=True)
+    final = dict(init)
+    for chunk in ta.graph.stream(init, **args):
+        for node, upd in chunk.items():
+            if node.startswith("__") or not isinstance(upd, dict):
+                continue
+            final.update(upd)
+            meta = _LIVE_NODES.get(node)
+            if not meta:
+                continue
+            role, av, kind = meta
+            ids = upd.get("investment_debate_state") or {}
+            txt = {"market": upd.get("market_report"), "news": upd.get("news_report"),
+                   "debate": ids.get("current_response"), "manager": ids.get("judge_decision"),
+                   "trader": upd.get("trader_investment_plan")}.get(kind)
+            if txt and str(txt).strip():
+                on_event(role, av, kind, str(txt).strip())
+    return final
+
+
 def analyst_verdict(state):
     """选A:基于分析师层(技术面+消息面)报告做趋势感知的买/卖/持聚合,绕开 TA-CN 风险经理的系统性恐高。"""
     import json

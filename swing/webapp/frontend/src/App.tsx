@@ -174,18 +174,6 @@ function MainPage() {
   const timers = React.useRef<any[]>([])
   const up = (rid: string, patch: any) => setAna((a: any) => (a && a.rid === rid) ? { ...a, ...patch } : a)
 
-  const _revealReports = (rid: string, code: string, date: string, mkt: string, news: string, dialogue: any[]) => {
-    up(rid, { phase: 'reveal', stage: '', market_report: mkt, shownDlg: [] })   // 技术面先出
-    let t = 1000
-    timers.current.push(setTimeout(() => { if (curRid.current === rid) up(rid, { news_report: news }) }, t)); t += 1200
-    for (const d of (dialogue || [])) {
-      const delay = t
-      timers.current.push(setTimeout(() => { if (curRid.current === rid) setAna((a: any) => a && a.rid === rid ? { ...a, shownDlg: [...(a.shownDlg || []), d] } : a) }, delay))
-      t += 1200
-    }
-    timers.current.push(setTimeout(() => { if (curRid.current === rid) _startStream(rid, code, date) }, t))   // 再流基本面/决策
-  }
-
   const _startStream = (rid: string, code: string, date: string) => {
     if (curRid.current !== rid) return
     const es = new EventSource(`/api/analyze/stream?rid=${rid}&code=${encodeURIComponent(code)}&date=${date}`)
@@ -220,8 +208,8 @@ function MainPage() {
         try {
           const pr = await (await fetch('/api/analyze/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid }) })).json()
           if (!pr.ok) { clearInterval(pollRef.current); up(rid, { phase: 'error', stage: pr.error }); return }
-          if (pr.done) { clearInterval(pollRef.current); _revealReports(rid, code, date, pr.market_report, pr.news_report, pr.dialogue || []) }
-          else up(rid, { stage: pr.stage || '分析中…' })
+          up(rid, { stage: pr.stage || '分析中…', market_report: pr.market_report || '', news_report: pr.news_report || '', shownDlg: pr.dialogue || [] })   // 实时反映后端已产出的部分
+          if (pr.done) { clearInterval(pollRef.current); _startStream(rid, code, date) }
         } catch { /* 网络抖动,下次轮询继续 */ }
       }, 1500)
     } catch (e) { up(rid, { phase: 'error', stage: String(e) }) }
@@ -455,16 +443,16 @@ function MainPage() {
           {ana?.phase === 'done' && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
         </span>}>
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div>
-          {(ana.phase === 'starting' || ana.phase === 'analyzing') && !ana.market_report &&
-            <ChatMsg av="🤖" bg="#8a8378" role="多智能体分析中">
-              <span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span>
-            </ChatMsg>}
-
           {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
           {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
           {(ana.shownDlg || []).map((d: any, i: number) => (
             <ChatMsg key={i} av={d.av} bg={d.role === '看涨研究员' ? '#c0392b' : d.role === '看跌研究员' ? '#1f8e5a' : d.role === '研究经理' ? '#6d5bd0' : '#c98a2b'} role={d.role}><MD>{d.text}</MD></ChatMsg>
           ))}
+
+          {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
+            <ChatMsg av="🤖" bg="#8a8378" role="进行中">
+              <span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span>
+            </ChatMsg>}
 
           {(ana.business || ana.bizText) && <ChatMsg av="🏭" bg="#a855f7" role="基本面分析师">
             {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>

@@ -30,26 +30,25 @@ def main():
 
     import ta_analyze
     ta_analyze._load_keys()
-    _wp({"stage": "多智能体分析中(技术面+消息面,约1-3分钟)…"})
+    acc = {"stage": "多智能体分析中(约1-3分钟)…", "market_report": "", "news_report": "", "dialogue": []}
+    _wp(acc)
 
-    def cb(*a, **k):
-        msg = next((str(x) for x in a if isinstance(x, str) and x.strip()), None)
-        _wp({"stage": "分析中:" + msg if msg else "多智能体分析中…"})
+    def on_event(role, av, kind, text):
+        """每个 agent 产出即写进度文件,前端轮询即实时显示。"""
+        if kind == "market":
+            acc["market_report"] = text
+            acc["stage"] = "消息面分析中…"
+        elif kind == "news":
+            acc["news_report"] = text
+            acc["stage"] = "研究员辩论中…"
+        else:
+            acc["dialogue"].append({"role": role, "av": av, "text": text})
+            acc["stage"] = f"{role}发言完成,继续…"
+        _wp(acc)
 
-    state, risk_decision = ta_analyze.analyze(code, date, progress_callback=cb)
-    ids = state.get("investment_debate_state") or {}
-    dialogue = []
-    for key, role, av in (("bull_history", "看涨研究员", "🐂"), ("bear_history", "看跌研究员", "🐻"),
-                          ("judge_decision", "研究经理", "👔")):
-        t = (ids.get(key) or "").strip()
-        if t:
-            dialogue.append({"role": role, "av": av, "text": t})
-    tp = (state.get("trader_investment_plan") or "").strip()
-    if tp:
-        dialogue.append({"role": "交易员", "av": "💼", "text": tp})
-    res = {"market_report": state.get("market_report") or "",
-           "news_report": state.get("news_report") or "",
-           "dialogue": dialogue, "risk_decision": risk_decision}
+    state = ta_analyze.analyze_live(code, date, on_event)
+    res = {"market_report": acc["market_report"], "news_report": acc["news_report"],
+           "dialogue": acc["dialogue"], "risk_decision": state.get("final_trade_decision") or ""}
     with open(out, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False)
     _wp({"stage": "报告完成", "done": True, **res})
