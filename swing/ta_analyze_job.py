@@ -37,9 +37,19 @@ def main():
         _wp({"stage": "分析中:" + msg if msg else "多智能体分析中…"})
 
     state, risk_decision = ta_analyze.analyze(code, date, progress_callback=cb)
+    ids = state.get("investment_debate_state") or {}
+    dialogue = []
+    for key, role, av in (("bull_history", "看涨研究员", "🐂"), ("bear_history", "看跌研究员", "🐻"),
+                          ("judge_decision", "研究经理", "👔")):
+        t = (ids.get(key) or "").strip()
+        if t:
+            dialogue.append({"role": role, "av": av, "text": t})
+    tp = (state.get("trader_investment_plan") or "").strip()
+    if tp:
+        dialogue.append({"role": "交易员", "av": "💼", "text": tp})
     res = {"market_report": state.get("market_report") or "",
            "news_report": state.get("news_report") or "",
-           "risk_decision": risk_decision}
+           "dialogue": dialogue, "risk_decision": risk_decision}
     with open(out, "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False)
     _wp({"stage": "报告完成", "done": True, **res})

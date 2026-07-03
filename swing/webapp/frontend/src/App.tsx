@@ -174,10 +174,16 @@ function MainPage() {
   const timers = React.useRef<any[]>([])
   const up = (rid: string, patch: any) => setAna((a: any) => (a && a.rid === rid) ? { ...a, ...patch } : a)
 
-  const _revealReports = (rid: string, code: string, date: string, mkt: string, news: string) => {
-    up(rid, { phase: 'reveal', stage: '', market_report: mkt })     // 技术面先出
-    timers.current.push(setTimeout(() => { if (curRid.current === rid) up(rid, { news_report: news }) }, 1000))  // 消息面隔1秒
-    timers.current.push(setTimeout(() => { if (curRid.current === rid) _startStream(rid, code, date) }, 2000))   // 再流基本面/决策
+  const _revealReports = (rid: string, code: string, date: string, mkt: string, news: string, dialogue: any[]) => {
+    up(rid, { phase: 'reveal', stage: '', market_report: mkt, shownDlg: [] })   // 技术面先出
+    let t = 1000
+    timers.current.push(setTimeout(() => { if (curRid.current === rid) up(rid, { news_report: news }) }, t)); t += 1200
+    for (const d of (dialogue || [])) {
+      const delay = t
+      timers.current.push(setTimeout(() => { if (curRid.current === rid) setAna((a: any) => a && a.rid === rid ? { ...a, shownDlg: [...(a.shownDlg || []), d] } : a) }, delay))
+      t += 1200
+    }
+    timers.current.push(setTimeout(() => { if (curRid.current === rid) _startStream(rid, code, date) }, t))   // 再流基本面/决策
   }
 
   const _startStream = (rid: string, code: string, date: string) => {
@@ -207,14 +213,14 @@ function MainPage() {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }) })
       const j = await r.json()
-      if (j.cached) { up(rid, { phase: 'done', market_report: j.market_report, news_report: j.news_report, business: j.business, verdict: j.verdict }); return }
+      if (j.cached) { up(rid, { phase: 'done', market_report: j.market_report, news_report: j.news_report, shownDlg: j.dialogue || [], business: j.business, verdict: j.verdict }); return }
       if (!j.ok) { up(rid, { phase: 'error', stage: j.error || '启动失败' }); return }
       up(rid, { phase: 'analyzing', stage: '多智能体分析中(约1-3分钟)…' })
       pollRef.current = setInterval(async () => {
         try {
           const pr = await (await fetch('/api/analyze/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid }) })).json()
           if (!pr.ok) { clearInterval(pollRef.current); up(rid, { phase: 'error', stage: pr.error }); return }
-          if (pr.done) { clearInterval(pollRef.current); _revealReports(rid, code, date, pr.market_report, pr.news_report) }
+          if (pr.done) { clearInterval(pollRef.current); _revealReports(rid, code, date, pr.market_report, pr.news_report, pr.dialogue || []) }
           else up(rid, { stage: pr.stage || '分析中…' })
         } catch { /* 网络抖动,下次轮询继续 */ }
       }, 1500)
@@ -456,6 +462,9 @@ function MainPage() {
 
           {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
           {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
+          {(ana.shownDlg || []).map((d: any, i: number) => (
+            <ChatMsg key={i} av={d.av} bg={d.role === '看涨研究员' ? '#c0392b' : d.role === '看跌研究员' ? '#1f8e5a' : d.role === '研究经理' ? '#6d5bd0' : '#c98a2b'} role={d.role}><MD>{d.text}</MD></ChatMsg>
+          ))}
 
           {(ana.business || ana.bizText) && <ChatMsg av="🏭" bg="#a855f7" role="基本面分析师">
             {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>

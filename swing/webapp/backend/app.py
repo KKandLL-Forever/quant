@@ -176,8 +176,8 @@ def analyze_stream(rid: str, code: str, date: str):
             else:
                 verdict = ev["final"]
         res = {"ok": True, "code": code, "date": date, "market_report": state["market_report"],
-               "news_report": state["news_report"], "verdict": verdict, "business": business,
-               "risk_decision": prog.get("risk_decision", ""), "cached": False}
+               "news_report": state["news_report"], "dialogue": prog.get("dialogue", []),
+               "verdict": verdict, "business": business, "risk_decision": prog.get("risk_decision", ""), "cached": False}
         with open(_cf(code, date), "w", encoding="utf-8") as f:
             json.dump(res, f, ensure_ascii=False)
         for p in (out, out + ".progress"):
