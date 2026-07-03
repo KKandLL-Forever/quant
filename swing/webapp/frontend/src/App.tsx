@@ -14,6 +14,14 @@ const MD = ({ children }: { children?: string }) => (
   </div>
 )
 
+const ChatMsg = ({ av, bg, role, children }: { av: string; bg: string; role: string; children: React.ReactNode }) => (
+  <div className="chat-msg">
+    <div className="chat-av" style={{ background: bg }}>{av}</div>
+    <div className="chat-body"><div className="chat-role">{role}</div><div className="chat-bubble">{children}</div></div>
+  </div>
+)
+const Typing = () => <span className="typing"><span /><span /><span /></span>
+
 import { portfolio, tradeLog, INIT } from './lib/portfolio'
 import type { SignalRow, TradeRec } from './lib/portfolio'
 
@@ -428,16 +436,15 @@ function MainPage() {
           {ana?.phase === 'done' && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
         </span>}>
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div>
-          {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
-            <div style={{ textAlign: 'center', padding: 40 }}><Spin tip={ana.stage} /><div style={{ height: 30 }} /></div>}
+          {(ana.phase === 'starting' || ana.phase === 'analyzing') && !ana.market_report &&
+            <ChatMsg av="🤖" bg="#8a8378" role="多智能体分析中">
+              <span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span>
+            </ChatMsg>}
 
-          {(ana.verdict || ana.verText) && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6, padding: 10, marginBottom: 12 }}>
-            <b>分析师层判断(趋势感知):</b>
-            {ana.verdict ? <span> <Tag color={ana.verdict.action === '卖出' ? 'red' : ana.verdict.action === '买入' ? 'green' : 'blue'}>{ana.verdict.action}</Tag>置信 {ana.verdict.confidence} — {ana.verdict.reasoning}</span>
-              : <span style={{ color: '#666' }}> {ana.verText}<span className="cursor">▍</span></span>}
-          </div>}
+          {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
+          {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
 
-          {(ana.business || ana.bizText) && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
+          {(ana.business || ana.bizText) && <ChatMsg av="🏭" bg="#a855f7" role="基本面分析师">
             {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
               <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
               {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
@@ -446,13 +453,20 @@ function MainPage() {
               {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
               {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
             </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}
-          </div>}
+          </ChatMsg>}
 
-          {ana.phase === 'streaming' && !ana.verdict && !ana.verText && !ana.bizText &&
-            <div style={{ color: '#999', marginBottom: 8 }}><Spin size="small" /> 生成公司分析与买卖判断中…</div>}
+          {ana.phase === 'streaming' && !ana.business && !ana.bizText &&
+            <ChatMsg av="🏭" bg="#a855f7" role="基本面分析师"><Typing /></ChatMsg>}
 
-          {ana.market_report && <><h4>技术面</h4><MD>{ana.market_report}</MD></>}
-          {ana.news_report && <><h4 style={{ marginTop: 12 }}>消息面(公告/新闻/研报)</h4><MD>{ana.news_report}</MD></>}
+          {(ana.verdict || ana.verText) && <ChatMsg av="🧠" bg="#0b6e4f" role="综合决策">
+            {ana.verdict
+              ? <div className="verdict-card" style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: '10px 12px' }}>
+                  <Tag style={{ fontSize: 15, padding: '2px 12px' }} color={ana.verdict.action === '卖出' ? 'red' : ana.verdict.action === '买入' ? 'green' : 'blue'}>{ana.verdict.action}</Tag>
+                  <b style={{ marginLeft: 6 }}>置信 {ana.verdict.confidence}</b>
+                  <div style={{ marginTop: 6 }}>{ana.verdict.reasoning}</div>
+                </div>
+              : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.verText}<span className="cursor">▍</span></span>}
+          </ChatMsg>}
         </div>}
       </Modal>
 
