@@ -232,13 +232,13 @@ function MainPage() {
     es.onerror = () => { es.close() }
   }
 
-  const analyze = async (code: string, date: string, force = false) => {
+  const analyze = async (code: string, date: string, force = false, name = '') => {
     const rid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())
     if (pollRef.current) clearInterval(pollRef.current)
     esRef.current?.close()
     timers.current.forEach(clearTimeout); timers.current = []
     curRid.current = rid
-    setAna({ open: true, rid, code, date, phase: 'starting', stage: '启动分析…' })
+    setAna({ open: true, rid, code, date, name, phase: 'starting', stage: '启动分析…' })
     try {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }) })
@@ -327,7 +327,7 @@ function MainPage() {
     // { title: '波段离场', dataIndex: 'swexit', render: (v, r) => (v || '持仓中') + '(' + r.swhold + '天)' },
     { title: '缠论M3盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
     { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
-    { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date)}>分析</Button> },
+    { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date, false, r.name)}>分析</Button> },
     { title: '缠论提示', fixed: 'right', render: (_, r) => <Button size="small" ghost style={{ color: '#0b6e4f', borderColor: '#0b6e4f' }} onClick={() => openAdvise(r.ts, r.date)}>卖点</Button> },
   ]
 
@@ -372,7 +372,7 @@ function MainPage() {
             {today.holds.length ? today.holds.map(r => {
               const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
               return (
-                <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L)}>
+                <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
                   <span style={{ fontWeight: 600 }}>{r.name}</span>
                   <span className="hold-code">{r.ts.slice(0, 6)}</span>
                   {who && <span className="hold-tag">{who}</span>}
@@ -481,9 +481,9 @@ function MainPage() {
       </Modal>
 
       <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
-        title={<span>LLM 分析 {ana?.code} @ {ana?.date}
-          {ana?.cached && <Tag color="default" style={{ marginLeft: 8 }}>已缓存</Tag>}
-          {ana?.phase === 'done' && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
+        title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code} @ {ana?.date}
+          {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
+          {ana?.phase === 'done' && <span className="ana-redo" onClick={() => analyze(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
         </span>}>
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
           ref={scrollRef} onScroll={(e) => { const el = e.currentTarget; stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
