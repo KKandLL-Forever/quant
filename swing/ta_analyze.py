@@ -181,16 +181,27 @@ def _business_prompt(code):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
         FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
-    mv = con.execute("""SELECT total_mv,pe_ttm,pb FROM daily_basic WHERE ts_code=?
+    mv = con.execute("""SELECT total_mv,pe_ttm,pb,trade_date FROM daily_basic WHERE ts_code=?
         ORDER BY trade_date DESC LIMIT 1""", [tscode]).fetchone()
     swr = con.execute("SELECT l1_name,l2_name,l3_name FROM sw_member WHERE ts_code=?", [tscode]).fetchone()
+    yr = (mv[3].year if mv else __import__("datetime").date.today().year)
+    ytd = con.execute("""SELECT d.close*a.adj_factor FROM daily d JOIN adj_factor a
+        ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
+        WHERE d.ts_code=? AND d.trade_date>=? ORDER BY d.trade_date""", [tscode, f"{yr}-01-01"]).fetchall()
+    ytd_pct = (ytd[-1][0] / ytd[0][0] - 1) * 100 if len(ytd) >= 2 else None
+    prof = con.execute("""SELECT i.end_date, i.n_income_attr_p/1e8, f.netprofit_yoy FROM income i
+        LEFT JOIN fina_indicator f ON f.ts_code=i.ts_code AND f.end_date=i.end_date
+        WHERE i.ts_code=? ORDER BY i.end_date DESC LIMIT 6""", [tscode]).fetchall()
     con.close()
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
                                    f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
     mvtxt = "无" if not mv else f"总市值{mv[0]/10000:.0f}亿 PE(TTM){mv[1]} PB{mv[2]}"
+    ytdtxt = "无" if ytd_pct is None else f"{yr}年初至今涨幅 {ytd_pct:+.1f}%"
+    proftxt = " | ".join(f"{p[0]} 归母净利{p[1]:.2f}亿" + (f"(同比{p[2]:+.0f}%)" if p[2] is not None else "")
+                         for p in reversed(prof)) or "无"
     sw = "/".join(x for x in (swr or []) if x) if swr else ""
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
-            f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}")
+            f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
 
 {info}
@@ -202,8 +213,13 @@ def _business_prompt(code):
 4) pricing: 议价能力——结合毛利率{('('+str(fin[0])+'%)') if fin else ''}与行业对比,说强/中/弱及原因(高毛利=强议价)
 5) bottleneck: 卡脖子方向——是"被卡"(依赖海外/国产替代)还是"卡别人"(我方主导/海外依赖我)还是"否";给 被卡|卡别人|否|部分,reason 一句话带依据
 6) summary: 一句话总结其在供应链的真实地位
+7) valuation: **股价-业绩-估值 匹配分析(重点,必须用数据说话,按下面这套方法做)**:
+   - 对比【年初至今涨幅】与【最近季报/半年报的归母净利同比增速】,判断业绩有没有跟上股价(涨幅远大于利润增速=背离);
+   - 用【当前 PE(TTM)/PB/总市值】判断估值绝对水平;若资料/新闻里有券商全年净利预测,用"市值÷全年预测净利"算前瞻 PE,看是否已透支;
+   - **匹配测算**:若要维持 PE 不变,利润需与股价同步增长(涨X% → 利润需同比+X%)。据此反推下一个报告期(半年报/年报)需要的利润额与单季增速,并对照已披露季度看现实性(如:H1 需 A 亿 = 上年同期×(1+涨幅),而 Q1 已知 B 亿 → Q2 单季需 A−B 亿,是 Q1 的几倍);
+   - 结论明确区分"业绩已兑现 / 靠预期题材透支",以及"逻辑验证(Q2 需出现环比拐点) vs 估值支撑"。给一句话判断 + 关键数字(涨幅、季度利润、PE、需要的单季利润)。
 
-只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":""}}"""
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","valuation":""}}"""
     return prompt, fintxt
 
 

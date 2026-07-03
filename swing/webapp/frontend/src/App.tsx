@@ -502,6 +502,7 @@ function MainPage() {
               {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
               {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
               {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
+              {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配:</b> {b.valuation}</div>}
               {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
               {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
             </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}
