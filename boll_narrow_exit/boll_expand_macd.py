@@ -161,7 +161,7 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         ma60 = adjc.rolling(60).mean()
         s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
                           "atr_pct": atr_pct, "vol_ratio": vol_ratio,
-                          "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5),
+                          "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5), "macd_above0": g["dif"] > 0,
                           "entry_date": g["td"].shift(-1), "exit_date": g["td"].shift(-(1 + hold)),
                           "ret_gross": exit_p / entry_p - 1})[sig]
         out.append(s[s["f10"].notna()])
@@ -232,6 +232,10 @@ def main():
         print("\n=== 口径3:信号日 个股 60日均线 上行/下行趋势(10日)===")
         print(_row("MA60上行", sig[sig["ma60_up"] == True]))
         print(_row("MA60下行", sig[sig["ma60_up"] == False]))
+
+        print("\n=== 口径4:MACD 金叉位置 0轴上方/下方(信号日 DIF,10日)===")
+        print(_row("0轴上方金叉", sig[sig["macd_above0"] == True]))
+        print(_row("0轴下方金叉", sig[sig["macd_above0"] == False]))
 
         print("\n=== 综合过滤:大盘上涨 + 低ATR(≤中位)+ 放量(量比>1)===")
         atr_med = sig["atr_pct"].median()

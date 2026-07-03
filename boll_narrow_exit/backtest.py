@@ -76,6 +76,7 @@ def main():
     ap.add_argument("--mkt", choices=["hs300", "csi2000"], default="hs300", help="择时用哪个指数(涨跌/健康)")
     ap.add_argument("--repeat-days", type=int, default=0, help=">0 则只买第二次信号(前N天内同股已出过信号,第一次视为洗盘)")
     ap.add_argument("--ma60", choices=["any", "up", "down"], default="any", help="按个股60日均线趋势过滤(up上行/down下行)")
+    ap.add_argument("--macd0", choices=["any", "above", "below"], default="any", help="MACD金叉在0轴上方(above)/下方(below)过滤")
     args = ap.parse_args()
 
     codes = {"ml": bm.members_ml, "csi2000": bm.members_2000, "csi1000": bm.members_1000}[args.pool]()
@@ -94,6 +95,10 @@ def main():
         sig = sig[sig["ma60_up"] == True]
     elif args.ma60 == "down":
         sig = sig[sig["ma60_up"] == False]
+    if args.macd0 == "above":
+        sig = sig[sig["macd_above0"] == True]
+    elif args.macd0 == "below":
+        sig = sig[sig["macd_above0"] == False]
 
     taken = _slots(sig, args.parts)
     df["td"] = pd.to_datetime(df["td"])
