@@ -14,9 +14,15 @@ const MD = ({ children }: { children?: string }) => (
   </div>
 )
 
-const ChatMsg = ({ av, bg, role, children }: { av: string; bg: string; role: string; children: React.ReactNode }) => (
+const AV: Record<string, string> = {
+  market: encodeURI('/技术面分析师.png'), news: encodeURI('/消息面分析师.png'),
+  biz: encodeURI('/基本面分析师.png'), decision: encodeURI('/综合决策.png'),
+}
+const ChatMsg = ({ av, bg, role, img, children }: { av?: string; bg: string; role: string; img?: string; children: React.ReactNode }) => (
   <div className="chat-msg">
-    <div className="chat-av" style={{ background: bg }}>{av}</div>
+    <div className="chat-av" style={{ background: img ? '#fff' : bg, overflow: 'hidden' }}>
+      {img ? <img src={img} alt={role} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : av}
+    </div>
     <div className="chat-body"><div className="chat-role">{role}</div><div className="chat-bubble">{children}</div></div>
   </div>
 )
@@ -481,8 +487,8 @@ function MainPage() {
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
           ref={scrollRef} onScroll={(e) => { const el = e.currentTarget; stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
           style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 6 }}>
-          {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
-          {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
+          {ana.market_report && <ChatMsg img={AV.market} bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
+          {ana.news_report && <ChatMsg img={AV.news} bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
           <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} />
 
           {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
@@ -490,7 +496,7 @@ function MainPage() {
               <span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span>
             </ChatMsg>}
 
-          {(ana.business || ana.bizText) && <ChatMsg av="🏭" bg="#a855f7" role="基本面分析师">
+          {(ana.business || ana.bizText) && <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师">
             {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
               <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
               {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
@@ -502,9 +508,9 @@ function MainPage() {
           </ChatMsg>}
 
           {ana.phase === 'streaming' && !ana.business && !ana.bizText &&
-            <ChatMsg av="🏭" bg="#a855f7" role="基本面分析师"><Typing /></ChatMsg>}
+            <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师"><Typing /></ChatMsg>}
 
-          {(ana.verdict || ana.verText) && <ChatMsg av="🧠" bg="#0b6e4f" role="综合决策">
+          {(ana.verdict || ana.verText) && <ChatMsg img={AV.decision} bg="#0b6e4f" role="综合决策">
             {ana.verdict
               ? <div className="verdict-card" style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: '10px 12px' }}>
                   <Tag style={{ fontSize: 15, padding: '2px 12px' }} color={ana.verdict.action === '卖出' ? 'red' : ana.verdict.action === '买入' ? 'green' : 'blue'}>{ana.verdict.action}</Tag>
