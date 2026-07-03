@@ -8,7 +8,7 @@ A 股量化研究仓库:一个共享数据层(tushare → 本地 DuckDB)之上,*
 ## 共享数据层(根目录)
 
 - `cache_tushare.py` — tushare → 本地 DuckDB 全量/增量缓存(
-	daily/weekly/monthly/adj/basic/moneyflow/板块资金流/财务/连板/竞价/筹码…)
+	daily/weekly/monthly/adj/basic/moneyflow/板块资金流/财务/连板/竞价/筹码/沪深300·中证1000·中证2000成分…)
 - `test_cache_tushare.py` — 缓存数据正确性测试(纯本地,不连网/库)
 - `db_loader.py` — DuckDB 读取辅助
 - `stock_data_tushare.duckdb` — 本地数据库(~7GB,勿并发写)
@@ -22,6 +22,8 @@ A 股量化研究仓库:一个共享数据层(tushare → 本地 DuckDB)之上,*
 - `1to2/` — **首板→2板** 晋级概率(XGBoost)。
 - `regress/` — **首板 / 强势股「买入持有4天超额收益」回归**(XGBoost,walk-forward)。
 - `quant_select/` — **通用截面多因子选股**(月频,多空 + 纯多头)。
+- `xiaoxifu/` — **风险调整动量轮动**(复现小西西弗)3 策略:龙头股 / 全天候ETF / 行业ETF(`engine.py` 共用引擎)+ **牛熊切换组合**(沪深300 MA30&MA60 门控 龙头↔全天候,`regime_combo.py`,已验证有超额);前后端「小西西弗」页。
+- `boll_narrow_exit/` — **BOLL缩口扩张+MACD金叉 择时研究**(`boll_expand_macd.py` 信号+多维口径 / `backtest.py` 真实净值 / `ml_rank.py` ML排序器(已否决)/ `robustness.py` 稳健性)。结论:小盘=陷阱、大盘可用;最优=ML池+第二次+大盘健康+MA60上行+RS跑赢+15日(夏普~1.8,下行保护型);前端「BOLL突破信号」页。
 - `qlib_workflow/` — qlib 工作流(Alpha158 + LGBM),吃自有 DuckDB 数据。
 - `x2_library/` — x2strategy 止盈止损方法库;`old/` — 废弃旧策略(含最早的 BOLL 网格)。
 - `docs/` — PRD / SCHEMA / 数据字典。
