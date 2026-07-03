@@ -1176,6 +1176,7 @@ _CROWD_FIRST = "2020-01-01"
 _HS300_FIRST_YEAR = 2019
 _THS_HOT_FIRST = "2024-01-01"
 _THS_HOT_TYPES = ("热股", "概念板块", "行业板块")
+_THS_DAILY_FIRST = "2016-01-01"
 
 
 def _fetch_index_members(pro, duck_path: str, index_code: str, table: str, first_year: int, tag: str) -> None:
@@ -1311,6 +1312,72 @@ def fetch_ths_hot(pro, duck_path: str) -> None:
     finally:
         con.close()
     print(f"[ths_hot] 人气榜 {n} 个交易日 (本次尝试 {len(days)} 日)")
+
+
+def fetch_ths_daily(pro, duck_path: str) -> None:
+    """增量拉同花顺概念/行业板块指数日线(ths_daily)写入 DuckDB ths_daily 表,供概念轮动 RRG 相对强弱用。
+
+    只存 close/pct_change。表为空时按概念代码(ths_index)逐个全量回补(自 _THS_DAILY_FIRST);
+    有数据后按交易日(取自 daily)逐日增量。板块指数由同花顺以历史时点成分计算,无静态成分前视偏差。"""
+    con = _duckdb.connect(duck_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS ths_daily (ts_code VARCHAR, trade_date VARCHAR, "
+                    "close DOUBLE, pct_change DOUBLE, PRIMARY KEY (ts_code, trade_date))")
+        last = con.execute("SELECT MAX(trade_date) FROM ths_daily").fetchone()[0]
+        codes = [r[0] for r in con.execute("SELECT ts_code FROM ths_index").fetchall()]
+        if last is not None:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE strftime(trade_date,'%Y%m%d')>? ORDER BY d",
+                [last]).fetchall()]
+    finally:
+        con.close()
+    if not codes:
+        print("[ths_daily] ths_index 为空,先拉概念列表"); return
+
+    cols = ["ts_code", "trade_date", "close", "pct_change"]
+    parts = []
+    if last is None:
+        end = time.strftime("%Y%m%d")
+        for code in codes:
+            df = None
+            for _ in range(2):
+                try:
+                    df = pro.ths_daily(ts_code=code, start_date=_THS_DAILY_FIRST.replace("-", ""), end_date=end); break
+                except Exception:
+                    time.sleep(1.0)
+            if df is not None and len(df):
+                parts.append(df[cols].copy())
+            time.sleep(0.12)
+    else:
+        if not days:
+            print("[ths_daily] 无新增交易日"); return
+        for d in days:
+            df = None
+            for _ in range(2):
+                try:
+                    df = pro.ths_daily(trade_date=d); break
+                except Exception:
+                    time.sleep(1.0)
+            if df is not None and len(df):
+                parts.append(df[cols].copy())
+            time.sleep(0.12)
+    if not parts:
+        print("[ths_daily] 无板块指数数据"); return
+    allp = pd.concat(parts, ignore_index=True)
+    allp["trade_date"] = allp["trade_date"].astype(str)
+    for nc in ("close", "pct_change"):
+        allp[nc] = pd.to_numeric(allp[nc], errors="coerce")
+    allp = allp.drop_duplicates(["ts_code", "trade_date"])
+    con = _duckdb.connect(duck_path)
+    try:
+        con.register("_td", allp)
+        con.execute("INSERT OR REPLACE INTO ths_daily SELECT * FROM _td")
+        con.unregister("_td")
+        n = con.execute("SELECT COUNT(DISTINCT ts_code) FROM ths_daily").fetchone()[0]
+        dd = con.execute("SELECT COUNT(DISTINCT trade_date) FROM ths_daily").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[ths_daily] 板块指数日线 {n} 个概念 / {dd} 个交易日")
 
 
 _CROWD_WINDOW = 300
@@ -2737,6 +2804,10 @@ def main() -> None:
             fetch_ths_hot(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[ths_hot] 人气榜更新跳过({e})")
+        try:
+            fetch_ths_daily(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[ths_daily] 板块指数更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
 
 
