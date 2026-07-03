@@ -243,7 +243,7 @@ function MainPage() {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }) })
       const j = await r.json()
-      if (j.cached) { up(rid, { phase: 'done', market_report: j.market_report, news_report: j.news_report, shownDlg: j.dialogue || [], business: j.business, verdict: j.verdict }); return }
+      if (j.cached) { up(rid, { phase: 'done', cached: true, market_report: j.market_report, news_report: j.news_report, shownDlg: j.dialogue || [], business: j.business, verdict: j.verdict }); return }
       if (!j.ok) { up(rid, { phase: 'error', stage: j.error || '启动失败' }); return }
       up(rid, { phase: 'analyzing', stage: '多智能体分析中(约1-3分钟)…' })
       pollRef.current = setInterval(async () => {
@@ -482,6 +482,7 @@ function MainPage() {
 
       <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
         title={<span>LLM 分析 {ana?.code} @ {ana?.date}
+          {ana?.cached && <Tag color="default" style={{ marginLeft: 8 }}>已缓存</Tag>}
           {ana?.phase === 'done' && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
         </span>}>
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
