@@ -22,6 +22,29 @@ const ChatMsg = ({ av, bg, role, children }: { av: string; bg: string; role: str
 )
 const Typing = () => <span className="typing"><span /><span /><span /></span>
 
+// 研究员内部讨论:可折叠、灰字小号、左边线,和正式报告区分(类"思考过程")
+function DebatePanel({ turns }: { turns: any[] }) {
+  const [open, setOpen] = useState(true)
+  if (!turns?.length) return null
+  return (
+    <div style={{ margin: '0 0 14px 44px', borderLeft: '2px solid #e2ddd0', paddingLeft: 12 }}>
+      <div onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', color: '#8a8378', fontSize: 12.5, fontWeight: 600, userSelect: 'none' }}>
+        💭 研究员内部讨论 · {turns.length} 段发言 <span style={{ fontSize: 11 }}>{open ? '▾ 收起' : '▸ 展开'}</span>
+      </div>
+      {open && <div style={{ marginTop: 8 }}>
+        {turns.map((d: any, i: number) => (
+          <div key={i} style={{ marginBottom: 10 }} className="dbg-in">
+            <div style={{ fontSize: 11.5, color: '#a49b8b', fontWeight: 600, marginBottom: 2 }}>{d.av} {d.role}</div>
+            <div className="md dbg-md" style={{ fontSize: 12.5, color: '#8f887b', lineHeight: 1.7, background: 'none', padding: 0 }}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{d.text || ''}</ReactMarkdown>
+            </div>
+          </div>
+        ))}
+      </div>}
+    </div>
+  )
+}
+
 import { portfolio, tradeLog, INIT } from './lib/portfolio'
 import type { SignalRow, TradeRec } from './lib/portfolio'
 
@@ -445,9 +468,7 @@ function MainPage() {
         {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div>
           {ana.market_report && <ChatMsg av="📊" bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
           {ana.news_report && <ChatMsg av="📰" bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
-          {(ana.shownDlg || []).map((d: any, i: number) => (
-            <ChatMsg key={i} av={d.av} bg={d.role === '看涨研究员' ? '#c0392b' : d.role === '看跌研究员' ? '#1f8e5a' : d.role === '研究经理' ? '#6d5bd0' : '#c98a2b'} role={d.role}><MD>{d.text}</MD></ChatMsg>
-          ))}
+          <DebatePanel turns={ana.shownDlg || []} />
 
           {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
             <ChatMsg av="🤖" bg="#8a8378" role="进行中">
