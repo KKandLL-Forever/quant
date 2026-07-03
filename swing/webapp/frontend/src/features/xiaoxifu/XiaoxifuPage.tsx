@@ -17,7 +17,7 @@ interface Payload {
 interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; showL?: boolean; showShares?: boolean; showPool?: boolean; kicker: string; desc: string; actionTitle?: string }
 interface PoolItem { code: string; name: string; industry: string }
 const STRATS: StratCfg[] = [
-  { key: 'leader', label: '龙头动量轮动', hasKL: true, showPool: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
+  { key: 'leader', label: '龙头动量轮动', hasKL: true, showPool: true, showShares: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
     desc: '各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF · 股票池可自定义' },
   { key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~39%(含手续费)',
     desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF' },
