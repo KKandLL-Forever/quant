@@ -170,9 +170,18 @@ function MainPage() {
 
   const esRef = React.useRef<EventSource | null>(null)
   const pollRef = React.useRef<any>(null)
+  const curRid = React.useRef<string | null>(null)
+  const timers = React.useRef<any[]>([])
   const up = (rid: string, patch: any) => setAna((a: any) => (a && a.rid === rid) ? { ...a, ...patch } : a)
 
+  const _revealReports = (rid: string, code: string, date: string, mkt: string, news: string) => {
+    up(rid, { phase: 'reveal', stage: '', market_report: mkt })     // 技术面先出
+    timers.current.push(setTimeout(() => { if (curRid.current === rid) up(rid, { news_report: news }) }, 1000))  // 消息面隔1秒
+    timers.current.push(setTimeout(() => { if (curRid.current === rid) _startStream(rid, code, date) }, 2000))   // 再流基本面/决策
+  }
+
   const _startStream = (rid: string, code: string, date: string) => {
+    if (curRid.current !== rid) return
     const es = new EventSource(`/api/analyze/stream?rid=${rid}&code=${encodeURIComponent(code)}&date=${date}`)
     esRef.current = es
     up(rid, { phase: 'streaming' })
@@ -191,6 +200,8 @@ function MainPage() {
     const rid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())
     if (pollRef.current) clearInterval(pollRef.current)
     esRef.current?.close()
+    timers.current.forEach(clearTimeout); timers.current = []
+    curRid.current = rid
     setAna({ open: true, rid, code, date, phase: 'starting', stage: '启动分析…' })
     try {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -203,7 +214,7 @@ function MainPage() {
         try {
           const pr = await (await fetch('/api/analyze/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid }) })).json()
           if (!pr.ok) { clearInterval(pollRef.current); up(rid, { phase: 'error', stage: pr.error }); return }
-          if (pr.done) { clearInterval(pollRef.current); up(rid, { market_report: pr.market_report, news_report: pr.news_report }); _startStream(rid, code, date) }
+          if (pr.done) { clearInterval(pollRef.current); _revealReports(rid, code, date, pr.market_report, pr.news_report) }
           else up(rid, { stage: pr.stage || '分析中…' })
         } catch { /* 网络抖动,下次轮询继续 */ }
       }, 1500)
@@ -211,7 +222,9 @@ function MainPage() {
   }
 
   const closeAna = () => {
+    curRid.current = null
     if (pollRef.current) clearInterval(pollRef.current)
+    timers.current.forEach(clearTimeout); timers.current = []
     esRef.current?.close()
     if (ana?.rid && ana?.phase !== 'done') {
       fetch('/api/analyze_cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid: ana.rid }) }).catch(() => {})
