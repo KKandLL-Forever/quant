@@ -37,7 +37,7 @@ export default function BollPage() {
   ]
 
   return (
-    <div style={{ maxWidth: 1100, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="BOLL Squeeze Breakout · 缩口扩张 + MACD金叉(研究:boll_narrow_exit)">BOLL 突破信号</PageTitle>
 
