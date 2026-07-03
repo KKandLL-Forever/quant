@@ -855,6 +855,29 @@ def boll(req: BollReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class ConceptReq(BaseModel):
+    bench: str = "000852.SH"
+    up: str = "ma20"
+
+
+_CONCEPT_CACHE: dict = {}
+
+
+@app.post("/api/concept")
+def concept(req: ConceptReq):
+    """概念轮动:扩散指标 + RRG 四象限组合,返回最新交易日全概念 payload(进程内按 bench+up 缓存)。"""
+    import traceback
+    try:
+        key = (req.bench, req.up)
+        if key not in _CONCEPT_CACHE:
+            sys.path.insert(0, os.path.join(_ROOT, "concept_rotation"))
+            import rrg
+            _CONCEPT_CACHE[key] = rrg.to_payload(bench=req.bench, up=req.up)
+        return {"ok": True, **_CONCEPT_CACHE[key]}
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}

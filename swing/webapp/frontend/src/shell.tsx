@@ -10,6 +10,7 @@ export const NAV_ITEMS = [
   { key: '/bulltop', label: '牛市逃顶' },
   { key: '/xiaoxifu', label: '小西西弗' },
   { key: '/boll', label: 'BOLL突破信号' },
+  { key: '/concept', label: '概念轮动' },
 ]
 
 export const QUANT_THEME = {
