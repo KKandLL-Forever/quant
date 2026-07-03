@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--healthy-only", action="store_true", help="仅在大盘健康日入场(择时指数 MA30&MA60 未同时走坏)")
     ap.add_argument("--mkt", choices=["hs300", "csi2000"], default="hs300", help="择时用哪个指数(涨跌/健康)")
     ap.add_argument("--repeat-days", type=int, default=0, help=">0 则只买第二次信号(前N天内同股已出过信号,第一次视为洗盘)")
+    ap.add_argument("--ma60", choices=["any", "up", "down"], default="any", help="按个股60日均线趋势过滤(up上行/down下行)")
     args = ap.parse_args()
 
     codes = {"ml": bm.members_ml, "csi2000": bm.members_2000, "csi1000": bm.members_1000}[args.pool]()
@@ -89,6 +90,10 @@ def main():
     if args.repeat_days > 0:
         sig = sig.sort_values(["ts_code", "date"])
         sig = sig[sig.groupby("ts_code")["date"].diff().dt.days <= args.repeat_days]
+    if args.ma60 == "up":
+        sig = sig[sig["ma60_up"] == True]
+    elif args.ma60 == "down":
+        sig = sig[sig["ma60_up"] == False]
 
     taken = _slots(sig, args.parts)
     df["td"] = pd.to_datetime(df["td"])

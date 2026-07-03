@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
 import { Header, PageTitle } from '../../shell'
 
-interface Sig { code: string; name: string; price: number; vol_ratio: number; atr_pct: number; days_since: number | null; is_rep30: boolean }
+interface Sig { code: string; name: string; price: number; vol_ratio: number; atr_pct: number; days_since: number | null; is_rep30: boolean; ma60_up: boolean }
 interface Payload { ok: boolean; error?: string; date: string; mkt_up: boolean | null; mkt_bad: boolean | null; pool: string; signals: Sig[] }
 
 const POOLS = [{ value: 'ml', label: 'ML主升浪池(前800+热股)' }, { value: 'csi1000', label: '中证1000' }, { value: 'csi2000', label: '中证2000' }]
@@ -26,9 +26,10 @@ export default function BollPage() {
 
   const healthy = data ? data.mkt_bad === false : false
   const cols = [
-    { title: '', dataIndex: 'is_rep30', width: 60, render: (v: boolean) => v ? <Tag color="red">重点</Tag> : <Tag>首次</Tag> },
+    { title: '', dataIndex: 'is_rep30', width: 60, render: (_: boolean, r: Sig) => r.is_rep30 && r.ma60_up ? <Tag color="red">重点</Tag> : r.is_rep30 ? <Tag color="orange">第二次</Tag> : <Tag>首次</Tag> },
     { title: '名称', dataIndex: 'name', render: (v: string, r: Sig) => <span><b>{v}</b> <span style={{ opacity: .55 }}>{r.code}</span></span> },
     { title: '现价', dataIndex: 'price', render: (v: number) => `¥${v}` },
+    { title: 'MA60趋势', dataIndex: 'ma60_up', width: 90, render: (v: boolean) => v ? <Tag color="red">上行</Tag> : <Tag color="green">下行</Tag> },
     { title: '量比', dataIndex: 'vol_ratio', sorter: (a: Sig, b: Sig) => a.vol_ratio - b.vol_ratio, render: (v: number) => <b style={{ color: v >= 1 ? '#c0392b' : '#999' }}>{v}</b> },
     { title: 'ATR%', dataIndex: 'atr_pct', sorter: (a: Sig, b: Sig) => a.atr_pct - b.atr_pct, render: (v: number) => `${v}%` },
     { title: '距上次信号', dataIndex: 'days_since', sorter: (a: Sig, b: Sig) => (a.days_since ?? 999) - (b.days_since ?? 999),
@@ -56,14 +57,14 @@ export default function BollPage() {
             <b>最新交易日 {data.date}</b> · 沪深300 当天{data.mkt_up ? <span style={{ color: '#c0392b' }}>上涨</span> : <span style={{ color: '#1f8e5a' }}>下跌</span>}、
             <b style={{ color: healthy ? '#0b6e4f' : '#c0392b' }}>{healthy ? '健康' : '走坏(MA30&MA60同时走坏)'}</b>
             <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
-              研究结论:该信号只在<b>大盘健康 + 第二次信号(前30天已出过一次,首次当洗盘)</b>时质量最好(回撤~15%/夏普~0.9);
-              {healthy ? '今日大盘健康,可关注下方「重点」标记的第二次信号。' : <b style={{ color: '#c0392b' }}>今日大盘走坏,按纪律应空仓观望,信号仅供记录。</b>}
+              研究最优配置:<b>大盘健康 + 第二次信号(首次当洗盘) + 个股MA60上行</b> = 市场与个股趋势双对齐(夏普1.35/卡玛1.41/回撤9.5%);持有约15日。
+              {healthy ? '今日大盘健康,重点看下方红色「重点」(第二次+MA60上行)。' : <b style={{ color: '#c0392b' }}>今日大盘走坏,按纪律应空仓观望,信号仅供记录。</b>}
             </div>
           </Card>
 
-          <Card size="small" title={`当日信号 ${data.signals.length} 条(重点=第二次信号,已置顶)`}>
+          <Card size="small" title={`当日信号 ${data.signals.length} 条(重点=第二次+MA60上行,已置顶)`}>
             <Table rowKey="code" size="small" columns={cols} dataSource={data.signals} pagination={false}
-              onRow={(r: Sig) => ({ style: r.is_rep30 && healthy ? { background: '#fff7f5' } : {} })} />
+              onRow={(r: Sig) => ({ style: r.is_rep30 && r.ma60_up && healthy ? { background: '#fff7f5' } : {} })} />
           </Card>
           <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
             量比=当日成交量/20日均量(&gt;1 为放量);ATR%=波动率/价;距上次信号=同股上一次信号到今天的天数(≤30 记为第二次)。

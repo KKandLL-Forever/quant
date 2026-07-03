@@ -97,8 +97,10 @@ def latest_signals(pool="ml", up_mode="mid"):
         sd = g["td"][sig]
         days_since = sd.diff().dt.days
         vr = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
+        ma60 = g["adjc"].rolling(60).mean()
         f = pd.DataFrame({"ts_code": ts, "date": g["td"], "close": g["close_raw"],
-                          "vol_ratio": vr, "atr_pct": g["atr"] / g["adjc"]})[sig].copy()
+                          "vol_ratio": vr, "atr_pct": g["atr"] / g["adjc"],
+                          "ma60_up": ma60 > ma60.shift(5)})[sig].copy()
         f["days_since"] = days_since.reindex(f.index)
         rows.append(f)
     data = pd.concat(rows, ignore_index=True)
@@ -111,9 +113,10 @@ def latest_signals(pool="ml", up_mode="mid"):
     cur["is_rep30"] = (cur["days_since"] <= 30).fillna(False)
     out = [{"code": r.ts_code, "name": names.get(r.ts_code, ""), "price": round(float(r.close), 2),
             "vol_ratio": round(float(r.vol_ratio), 2), "atr_pct": round(float(r.atr_pct) * 100, 1),
-            "days_since": None if pd.isna(r.days_since) else int(r.days_since), "is_rep30": bool(r.is_rep30)}
+            "days_since": None if pd.isna(r.days_since) else int(r.days_since), "is_rep30": bool(r.is_rep30),
+            "ma60_up": bool(r.ma60_up)}
            for r in cur.itertuples()]
-    out.sort(key=lambda x: (not x["is_rep30"], -x["vol_ratio"]))
+    out.sort(key=lambda x: (not (x["is_rep30"] and x["ma60_up"]), not x["ma60_up"], -x["vol_ratio"]))
     return {"date": str(last.date()), "mkt_up": mkt_up, "mkt_bad": mkt_bad, "pool": pool, "signals": out}
 
 
@@ -155,8 +158,10 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         atr_pct = g["atr"] / adjc
         vol_ratio = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
         entry_p, exit_p = adjc.shift(-1), adjc.shift(-(1 + hold))
+        ma60 = adjc.rolling(60).mean()
         s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
                           "atr_pct": atr_pct, "vol_ratio": vol_ratio,
+                          "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5),
                           "entry_date": g["td"].shift(-1), "exit_date": g["td"].shift(-(1 + hold)),
                           "ret_gross": exit_p / entry_p - 1})[sig]
         out.append(s[s["f10"].notna()])
@@ -223,6 +228,10 @@ def main():
         sig3["vol_bucket"] = pd.qcut(sig3["vol_ratio"], 5, labels=["Q1缩量", "Q2", "Q3", "Q4", "Q5放量"])
         for idx, r in sig3.groupby("vol_bucket", observed=True)["f10"].agg(["mean", "median", "count"]).iterrows():
             print(f"  {idx}: 均值 {r['mean']*100:+.2f}%  中位 {r['median']*100:+.2f}%  胜率 {'—'}  (n={int(r['count'])})")
+
+        print("\n=== 口径3:信号日 个股 60日均线 上行/下行趋势(10日)===")
+        print(_row("MA60上行", sig[sig["ma60_up"] == True]))
+        print(_row("MA60下行", sig[sig["ma60_up"] == False]))
 
         print("\n=== 综合过滤:大盘上涨 + 低ATR(≤中位)+ 放量(量比>1)===")
         atr_med = sig["atr_pct"].median()
