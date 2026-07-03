@@ -160,26 +160,53 @@ function MainPage() {
 
   useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
 
+  const esRef = React.useRef<EventSource | null>(null)
+  const pollRef = React.useRef<any>(null)
+  const up = (rid: string, patch: any) => setAna((a: any) => (a && a.rid === rid) ? { ...a, ...patch } : a)
+
+  const _startStream = (rid: string, code: string, date: string) => {
+    const es = new EventSource(`/api/analyze/stream?rid=${rid}&code=${encodeURIComponent(code)}&date=${date}`)
+    esRef.current = es
+    up(rid, { phase: 'streaming' })
+    es.onmessage = (e) => {
+      const m = JSON.parse(e.data)
+      if (m.t === 'biz') setAna((a: any) => a && a.rid === rid ? { ...a, bizText: (a.bizText || '') + m.d } : a)
+      else if (m.t === 'biz_done') up(rid, { business: m.v })
+      else if (m.t === 'ver') setAna((a: any) => a && a.rid === rid ? { ...a, verText: (a.verText || '') + m.d } : a)
+      else if (m.t === 'done') { up(rid, { verdict: m.verdict, business: m.business, phase: 'done' }); es.close() }
+      else if (m.t === 'error') { up(rid, { phase: 'error', stage: m.msg }); es.close() }
+    }
+    es.onerror = () => { es.close() }
+  }
+
   const analyze = async (code: string, date: string, force = false) => {
     const rid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())
-    const ctrl = new AbortController()
-    setAna({ open: true, loading: true, code, date, rid, ctrl })
+    if (pollRef.current) clearInterval(pollRef.current)
+    esRef.current?.close()
+    setAna({ open: true, rid, code, date, phase: 'starting', stage: '启动分析…' })
     try {
-      const r = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, date, force, rid }), signal: ctrl.signal })
+      const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, date, force, rid }) })
       const j = await r.json()
-      setAna((a: any) => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: j } : a)
-    } catch (e: any) {
-      if (e.name === 'AbortError') return                 // 用户关弹窗主动中止,忽略
-      setAna((a: any) => (a && a.rid === rid) ? { open: true, loading: false, code, date, data: { error: String(e) } } : a)
-    }
+      if (j.cached) { up(rid, { phase: 'done', market_report: j.market_report, news_report: j.news_report, business: j.business, verdict: j.verdict }); return }
+      if (!j.ok) { up(rid, { phase: 'error', stage: j.error || '启动失败' }); return }
+      up(rid, { phase: 'analyzing', stage: '多智能体分析中(约1-3分钟)…' })
+      pollRef.current = setInterval(async () => {
+        try {
+          const pr = await (await fetch('/api/analyze/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid }) })).json()
+          if (!pr.ok) { clearInterval(pollRef.current); up(rid, { phase: 'error', stage: pr.error }); return }
+          if (pr.done) { clearInterval(pollRef.current); up(rid, { market_report: pr.market_report, news_report: pr.news_report }); _startStream(rid, code, date) }
+          else up(rid, { stage: pr.stage || '分析中…' })
+        } catch { /* 网络抖动,下次轮询继续 */ }
+      }, 1500)
+    } catch (e) { up(rid, { phase: 'error', stage: String(e) }) }
   }
 
   const closeAna = () => {
-    if (ana?.loading && ana?.rid) {
-      fetch('/api/analyze_cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rid: ana.rid }) }).catch(() => {})   // 通知后端 kill 子进程
-      ana.ctrl?.abort()
+    if (pollRef.current) clearInterval(pollRef.current)
+    esRef.current?.close()
+    if (ana?.rid && ana?.phase !== 'done') {
+      fetch('/api/analyze_cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid: ana.rid }) }).catch(() => {})
     }
     setAna(null)
   }
@@ -398,29 +425,35 @@ function MainPage() {
 
       <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
         title={<span>LLM 分析 {ana?.code} @ {ana?.date}
-          {ana?.data?.cached && <Tag color="default" style={{ marginLeft: 8 }}>已缓存</Tag>}
-          {!ana?.loading && ana?.data && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
+          {ana?.phase === 'done' && <Button size="small" style={{ marginLeft: 8 }} onClick={() => analyze(ana.code, ana.date, true)}>重新分析</Button>}
         </span>}>
-        {ana?.loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="多 agent 分析中(约 1-3 分钟)..." /><div style={{ height: 30 }} /></div> :
-          ana?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.data.error}</pre> :
-            ana?.data && <div>
-              {ana.data.verdict && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6, padding: 10, marginBottom: 12 }}>
-                <b>分析师层判断(趋势感知):</b> <Tag color={ana.data.verdict.action === '卖出' ? 'red' : ana.data.verdict.action === '买入' ? 'green' : 'blue'}>{ana.data.verdict.action}</Tag>
-                置信 {ana.data.verdict.confidence} — {ana.data.verdict.reasoning}
-              </div>}
-              {ana.data.business && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
-                {(() => { const b = ana.data.business; if (b.raw) return <span>{b.raw}</span>; return <>
-                  <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
-                  {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
-                  {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
-                  {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
-                  {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
-                  {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
-                </> })()}
-              </div>}
-              <h4>技术面</h4><MD>{ana.data.market_report}</MD>
-              <h4 style={{ marginTop: 12 }}>消息面(公告/新闻/研报)</h4><MD>{ana.data.news_report}</MD>
-            </div>}
+        {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div>
+          {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
+            <div style={{ textAlign: 'center', padding: 40 }}><Spin tip={ana.stage} /><div style={{ height: 30 }} /></div>}
+
+          {(ana.verdict || ana.verText) && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6, padding: 10, marginBottom: 12 }}>
+            <b>分析师层判断(趋势感知):</b>
+            {ana.verdict ? <span> <Tag color={ana.verdict.action === '卖出' ? 'red' : ana.verdict.action === '买入' ? 'green' : 'blue'}>{ana.verdict.action}</Tag>置信 {ana.verdict.confidence} — {ana.verdict.reasoning}</span>
+              : <span style={{ color: '#666' }}> {ana.verText}<span className="cursor">▍</span></span>}
+          </div>}
+
+          {(ana.business || ana.bizText) && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, padding: 10, marginBottom: 12, fontSize: 13, lineHeight: 1.7 }}>
+            {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
+              <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
+              {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
+              {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
+              {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
+              {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
+              {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
+            </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}
+          </div>}
+
+          {ana.phase === 'streaming' && !ana.verdict && !ana.verText && !ana.bizText &&
+            <div style={{ color: '#999', marginBottom: 8 }}><Spin size="small" /> 生成公司分析与买卖判断中…</div>}
+
+          {ana.market_report && <><h4>技术面</h4><MD>{ana.market_report}</MD></>}
+          {ana.news_report && <><h4 style={{ marginTop: 12 }}>消息面(公告/新闻/研报)</h4><MD>{ana.news_report}</MD></>}
+        </div>}
       </Modal>
 
       <Modal open={!!adv?.open} width={1560} footer={null} onCancel={() => setAdv(null)}

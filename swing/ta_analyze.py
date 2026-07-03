@@ -35,8 +35,8 @@ def _load_keys():
         _read(os.path.expanduser("~/.claude/skills/x2strategy/.env"), ("DEEPSEEK_API_KEY",))
 
 
-def analyze(code, date, analysts=("market", "news")):
-    """对 code 在 date 跑 TA-CN 综合分析,返回 (state, decision)。"""
+def analyze(code, date, analysts=("market", "news"), progress_callback=None):
+    """对 code 在 date 跑 TA-CN 综合分析,返回 (state, decision);progress_callback 收阶段进度。"""
     import ta_bridge
     ta_bridge.apply()
     ta_bridge.PIT_END = date
@@ -47,7 +47,51 @@ def analyze(code, date, analysts=("market", "news")):
                 "quick_think_llm": "deepseek-v4-flash", "backend_url": "https://api.deepseek.com",
                 "online_tools": True, "max_debate_rounds": 1})
     ta = TradingAgentsGraph(selected_analysts=list(analysts), debug=False, config=cfg)
-    return ta.propagate(str(code).split(".")[0], date, progress_callback=lambda *a, **k: None)
+    return ta.propagate(str(code).split(".")[0], date, progress_callback=progress_callback or (lambda *a, **k: None))
+
+
+def _cli():
+    from openai import OpenAI
+    return OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
+
+
+def _verdict_prompt(state):
+    """构造分析师层买/卖/持的 prompt(技术面+消息面)。"""
+    mk = (state.get("market_report") or "")[:3500]
+    nw = (state.get("news_report") or "")[:3500]
+    return f"""你是A股波段交易员,基于下面的技术面与消息面分析,只对"持仓者现在该买入/卖出/持有"给结论。
+原则:① 上升趋势未破坏时,不要仅因涨幅大、RSI超买、缩量就判卖出(那会踏空主升浪);
+② 只有出现明确利空催化(减持/立案/业绩暴雷/评级下调/重大利空公告)或技术破位(跌破关键均线/趋势线)才判卖出;
+③ 趋势完好且无利空 → 持有或买入。
+
+【技术面】
+{mk}
+
+【消息面】
+{nw}
+
+只输出JSON:{{"action":"买入|卖出|持有","confidence":0~1,"reasoning":"一句话理由"}}"""
+
+
+def _parse_verdict(txt):
+    """从模型输出解析买卖持 JSON,失败回退 raw。"""
+    import json
+    try:
+        return json.loads(txt[txt.index("{"):txt.rindex("}") + 1])
+    except Exception:
+        return {"action": "?", "raw": txt[:200]}
+
+
+def verdict_stream(state):
+    """流式版分析师判断:逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。"""
+    buf = ""
+    for ch in _cli().chat.completions.create(model="deepseek-v4-pro", temperature=0.2, stream=True,
+                                             messages=[{"role": "user", "content": _verdict_prompt(state)}]):
+        d = ch.choices[0].delta.content or ""
+        if d:
+            buf += d
+            yield {"delta": d}
+    yield {"final": _parse_verdict(buf)}
 
 
 def analyst_verdict(state):
@@ -77,19 +121,17 @@ def analyst_verdict(state):
         return {"action": "?", "raw": txt[:200]}
 
 
-def business_profile(code):
-    """公司产业链地位深度分析:主营/上中下游/全球+国内市占率/议价能力(结合毛利率等真实财务)/双向卡脖子。"""
-    import json
+def _business_prompt(code):
+    """构造公司产业链分析 prompt,返回 (prompt, fintxt);无资料返回 (None, None)。"""
     import duckdb
     import tushare as ts
-    from openai import OpenAI
     import ta_bridge
     from cache_tushare import DUCKDB_PATH
     tscode = ta_bridge._norm(code)
     pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
     df = pro.stock_company(ts_code=tscode, fields="main_business,business_scope,introduction")
     if df is None or df.empty:
-        return {"raw": "无公司资料"}
+        return None, None
     r = df.iloc[0]
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
@@ -117,12 +159,15 @@ def business_profile(code):
 6) summary: 一句话总结其在供应链的真实地位
 
 只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":""}}"""
-    cli = OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
-    txt = cli.chat.completions.create(model="deepseek-v4-pro", temperature=0.3,
-                                      messages=[{"role": "user", "content": prompt}]).choices[0].message.content
+    return prompt, fintxt
+
+
+def _parse_business(txt, fintxt):
+    """解析公司分析 JSON,规整 chain 字段、附财务串;失败回退 raw。"""
+    import json
     try:
         d = json.loads(txt[txt.index("{"):txt.rindex("}") + 1])
-        for x in ("上游", "中游", "下游"):  # 模型有时把整串枚举塞进来,取第一个匹配
+        for x in ("上游", "中游", "下游"):
             if x in str(d.get("chain", "")):
                 d["chain"] = x
                 break
@@ -130,6 +175,32 @@ def business_profile(code):
         return d
     except Exception:
         return {"raw": txt[:400]}
+
+
+def business_stream(code):
+    """流式版公司分析:逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。"""
+    prompt, fintxt = _business_prompt(code)
+    if prompt is None:
+        yield {"final": {"raw": "无公司资料"}}
+        return
+    buf = ""
+    for ch in _cli().chat.completions.create(model="deepseek-v4-pro", temperature=0.3, stream=True,
+                                             messages=[{"role": "user", "content": prompt}]):
+        d = ch.choices[0].delta.content or ""
+        if d:
+            buf += d
+            yield {"delta": d}
+    yield {"final": _parse_business(buf, fintxt)}
+
+
+def business_profile(code):
+    """公司产业链地位深度分析(非流式,供缓存/回退)。"""
+    prompt, fintxt = _business_prompt(code)
+    if prompt is None:
+        return {"raw": "无公司资料"}
+    txt = _cli().chat.completions.create(model="deepseek-v4-pro", temperature=0.3,
+                                         messages=[{"role": "user", "content": prompt}]).choices[0].message.content
+    return _parse_business(txt, fintxt)
 
 
 def _latest_td():

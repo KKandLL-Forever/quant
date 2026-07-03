@@ -18,6 +18,7 @@ import tempfile
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 SWING = os.path.join(_ROOT, "swing")
@@ -104,49 +105,92 @@ def train(req: TrainReq):
         return {"ok": False, "error": traceback.format_exc()[-2000:]}
 
 
-@app.post("/api/analyze")
-def analyze(req: AnalyzeReq):
-    """对单只股票在指定日期跑 技术+消息面 LLM 分析,返回报告 + 分析师层买卖持判断。"""
-    cf = os.path.join(CACHE_DIR, f"{req.code.split('.')[0]}_{req.date}.json")
+RID_OUT = {}                 # rid -> 子进程输出临时文件路径(供进度/流式读取)
+
+
+class ProgReq(BaseModel):
+    rid: str
+
+
+def _cf(code, date):
+    return os.path.join(CACHE_DIR, f"{code.split('.')[0]}_{date}.json")
+
+
+@app.post("/api/analyze/start")
+def analyze_start(req: AnalyzeReq):
+    """启动分析子进程(只产技术面/消息面报告),立即返回 rid;命中缓存则直接回结果。"""
+    cf = _cf(req.code, req.date)
     if not req.force:
         r = _read_cache(cf)
         if r is not None:
             r["cached"] = True
             return r
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
+    open(out + ".progress", "w").close()
     proc = subprocess.Popen([PY, "ta_analyze_job.py", req.code, req.date, out], cwd=SWING)
-    if req.rid:
-        ANALYZE_PROCS[req.rid] = proc
-    try:
-        proc.wait(timeout=1800)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        return {"ok": False, "error": "分析超时(30分钟)"}
-    finally:
-        ANALYZE_PROCS.pop(req.rid, None)
-    if proc.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) == 0:
-        return {"ok": False, "error": "分析已取消或失败", "cancelled": proc.returncode is not None and proc.returncode < 0}
-    try:
-        with open(out, encoding="utf-8") as f:
-            j = json.load(f)
-        os.unlink(out)
+    ANALYZE_PROCS[req.rid] = proc
+    RID_OUT[req.rid] = out
+    return {"ok": True, "cached": False, "rid": req.rid}
+
+
+@app.post("/api/analyze/progress")
+def analyze_progress(req: ProgReq):
+    """轮询:返回当前阶段;报告好了带回 market_report/news_report。"""
+    out = RID_OUT.get(req.rid)
+    if not out:
+        return {"ok": False, "error": "无此任务"}
+    prog = _read_cache(out + ".progress") or {}
+    proc = ANALYZE_PROCS.get(req.rid)
+    if not prog.get("done") and proc and proc.poll() is not None and proc.returncode != 0:
+        return {"ok": False, "error": "分析已取消或失败", "cancelled": proc.returncode < 0}
+    return {"ok": True, **prog}
+
+
+@app.get("/api/analyze/stream")
+def analyze_stream(rid: str, code: str, date: str):
+    """SSE:报告就绪后,逐字流式输出 公司分析 + 买卖判断;结束写缓存。"""
+    def gen():
+        out = RID_OUT.get(rid)
+        prog = _read_cache((out + ".progress") if out else "") or {}
+        if not prog.get("done"):
+            yield f"data: {json.dumps({'t': 'error', 'msg': '报告未就绪'})}\n\n"
+            return
         import ta_analyze
         ta_analyze._load_keys()
-        bf = os.path.join(CACHE_DIR, f"biz_{req.code.split('.')[0]}.json")
+        state = {"market_report": prog.get("market_report", ""), "news_report": prog.get("news_report", "")}
+        bf = os.path.join(CACHE_DIR, f"biz_{code.split('.')[0]}.json")
         business = _read_cache(bf)
         if business is None:
-            business = ta_analyze.business_profile(req.code)
-            with open(bf, "w", encoding="utf-8") as f:
-                json.dump(business, f, ensure_ascii=False)
-        res = {"ok": True, "code": req.code, "date": req.date,
-               "market_report": j["market_report"], "news_report": j["news_report"],
-               "verdict": j["verdict"], "business": business, "risk_decision": j["risk_decision"], "cached": False}
-        with open(cf, "w", encoding="utf-8") as f:
+            for ev in ta_analyze.business_stream(code):
+                if "delta" in ev:
+                    yield f"data: {json.dumps({'t': 'biz', 'd': ev['delta']}, ensure_ascii=False)}\n\n"
+                else:
+                    business = ev["final"]
+                    with open(bf, "w", encoding="utf-8") as f:
+                        json.dump(business, f, ensure_ascii=False)
+        yield f"data: {json.dumps({'t': 'biz_done', 'v': business}, ensure_ascii=False)}\n\n"
+        verdict = None
+        for ev in ta_analyze.verdict_stream(state):
+            if "delta" in ev:
+                yield f"data: {json.dumps({'t': 'ver', 'd': ev['delta']}, ensure_ascii=False)}\n\n"
+            else:
+                verdict = ev["final"]
+        res = {"ok": True, "code": code, "date": date, "market_report": state["market_report"],
+               "news_report": state["news_report"], "verdict": verdict, "business": business,
+               "risk_decision": prog.get("risk_decision", ""), "cached": False}
+        with open(_cf(code, date), "w", encoding="utf-8") as f:
             json.dump(res, f, ensure_ascii=False)
-        return res
-    except Exception:
-        import traceback
-        return {"ok": False, "error": traceback.format_exc()[-2000:]}
+        for p in (out, out + ".progress"):
+            try:
+                os.unlink(p)
+            except Exception:
+                pass
+        ANALYZE_PROCS.pop(rid, None)
+        RID_OUT.pop(rid, None)
+        yield f"data: {json.dumps({'t': 'done', 'verdict': verdict, 'business': business}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/analyze_cancel")
