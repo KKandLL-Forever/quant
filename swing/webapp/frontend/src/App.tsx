@@ -59,7 +59,7 @@ function DebatePanel({ turns, live }: { turns: any[]; live: boolean }) {
 }
 
 import { portfolio, tradeLog, INIT } from './lib/portfolio'
-import type { SignalRow, TradeRec } from './lib/portfolio'
+import type { SignalRow } from './lib/portfolio'
 
 type OHLC = [string, number, number, number, number]
 type BiPt = [string, number]
@@ -427,49 +427,51 @@ function MainPage() {
           组合回测:15万本金分
           <Select size="small" style={{ width: 70 }} value={parts} onChange={setParts}
             options={[2, 3, 4, 5, 6, 8, 10].map(v => ({ value: v, label: v + '份' }))} />
-          等份,出现信号占一份买入(同股不加仓,最多{parts}只,满仓放弃),费率已计
+          等份,每买入占一份、满仓放弃,费率已计。唐奇安:同股不加仓。缠论M3:同股可加仓、缠卖回补各占1份(B并仓)
         </div>
-        <Chart title="唐奇安出场" series={portfolio(rows, 'donexit', 'donr', payload.cal ?? [], parts)} />
+        <Chart title="唐奇安出场(同股不加仓)" series={portfolio(rows, 'donexit', 'donr', payload.cal ?? [], parts)} />
         <div style={{ height: 8 }} />
         {/* 波段先隐藏 <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} /> */}
         <div style={{ height: 8 }} />
-        <Chart title="缠论M3(卖点止盈+回调买点回补)" series={portfolio(rows, 'czexit', 'czr', payload.cal ?? [], parts)} />
+        <Chart title="缠论M3(加仓并仓·卖点止盈+回调回补各占1份)" series={(payload as any).cz_pf?.[String(parts)]?.curve ?? []} />
       </div>}
 
-      {payload && <Tabs style={{ marginBottom: 12 }} items={[
-        { key: 'don', label: '唐奇安 交易记录', d: ['donexit', 'donret', 'hold', 'donopen'] },
-        // { key: 'sw', label: '波段 交易记录', d: ['swexit', 'swret', 'swhold', 'swopen'] },   // 波段先隐藏
-        { key: 'cz', label: '缠论M3 交易记录', d: ['czexit', 'czret', 'czhold', 'czopen'] },
-      ].map(t => {
-        const log = tradeLog(rows, t.d[0], t.d[1], t.d[2], t.d[3], payload.cal ?? [], parts)
-        const tcols: TableColumnsType<TradeRec> = [
-          { title: '股票', render: (_, r) => `${r.name}(${r.ts})` },
-          { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
-          { title: '状态', dataIndex: 'status', filters: ['已交易', '满仓错过'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.status === v,
-            render: v => v === '已交易' ? <Tag color="blue">已交易</Tag> : <Tag color="orange">错过·{v}</Tag> },
-          { title: '离场日', dataIndex: 'exit', render: (v, r) => (v || '持仓中') + (r.hold != null ? `(${r.hold}天)` : '') },
-          { title: '盈亏', dataIndex: 'ret', sorter: (a, b) => (a.ret ?? -999) - (b.ret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.open ? '(持仓)' : ''}{r.status !== '已交易' ? ' (未参与)' : ''}</span> },
-        ]
-        const done = log.filter(r => r.status === '已交易'), missed = log.filter(r => r.status !== '已交易')
-        const cl = done.map(r => r.ret).filter((v): v is number => v != null)
-        const avg = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
-        const summary = (
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
-            <span>已交易 <b>{done.length}</b> 笔(持仓中 {done.filter(r => r.open).length})</span>
-            <span>胜率 <b>{cl.length ? (cl.filter(v => v > 0).length / cl.length * 100).toFixed(0) + '%' : '—'}</b></span>
-            <span>平均盈亏 <b style={{ color: '#c0392b' }}>{avg(cl)}</b></span>
-            <span>平均回撤 <b style={{ color: '#27ae60' }}>{avg(cl.filter(v => v < 0))}</b></span>
-            <span>平均持仓 <b>{done.length ? (done.reduce((s, r) => s + (Number(r.hold) || 0), 0) / done.length).toFixed(0) + '天' : '—'}</b></span>
-            <span style={{ color: '#999' }}>错过 <b>{missed.length}</b> 笔(其中本可盈利 {missed.filter(r => (r.ret ?? -1) > 0).length} 笔,均值 {avg(missed.map(r => r.ret).filter((v): v is number => v != null && v > 0))})</span>
-            <span style={{ color: '#bbb', fontSize: 12 }}>胜率/盈亏含持仓中按现价</span>
-          </div>
-        )
-        return {
-          key: t.key, label: t.label,
-          children: <div>{summary}<Table rowKey="key" columns={tcols} dataSource={log} size="small" pagination={{ pageSize: 30 }}
-            onRow={r => ({ style: r.status !== '已交易' ? { background: '#f3efe5', color: '#9b958a' } : undefined })} /></div>,
+      {payload && (() => {
+        const donLog = tradeLog(rows, 'donexit', 'donret', 'hold', 'donopen', payload.cal ?? [], parts)
+          .map(r => ({ ...r, done: r.status === '已交易' }))
+        const czLog = ((payload as any).cz_pf?.[String(parts)]?.log ?? []).map((r: any, i: number) =>
+          ({ ...r, key: r.ts + r.date + i, done: r.status === '已买入' }))
+        const renderTab = (log: any[], isCz: boolean) => {
+          const done = log.filter(r => r.done), missed = log.filter(r => !r.done)
+          const cl = done.map(r => r.ret).filter((v: any): v is number => v != null)
+          const avg = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) + '%' : '—'
+          const tcols: any[] = [
+            { title: '股票', render: (_: any, r: any) => `${r.name}(${r.ts})` },
+            ...(isCz ? [{ title: '类型', dataIndex: 'type', width: 70, filters: ['建仓', '加仓'].map(v => ({ text: v, value: v })), onFilter: (v: any, r: any) => r.type === v, render: (v: string) => <Tag color={v === '加仓' ? 'gold' : 'blue'}>{v}</Tag> }] : []),
+            { title: '日期', dataIndex: 'date', sorter: (a: any, b: any) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' as const },
+            { title: '状态', dataIndex: 'status', render: (v: string, r: any) => r.done ? <Tag color="blue">{v}</Tag> : <Tag color="orange">{v}</Tag> },
+            { title: '离场日', dataIndex: 'exit', render: (v: any, r: any) => r.done ? (v || '持仓中') + (r.hold != null ? `(${r.hold}天)` : '') : '—' },
+            { title: '盈亏', dataIndex: 'ret', sorter: (a: any, b: any) => (a.ret ?? -999) - (b.ret ?? -999), render: (v: any, r: any) => r.done ? <span>{pct(v, true)}{r.open ? '(持仓)' : ''}</span> : <span style={{ color: '#bbb' }}>未参与</span> },
+          ]
+          const summary = (
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 8 }}>
+              <span>已{isCz ? '买入' : '交易'} <b>{done.length}</b> 笔{isCz && <span style={{ color: '#999' }}>(加仓 {done.filter(r => r.type === '加仓').length})</span>}(持仓中 {done.filter(r => r.open).length})</span>
+              <span>胜率 <b>{cl.length ? (cl.filter((v: number) => v > 0).length / cl.length * 100).toFixed(0) + '%' : '—'}</b></span>
+              <span>平均盈亏 <b style={{ color: '#c0392b' }}>{avg(cl)}</b></span>
+              <span>平均回撤 <b style={{ color: '#27ae60' }}>{avg(cl.filter((v: number) => v < 0))}</b></span>
+              <span>平均持仓 <b>{done.length ? (done.reduce((s: number, r: any) => s + (Number(r.hold) || 0), 0) / done.length).toFixed(0) + '天' : '—'}</b></span>
+              <span style={{ color: '#999' }}>{isCz ? '满仓取消' : '错过'} <b>{missed.length}</b> 笔</span>
+              <span style={{ color: '#bbb', fontSize: 12 }}>胜率/盈亏含持仓中按现价</span>
+            </div>
+          )
+          return <div>{summary}<Table rowKey="key" columns={tcols} dataSource={log} size="small" pagination={{ pageSize: 30 }}
+            onRow={(r: any) => ({ style: !r.done ? { background: '#f3efe5', color: '#9b958a' } : undefined })} /></div>
         }
-      })} />}
+        return <Tabs style={{ marginBottom: 12 }} items={[
+          { key: 'don', label: '唐奇安 交易记录', children: renderTab(donLog, false) },
+          { key: 'cz', label: '缠论M3 交易记录(并仓)', children: renderTab(czLog, true) },
+        ]} />
+      })()}
 
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
 
