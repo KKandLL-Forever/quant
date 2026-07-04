@@ -88,7 +88,8 @@ def latest_signals(pool="ml", up_mode="mid"):
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     con.close()
-    rows = []
+    latest_td = df["td"].max()
+    rows, fc = [], []
     for ts, g in df.groupby("ts_code", sort=False):
         g = g.reset_index(drop=True)
         if len(g) < 140:
@@ -109,6 +110,29 @@ def latest_signals(pool="ml", up_mode="mid"):
                           "ma60_up": ma60 > ma60.shift(5), "mom20": g["adjc"] / g["adjc"].shift(20) - 1})[sig].copy()
         f["days_since"] = days_since.reindex(f.index)
         rows.append(f)
+
+        i = len(g) - 1   # 明日预判:今日已缩口但未触发,且接近临门一脚
+        if g["td"].iloc[i] == latest_td and bool(narrow.iloc[i]) and not bool(sig.iloc[i]):
+            adjc = float(g["adjc"].iloc[i]); ratio = float(g["close_raw"].iloc[i]) / adjc
+            band = float(g["bu"].iloc[i] if up_mode == "upper" else g["bm"].iloc[i])
+            trig, gap, to_band = band * ratio, float(d.iloc[i]), (band - adjc) / adjc
+            gap_prev = float(d.iloc[i - 1])
+            macd_ok, band_ok, widen_ok = bool(crossed.iloc[i]), adjc > band, bool(widen.iloc[i])
+            macd_pending = (not macd_ok) and (-0.02 * adjc <= gap < 0) and (gap > gap_prev)   # 0轴下方临近上穿且在收窄
+            if (macd_ok or macd_pending) and to_band <= 0.05:
+                miss = []
+                if not band_ok:
+                    miss.append(f"站上{'上轨' if up_mode == 'upper' else '中轨'}{round(trig, 2)}元(+{round(to_band * 100, 1)}%)")
+                if macd_pending:
+                    miss.append(f"MACD即将金叉(DIF距DEA约{round(gap / adjc * 100, 2)}%)")
+                if not widen_ok:
+                    miss.append("带宽扩张")
+                if miss:
+                    fc.append({"code": ts, "name": names.get(ts, ""), "price": round(float(g["close_raw"].iloc[i]), 2),
+                               "trig": round(trig, 2), "to_band": round(to_band * 100, 1), "gap": round(gap, 3),
+                               "vol_ratio": round(float(vr.iloc[i]), 2) if pd.notna(vr.iloc[i]) else None,
+                               "band_ok": band_ok, "macd_ok": macd_ok, "widen_ok": widen_ok,
+                               "ready": 3 - len(miss), "miss": "；".join(miss)})
     data = pd.concat(rows, ignore_index=True)
     last = data["date"].max()
     mk = hs300_market((pd.Timestamp.today() - pd.Timedelta(days=400)).strftime("%Y-%m-%d"))
@@ -124,7 +148,9 @@ def latest_signals(pool="ml", up_mode="mid"):
             "ma60_up": bool(r.ma60_up), "rs_win": bool((r.mom20 - hs_mom) > 0)}
            for r in cur.itertuples()]
     out.sort(key=lambda x: (not (x["is_rep30"] and x["ma60_up"] and x["rs_win"]), not x["ma60_up"], not x["rs_win"], -x["vol_ratio"]))
-    return {"date": str(last.date()), "mkt_up": mkt_up, "mkt_bad": mkt_bad, "pool": pool, "signals": out}
+    fc.sort(key=lambda x: (-x["ready"], x["to_band"]))
+    return {"date": str(last.date()), "mkt_up": mkt_up, "mkt_bad": mkt_bad, "pool": pool,
+            "signals": out, "forecast": fc}
 
 
 def hs300_market(start, index_code="000300.SH"):
