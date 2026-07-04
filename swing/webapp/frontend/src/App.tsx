@@ -427,9 +427,10 @@ function MainPage() {
           组合回测:15万本金分
           <Select size="small" style={{ width: 70 }} value={parts} onChange={setParts}
             options={[2, 3, 4, 5, 6, 8, 10].map(v => ({ value: v, label: v + '份' }))} />
-          等份,每买入占一份、满仓放弃,费率已计。唐奇安:同股不加仓。缠论M3:同股可加仓、缠卖回补各占1份(B并仓)
+          等份,每买入占一份、满仓放弃,费率已计。唐奇安:同股不加仓。缠论M3:同股可加仓、缠卖回补各占1份(B并仓)。
+          <span style={{ color: '#c0392b' }}>组合回测基于全部信号,不受上方科创/创业/≤50筛选影响(筛选只管下方信号表显示)</span>
         </div>
-        <Chart title="唐奇安出场(同股不加仓)" series={portfolio(rows, 'donexit', 'donr', payload.cal ?? [], parts)} />
+        <Chart title="唐奇安出场(同股不加仓)" series={portfolio(payload.signals as Sig[], 'donexit', 'donr', payload.cal ?? [], parts)} />
         <div style={{ height: 8 }} />
         {/* 波段先隐藏 <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} /> */}
         <div style={{ height: 8 }} />
@@ -437,7 +438,7 @@ function MainPage() {
       </div>}
 
       {payload && (() => {
-        const donLog = tradeLog(rows, 'donexit', 'donret', 'hold', 'donopen', payload.cal ?? [], parts)
+        const donLog = tradeLog(payload.signals as Sig[], 'donexit', 'donret', 'hold', 'donopen', payload.cal ?? [], parts)
           .map(r => ({ ...r, done: r.status === '已交易' }))
         const czLog = ((payload as any).cz_pf?.[String(parts)]?.log ?? []).map((r: any, i: number) =>
           ({ ...r, key: r.ts + r.date + i, done: r.status === '已买入' }))
