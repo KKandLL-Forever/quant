@@ -72,6 +72,7 @@ type Sig = SignalRow & {
   maxfwd?: number | null
   donret?: number | null; donr?: number | null; donexit?: string | null; donopen?: boolean; hold?: number | null
   czret?: number | null; czr?: number | null; czexit?: string | null; czopen?: boolean; czhold?: number | null
+  czstate?: string | null; czlegs?: [string, string][]
   swret?: number | null; swr?: number | null; swexit?: string | null; swopen?: boolean; swhold?: number | null
 }
 import { useSignalStore } from './store/signalStore'
@@ -190,12 +191,13 @@ function MainPage() {
   }
 
   const openKline = async (code: string, date: string, row?: Sig) => {
-    const marks: Mark[] = [{ date, kind: 'buy', label: '买' }]
-    if (row) {
-      if (row.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
-      // if (row.swexit) marks.push({ date: row.swexit, kind: 'sell', label: '波' })   // 波段先隐藏
-      if (row.czexit) marks.push({ date: row.czexit, kind: 'sell', label: '缠' })
+    const marks: Mark[] = []
+    if (row?.czlegs?.length) {   // 缠论M3全历史腿事件:买/补=买点,缠/止=卖点(与表格同口径)
+      for (const [d0, k] of row.czlegs) marks.push({ date: d0, kind: (k === '买' || k === '补') ? 'buy' : 'sell', label: k })
+    } else {
+      marks.push({ date, kind: 'buy', label: '买' })
     }
+    if (row?.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
     setKl({ open: true, loading: true, code, date, marks })
     try {
       const r = await fetch('/api/kline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date }) })
@@ -327,7 +329,13 @@ function MainPage() {
     // { title: '波段盈亏', dataIndex: 'swret', sorter: (a, b) => (a.swret ?? -999) - (b.swret ?? -999), render: (v, r) => <span>{pct(v, true)}{r.swopen ? '(持仓)' : ''}</span> },
     // { title: '波段离场', dataIndex: 'swexit', render: (v, r) => (v || '持仓中') + '(' + r.swhold + '天)' },
     { title: '缠论M3盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
-    { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => r.czret == null ? '—' : (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '') },
+    { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => {
+      if (r.czret == null) return '—'
+      if (r.czstate === '加仓') return <Tag color="gold">加仓</Tag>
+      if (r.czstate === '持仓中(回补)') return <Tag color="green">持仓中(回补)</Tag>
+      if (r.czstate === '持仓中') return <Tag color="blue">持仓中</Tag>
+      return (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '')   // 已离场
+    } },
     { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date, false, r.name)}>分析</Button> },
     { title: '缠论提示', fixed: 'right', render: (_, r) => <Button size="small" ghost style={{ color: '#0b6e4f', borderColor: '#0b6e4f' }} onClick={() => openAdvise(r.ts, r.date)}>卖点</Button> },
   ]
@@ -477,7 +485,7 @@ function MainPage() {
           kl?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{kl.data.error}</pre> :
             kl?.data?.ok ? <div>
               <KLineChart data={kl.data} marks={kl.marks} />
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲买=突破买入;绿▼卖(唐=唐奇安下轨清仓、缠=缠论M3终止;均取自表格权威口径,持仓中则不标卖点);红涨绿跌(前复权)</div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔;橙框=中枢;灰虚线=突破日;红▲=买(突破买入)/补(缠论买点回补);绿▼=缠(缠论卖点止盈)/止(跌破60日线·止损终止)/唐(唐奇安下轨清仓);缠论M3全历史口径,与表格一致;红涨绿跌(前复权)</div>
             </div> : <div>无数据</div>}
       </Modal>
 

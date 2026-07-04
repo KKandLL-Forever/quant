@@ -228,11 +228,14 @@ def _czsc_one(job):
 
     def _m3(bo):
         mult, en, t = 1.0, bo, bo + 1
+        legs = [(bo, "买")]
         while t < len(cc):
             if (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= cc[en] * 0.85:
-                return mult * (cc[t] / cc[en]) * (1 - 2 * COST) - 1, t, False
+                legs.append((t, "止"))
+                return mult * (cc[t] / cc[en]) * (1 - 2 * COST) - 1, t, False, legs
             if t in sd:
                 mult *= (cc[t] / cc[en]) * (1 - 2 * COST)
+                legs.append((t, "缠"))
                 re = None
                 for t2 in range(t + 1, len(cc)):
                     if ma60[t2] == ma60[t2] and cc[t2] < ma60[t2]:
@@ -240,22 +243,24 @@ def _czsc_one(job):
                     if t2 in bd:
                         re = t2; break
                 if re is None:
-                    return mult - 1, t, False
-                en = re; t = re + 1; continue
+                    return mult - 1, t, False, legs
+                en = re; legs.append((re, "补")); t = re + 1; continue
             t += 1
-        return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True
+        return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True, legs
 
     res = []
     for d in dates:
         bo = idxmap.get(pd.Timestamp(d))
         if bo is None:
             continue
-        ret, exi, opn = _m3(bo)
+        ret, exi, opn, legs = _m3(bo)
         exd = None if exi is None else pd.Timestamp(gd[exi])
         hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
+        rebought = any(k == "补" for _, k in legs)
+        legdates = [[str(pd.Timestamp(gd[i]).date()), k] for i, k in legs]
         res.append(((ts, str(pd.Timestamp(d).date())),
                     (round(ret * 100, 0), round(ret, 4),
-                     None if exd is None else str(exd.date()), opn, hold)))
+                     None if exd is None else str(exd.date()), opn, hold, rebought, legdates)))
     return res
 
 
@@ -278,12 +283,38 @@ def _czsc_exits(px, top, sel, workers=1):
     if workers <= 1 or len(jobs) < 4:
         for j in jobs:
             out.update(dict(_czsc_one(j)))
-        return out
-    from concurrent.futures import ProcessPoolExecutor
-    with ProcessPoolExecutor(max_workers=workers) as ex:
-        for r in ex.map(_czsc_one, jobs):
-            out.update(dict(r))
-    return out
+    else:
+        from concurrent.futures import ProcessPoolExecutor
+        with ProcessPoolExecutor(max_workers=workers) as ex:
+            for r in ex.map(_czsc_one, jobs):
+                out.update(dict(r))
+    return _tag_states(out)
+
+
+def _tag_states(out):
+    """逐股票按日期序判定 czstate:锚点(无持仓时的信号)给持仓中/持仓中(回补)/已离场,
+    锚点持仓未终止期间再来的信号=加仓(仅标签,信号表无资金概念)。返回加了 state 的 dict。"""
+    bykey = {}
+    for (ts, ds) in out:
+        bykey.setdefault(ts, []).append(ds)
+    final = {}
+    for ts, dss in bykey.items():
+        cur_exit = "flat"   # "flat" | None(持仓中) | pd.Timestamp(已离场日)
+        for ds in sorted(dss):
+            ret_, raw_, exit_, opn_, hold_, rebought_, legs_ = out[(ts, ds)]
+            d = pd.Timestamp(ds)
+            anchor = (cur_exit == "flat") or (isinstance(cur_exit, pd.Timestamp) and d > cur_exit)
+            if anchor:
+                if opn_:
+                    state = "持仓中(回补)" if rebought_ else "持仓中"
+                    cur_exit = None
+                else:
+                    state = None   # 已离场,列显示离场日
+                    cur_exit = pd.Timestamp(exit_)
+            else:
+                state = "加仓"
+            final[(ts, ds)] = (ret_, raw_, exit_, opn_, hold_, state, legs_)
+    return final
 
 
 def _fit_lgb(trf, vaf, seed):
@@ -704,7 +735,7 @@ def main():
         st = ("已走出主升浪" if r["label"] == 1 else "未达") if r["done"] else "进行中"
         code = r["ts"][:3]
         board = "科创" if r["ts"].startswith(("688", "689")) else "创业" if code in ("300", "301") else "主板"
-        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None))
+        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None, None, []))
         data.append({
             "date": str(r["date"].date()), "ts": r["ts"], "name": names.get(r["ts"], ""),
             "board": board, "mkt": "健康" if regs.get(BOARD_IDX.get(board, "沪深300"), {}).get(r["date"], False) else "走坏",
@@ -721,6 +752,7 @@ def main():
             "swexit": None if pd.isna(r["swexit"]) else str(r["swexit"].date()),
             "swtp": None if pd.isna(r["swtp"]) else str(r["swtp"].date()),
             "czret": cz[0], "czr": cz[1], "czexit": cz[2], "czopen": cz[3], "czhold": cz[4],
+            "czstate": cz[5], "czlegs": cz[6],
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "hold": int(np.busday_count(r["date"].date(),
                      (r["donexit"] if not pd.isna(r["donexit"]) else pd.Timestamp(sel)).date())),
