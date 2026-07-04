@@ -770,6 +770,7 @@ def main():
     _cal = px["trade_date"].drop_duplicates()
     _end = end_ts or pd.Timestamp(sel)
     ntrade = int(((_cal >= start_ts) & (_cal <= _end)).sum())
+    cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
     latest_px = px["trade_date"].max()
     ml_fc = []
     for ts, g in px.groupby("ts_code"):
