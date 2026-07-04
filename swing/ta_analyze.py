@@ -279,8 +279,11 @@ def _business_prompt(code):
     return prompt, fintxt, pegdict
 
 
+BIZ_VER = "2026-07-05b"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+
+
 def _parse_business(txt, fintxt, pegdict=None):
-    """解析公司分析 JSON,规整 chain 字段、附财务串 + 确定性 PEG 数据;失败回退 raw。"""
+    """解析公司分析 JSON,规整 chain 字段、附财务串 + 确定性 PEG 数据 + 版本号;失败回退 raw。"""
     import json
     try:
         d = json.loads(txt[txt.index("{"):txt.rindex("}") + 1])
@@ -290,9 +293,10 @@ def _parse_business(txt, fintxt, pegdict=None):
                 break
         d["fin"] = fintxt
         d["peg_data"] = pegdict
+        d["_ver"] = BIZ_VER
         return d
     except Exception:
-        return {"raw": txt[:400], "peg_data": pegdict}
+        return {"raw": txt[:400], "peg_data": pegdict, "_ver": BIZ_VER}
 
 
 def business_stream(code):

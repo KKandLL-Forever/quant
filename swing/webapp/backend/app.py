@@ -160,7 +160,7 @@ def analyze_stream(rid: str, code: str, date: str):
         state = {"market_report": prog.get("market_report", ""), "news_report": prog.get("news_report", "")}
         bf = os.path.join(CACHE_DIR, f"biz_{code.split('.')[0]}.json")
         business = _read_cache(bf)
-        if not isinstance(business, dict) or "valuation" not in business or "peg_data" not in business:  # 旧缓存无估值/PEG→重算
+        if not isinstance(business, dict) or business.get("_ver") != ta_analyze.BIZ_VER:  # 旧版本口径→重算
             business = None
         if business is None:
             for ev in ta_analyze.business_stream(code):
