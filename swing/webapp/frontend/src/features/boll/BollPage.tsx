@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
 import { Header, PageTitle } from '../../shell'
 
-interface Sig { code: string; name: string; price: number; vol_ratio: number; atr_pct: number; days_since: number | null; is_rep30: boolean; ma60_up: boolean; rs_win: boolean }
+interface Sig { code: string; name: string; price: number; vol_ratio: number; atr_pct: number; days_since: number | null; is_rep30: boolean; ma60_up: boolean; rs_win: boolean; main_concepts?: string[] }
 interface Payload { ok: boolean; error?: string; date: string; mkt_up: boolean | null; mkt_bad: boolean | null; pool: string; signals: Sig[] }
 
 const POOLS = [{ value: 'ml', label: 'ML主升浪池(前800+热股)' }, { value: 'csi1000', label: '中证1000' }, { value: 'csi2000', label: '中证2000' }]
@@ -31,6 +31,7 @@ export default function BollPage() {
     { title: '现价', dataIndex: 'price', render: (v: number) => `¥${v}` },
     { title: 'MA60趋势', dataIndex: 'ma60_up', width: 90, render: (v: boolean) => v ? <Tag color="red">上行</Tag> : <Tag color="green">下行</Tag> },
     { title: '相对大盘', dataIndex: 'rs_win', width: 90, render: (v: boolean) => v ? <Tag color="red">跑赢</Tag> : <Tag color="green">跑输</Tag> },
+    { title: '主线概念', dataIndex: 'main_concepts', width: 180, render: (v: string[] | undefined) => (v && v.length) ? <span>{v.map(n => <Tag key={n} color="red" style={{ marginBottom: 2 }}>{n}</Tag>)}</span> : <span style={{ color: '#bbb' }}>—</span> },
     { title: '量比', dataIndex: 'vol_ratio', sorter: (a: Sig, b: Sig) => a.vol_ratio - b.vol_ratio, render: (v: number) => <b style={{ color: v >= 1 ? '#c0392b' : '#999' }}>{v}</b> },
     { title: 'ATR%', dataIndex: 'atr_pct', sorter: (a: Sig, b: Sig) => a.atr_pct - b.atr_pct, render: (v: number) => `${v}%` },
     { title: '距上次信号', dataIndex: 'days_since', sorter: (a: Sig, b: Sig) => (a.days_since ?? 999) - (b.days_since ?? 999),

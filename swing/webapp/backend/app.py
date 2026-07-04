@@ -842,6 +842,32 @@ class BollReq(BaseModel):
     up: str = "mid"
 
 
+def _attach_main_concepts(signals):
+    """给每个信号股附 main_concepts:该股所属同花顺概念中,当天处于主线候选(领先/改善区)的概念名。"""
+    if not signals:
+        return
+    import duckdb, cache_tushare as ct
+    codes = [s["code"] for s in signals]
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    try:
+        if con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name='concept_signals'").fetchone()[0] == 0:
+            return
+        ph = ",".join(["?"] * len(codes))
+        rows = con.execute(
+            f"""SELECT m.con_code AS stock, cs.name
+                FROM ths_member m JOIN concept_signals cs ON cs.ts_code = m.ts_code
+                WHERE cs.trade_date = (SELECT max(trade_date) FROM concept_signals)
+                  AND cs.main AND cs.bench='000852.SH' AND cs.up='ma20'
+                  AND m.con_code IN ({ph})""", codes).fetchall()
+    finally:
+        con.close()
+    mp = {}
+    for stock, name in rows:
+        mp.setdefault(stock, []).append(name)
+    for s in signals:
+        s["main_concepts"] = mp.get(s["code"], [])
+
+
 @app.post("/api/boll")
 def boll(req: BollReq):
     """BOLL缩口扩张+MACD金叉 当日信号(大盘池):返回最新交易日信号 + 第二次标记 + 大盘状态。"""
@@ -850,6 +876,7 @@ def boll(req: BollReq):
         sys.path.insert(0, os.path.join(_ROOT, "boll_narrow_exit"))
         import boll_expand_macd as bem
         r = bem.latest_signals(req.pool, req.up)
+        _attach_main_concepts(r.get("signals", []))
         return {"ok": True, **r}
     except Exception:
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
