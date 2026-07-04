@@ -161,6 +161,9 @@ function Chart({ title, series }: { title: string; series: Series }) {
 }
 
 const pct = (v: number | null | undefined, sign?: boolean) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#27ae60' }}>{(v >= 0 && sign ? '+' : '') + v + '%'}</span>
+// 按板块给代码上色:科创=紫、创业=橙、主板=蓝
+const boardColor = (c: string) => c.startsWith('688') || c.startsWith('689') ? '#7c3aed'
+  : (c.slice(0, 3) === '300' || c.slice(0, 3) === '301') ? '#c2410c' : '#3b6ea5'
 
 // 统计卡:大数字 + 标签 + 计算方式小字(还原 py 版的 .calc)
 const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: string }) => (
@@ -318,7 +321,7 @@ function MainPage() {
     { title: '突破日', dataIndex: 'date', sorter: (a, b) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' },
     { title: '板块', dataIndex: 'board', filters: ['主板', '科创', '创业'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.board === v },
     { title: '档位/ML分', dataIndex: 'score', defaultSortOrder: 'descend', sorter: (a, b) => a.score - b.score, render: (v, r) => <span><b>{r.tier}</b> {v}</span> },
-    { title: '代码', dataIndex: 'ts' },
+    { title: '代码', dataIndex: 'ts', render: (v: string) => <span style={{ color: boardColor(v), fontFamily: 'var(--font-mono)' }}>{v}</span> },
     { title: '名称', dataIndex: 'name', render: (v, r) => <a onClick={() => openKline(r.ts, r.date, r)}>{v}</a> },
     { title: '价格', dataIndex: 'price', sorter: (a, b) => (a.price ?? 0) - (b.price ?? 0), render: v => v + '元' },
     { title: '形态', dataIndex: 'typ', filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v, r) => r.typ === v },
@@ -385,7 +388,7 @@ function MainPage() {
             <div className="tday-colh" style={{ color: '#c0392b' }}>今日买入</div>
             {today.buys.length ? today.buys.map(r => (
               <span key={'b' + r.ts} className="chip chip-buy">
-                <b>{r.name}</b><span className="chip-code">{r.ts.slice(0, 6)}</span>
+                <b>{r.name}</b><span className="chip-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
                 <span className="chip-meta">{r.tier}·ML{r.score}</span>
                 <span style={{ fontSize: 11, color: r.mkt === '健康' ? '#c0392b' : '#1f8e5a' }}>{r.board}{r.mkt}</span>
               </span>
@@ -397,7 +400,7 @@ function MainPage() {
               const t: string[] = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场')
               return (
                 <span key={'s' + r.ts} className="chip chip-sell">
-                  <b>{r.name}</b><span className="chip-code">{r.ts.slice(0, 6)}</span>
+                  <b>{r.name}</b><span className="chip-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
                   {t.map(x => <span key={x} className="chip-rsn">{x}</span>)}
                 </span>
               )
@@ -412,7 +415,7 @@ function MainPage() {
               return (
                 <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
                   <span style={{ fontWeight: 600 }}>{r.name}</span>
-                  <span className="hold-code">{r.ts.slice(0, 6)}</span>
+                  <span className="hold-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
                   {who && <span className="hold-tag">{who}</span>}
                 </span>
               )
@@ -422,9 +425,10 @@ function MainPage() {
       </div>}
 
       {payload && <div style={{ margin: '8px 0' }}>
-        <Checkbox checked={showKc} onChange={e => setKc(e.target.checked)}>显示科创</Checkbox>
-        <Checkbox checked={showCy} onChange={e => setCy(e.target.checked)} style={{ marginLeft: 12 }}>显示创业</Checkbox>
+        <Checkbox checked={showKc} onChange={e => setKc(e.target.checked)}>显示<span style={{ color: '#7c3aed', fontWeight: 600 }}>科创</span></Checkbox>
+        <Checkbox checked={showCy} onChange={e => setCy(e.target.checked)} style={{ marginLeft: 12 }}>显示<span style={{ color: '#c2410c', fontWeight: 600 }}>创业</span></Checkbox>
         <Checkbox checked={only50} onChange={e => set50(e.target.checked)} style={{ marginLeft: 12 }}>只看≤50元</Checkbox>
+        <span style={{ marginLeft: 12, fontSize: 12, color: '#9b958a' }}>代码色:<span style={{ color: '#3b6ea5' }}>主板</span>/<span style={{ color: '#c2410c' }}>创业</span>/<span style={{ color: '#7c3aed' }}>科创</span></span>
       </div>}
 
       {stats && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
