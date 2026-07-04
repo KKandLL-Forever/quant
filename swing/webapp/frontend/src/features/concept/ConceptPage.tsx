@@ -1,7 +1,7 @@
 // 概念轮动:扩散指标 + RRG 四象限(复现「做量化的西蒙」框架)。RRG散点(X=RS强度,Y=RS动量,气泡=扩散度,色=象限)+主线候选表。数据走 /api/concept。
 import { useEffect, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
-import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, ReferenceLine, ReferenceArea, Tooltip, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
+import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, ReferenceLine, ReferenceArea, Tooltip, CartesianGrid, ResponsiveContainer, Cell, useXAxisScale, useYAxisScale } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 
 interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean; trail: number[][] }
@@ -11,6 +11,19 @@ const BENCH = [{ value: '000852.SH', label: '中证1000' }, { value: '000001.SH'
 const UP = [{ value: 'ma20', label: '站上MA20' }, { value: 'pctup', label: '当日上涨' }]
 const QC: Record<string, string> = { 领先: '#c0392b', 改善: '#e08e0b', 转弱: '#8a7f6a', 落后: '#1f8e5a' }
 const pct = (x: number | null) => x == null ? '—' : `${(x * 100).toFixed(1)}%`
+
+function TrailLayer({ c }: { c: Cpt | null }) {
+  const xs = useXAxisScale() as any
+  const ys = useYAxisScale() as any
+  if (!c || c.trail.length < 2 || !xs || !ys) return null
+  const col = QC[c.quadrant]
+  const d = 'M' + c.trail.map(([x, y]) => `${xs(x)},${ys(y)}`).join(' L')
+  return <g>
+    <defs><marker id="rrgar" markerWidth="7" markerHeight="7" refX="3.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill={col} /></marker></defs>
+    <path d={d} fill="none" stroke={col} strokeWidth={2.5} strokeDasharray="6 5" strokeOpacity={0.85}
+      className="rrg-flow" markerMid="url(#rrgar)" markerEnd="url(#rrgar)" />
+  </g>
+}
 
 export default function ConceptPage() {
   const [bench, setBench] = useState('000852.SH')
@@ -75,7 +88,7 @@ export default function ConceptPage() {
             <span style={{ marginLeft: 10, color: '#c0392b', fontWeight: 600 }}>主线候选 {mains.length} 个</span>
           </Card>
 
-          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周流动轨迹,虚线流向=往哪转)" style={{ marginBottom: 14 }}>
+          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周轨迹,箭头+流动方向=往哪转)" style={{ marginBottom: 14 }}>
             <ResponsiveContainer width="100%" height={480}>
               <ScatterChart margin={{ top: 10, right: 30, bottom: 24, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -87,12 +100,7 @@ export default function ConceptPage() {
                 <XAxis type="number" dataKey="rs_ratio" name="RS强度" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS强度 (相对强度) →', position: 'insideBottom', offset: -12, fontSize: 12 }} />
                 <YAxis type="number" dataKey="rs_momentum" name="RS动量" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS动量 ↑', angle: -90, position: 'insideLeft', fontSize: 12 }} />
                 <ZAxis type="number" dataKey="diffusion" range={[40, 600]} />
-                {hovC && hovC.trail.length > 1 && (
-                  <Scatter key={'t' + hovC.code} isAnimationActive={false} legendType="none"
-                    data={hovC.trail.map(([x, y]) => ({ rs_ratio: x, rs_momentum: y, diffusion: hovC.diffusion }))}
-                    line={{ stroke: QC[hovC.quadrant], strokeWidth: 2.5, strokeDasharray: '7 5', className: 'rrg-flow' } as any} lineType="joint"
-                    shape={(p: any) => <circle cx={p.cx} cy={p.cy} r={3} fill={QC[hovC.quadrant]} fillOpacity={0.55} />} />
-                )}
+                <TrailLayer c={hovC} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
                   if (!active || !payload?.length) return null
                   const d: Cpt = payload[0].payload
