@@ -136,6 +136,8 @@ def analyze_live(code, date, on_event, analysts=("market", "news")):
                    "trader": upd.get("trader_investment_plan")}.get(kind)
             if txt and str(txt).strip():
                 on_event(role, av, kind, str(txt).strip())
+            if node == "Trader":   # 交易员之后是风控团队(前端不展示、verdict另算),提前结束省 DeepSeek(~4次调用)
+                return final
     return final
 
 
