@@ -17,11 +17,15 @@ function TrailLayer({ c }: { c: Cpt | null }) {
   const ys = useYAxisScale() as any
   if (!c || c.trail.length < 2 || !xs || !ys) return null
   const col = QC[c.quadrant]
-  const d = 'M' + c.trail.map(([x, y]) => `${xs(x)},${ys(y)}`).join(' L')
-  return <g>
-    <defs><marker id="rrgar" markerWidth="7" markerHeight="7" refX="3.5" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6 Z" fill={col} /></marker></defs>
-    <path d={d} fill="none" stroke={col} strokeWidth={2.5} strokeDasharray="6 5" strokeOpacity={0.85}
-      className="rrg-flow" markerMid="url(#rrgar)" markerEnd="url(#rrgar)" />
+  const p = c.trail.map(([x, y]) => [xs(x), ys(y)] as [number, number])
+  const n = p.length
+  return <g className="rrg-flow">
+    {p.slice(1).map((pt, i) => {
+      const t = (i + 1) / (n - 1)   // 0→1 越新越粗越实
+      return <line key={i} x1={p[i][0]} y1={p[i][1]} x2={pt[0]} y2={pt[1]} stroke={col}
+        strokeWidth={1 + 2.4 * t} strokeOpacity={0.28 + 0.62 * t} strokeLinecap="round" strokeDasharray="6 5" />
+    })}
+    <circle cx={p[n - 1][0]} cy={p[n - 1][1]} r={3.5} fill={col} />
   </g>
 }
 
@@ -88,7 +92,7 @@ export default function ConceptPage() {
             <span style={{ marginLeft: 10, color: '#c0392b', fontWeight: 600 }}>主线候选 {mains.length} 个</span>
           </Card>
 
-          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周轨迹,箭头+流动方向=往哪转)" style={{ marginBottom: 14 }}>
+          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周轨迹,渐粗+流动方向=往哪转)" style={{ marginBottom: 14 }}>
             <ResponsiveContainer width="100%" height={480}>
               <ScatterChart margin={{ top: 10, right: 30, bottom: 24, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
