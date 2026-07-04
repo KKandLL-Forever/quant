@@ -475,10 +475,14 @@ function MainPage() {
 
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
 
-      {payload && (payload as any).ml_forecast?.length > 0 && (
-        <Card size="small" style={{ marginTop: 12 }} title={`明日预判 ${(payload as any).ml_forecast.length} 只(形态已成型、只差站上突破价;非实时,需明日收盘站上+放量+创新高)`}>
+      {payload && (() => {
+        const bd = (c: string) => c.startsWith('688') || c.startsWith('689') ? '科创' : (c.slice(0, 3) === '300' || c.slice(0, 3) === '301') ? '创业' : '主板'
+        const mlFc = ((payload as any).ml_forecast ?? []).filter((r: any) =>
+          (showKc || bd(r.code) !== '科创') && (showCy || bd(r.code) !== '创业') && (!only50 || r.price <= 50))
+        return mlFc.length > 0 && (
+        <Card size="small" style={{ marginTop: 12 }} title={`明日预判 ${mlFc.length} 只(形态已成型、只差站上突破价;非实时,需明日收盘站上+放量+创新高)`}>
           <Table rowKey={(r: any) => r.code + r.typ} size="small" pagination={{ pageSize: 20 }}
-            dataSource={(payload as any).ml_forecast}
+            dataSource={mlFc}
             columns={[
               { title: '形态', dataIndex: 'typ', width: 100, filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v: any, r: any) => r.typ.includes(v), render: (v: string) => v.includes('/') ? <Tag color="gold">N字/W型</Tag> : <Tag color={v === 'W型' ? 'purple' : 'blue'}>{v}</Tag> },
               { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <a onClick={() => openKline(r.code, payload.latest ?? '', undefined)}>{v}</a> },
@@ -491,7 +495,8 @@ function MainPage() {
             预判=N字(站上高B)/W型(站上颈线C)形态已成型、现价在突破价下方 ≤5% 的票。<b>明日站上突破价 + 放量 + 创新高</b> 才算触发;且突破后还需 ML 打分进档才进上方信号表。非实时提示。
           </div>
         </Card>
-      )}
+        )
+      })()}
 
       {payload && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: 10, fontSize: 12, color: '#7a5d18', marginTop: 10 }}>
         <b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈,非实际买卖收益;"唐奇安/缠论离场"括号内为持仓交易日数(仍持仓算到最新交易日);
