@@ -172,7 +172,7 @@ def analyze_stream(rid: str, code: str, date: str):
                         json.dump(business, f, ensure_ascii=False)
         yield f"data: {json.dumps({'t': 'biz_done', 'v': business}, ensure_ascii=False)}\n\n"
         verdict = None
-        for ev in ta_analyze.verdict_stream(state):
+        for ev in ta_analyze.verdict_stream(state, business):
             if "delta" in ev:
                 yield f"data: {json.dumps({'t': 'ver', 'd': ev['delta']}, ensure_ascii=False)}\n\n"
             else:

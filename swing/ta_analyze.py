@@ -55,22 +55,37 @@ def _cli():
     return OpenAI(api_key=os.environ["DEEPSEEK_API_KEY"], base_url="https://api.deepseek.com")
 
 
-def _verdict_prompt(state):
-    """构造分析师层买/卖/持的 prompt(技术面+消息面)。"""
+def _biz_brief(biz):
+    """把基本面分析师结论压成一段摘要,供综合决策参考;无有效结论返回空串。"""
+    if not isinstance(biz, dict) or biz.get("raw"):
+        return ""
+    parts = [f"类型:{biz['val_type']}" if biz.get("val_type") else "",
+             f"估值:{biz['val_method']}" if biz.get("val_method") else "",
+             f"股价业绩匹配:{biz['valuation']}" if biz.get("valuation") else "",
+             f"PEG:{biz['peg']}" if biz.get("peg") else "",
+             f"地位:{biz['summary']}" if biz.get("summary") else ""]
+    return "\n".join(x for x in parts if x)[:2000]
+
+
+def _verdict_prompt(state, biz=None):
+    """构造分析师层买/卖/持的 prompt(技术面+消息面+基本面)。"""
     mk = (state.get("market_report") or "")[:3500]
     nw = (state.get("news_report") or "")[:3500]
-    return f"""你是A股波段交易员,基于下面的技术面与消息面分析,只对"持仓者现在该买入/卖出/持有"给结论。
+    bz = _biz_brief(biz)
+    bz_block = f"\n【基本面(产业链地位/估值)】\n{bz}\n" if bz else ""
+    return f"""你是A股波段交易员,基于下面的技术面、消息面与基本面分析,只对"持仓者现在该买入/卖出/持有"给结论。
 原则:① 上升趋势未破坏时,不要仅因涨幅大、RSI超买、缩量就判卖出(那会踏空主升浪);
 ② 只有出现明确利空催化(减持/立案/业绩暴雷/评级下调/重大利空公告)或技术破位(跌破关键均线/趋势线)才判卖出;
-③ 趋势完好且无利空 → 持有或买入。
+③ 趋势完好且无利空 → 持有或买入;
+④ 基本面为**背景权重**:估值透支/PEG高估/业绩不及 → 提示风险、降置信;业绩兑现/PEG低估/周期拐点/龙头地位 → 增强持有/买入理由。基本面不单独推翻趋势结论,但要在理由里体现。
 
 【技术面】
 {mk}
 
 【消息面】
 {nw}
-
-只输出JSON:{{"action":"买入|卖出|持有","confidence":0~1,"reasoning":"一句话理由"}}"""
+{bz_block}
+只输出JSON:{{"action":"买入|卖出|持有","confidence":0~1,"reasoning":"一句话理由(需同时体现技术面与基本面)"}}"""
 
 
 def _parse_verdict(txt):
@@ -82,11 +97,11 @@ def _parse_verdict(txt):
         return {"action": "?", "raw": txt[:200]}
 
 
-def verdict_stream(state):
-    """流式版分析师判断:逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。"""
+def verdict_stream(state, biz=None):
+    """流式版分析师判断(技术+消息+基本面):逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。"""
     buf = ""
     for ch in _cli().chat.completions.create(model="deepseek-v4-pro", temperature=0.2, stream=True,
-                                             messages=[{"role": "user", "content": _verdict_prompt(state)}]):
+                                             messages=[{"role": "user", "content": _verdict_prompt(state, biz)}]):
         d = ch.choices[0].delta.content or ""
         if d:
             buf += d
