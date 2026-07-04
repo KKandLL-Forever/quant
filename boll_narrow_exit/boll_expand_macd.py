@@ -127,7 +127,7 @@ def latest_signals(pool="ml", up_mode="mid"):
                     miss.append(f"MACD即将金叉(DIF距DEA约{round(gap / adjc * 100, 2)}%)")
                 if not widen_ok:
                     miss.append("带宽扩张")
-                if miss:
+                if len(miss) == 1:   # 只留恰好缺一个条件的
                     fc.append({"code": ts, "name": names.get(ts, ""), "price": round(float(g["close_raw"].iloc[i]), 2),
                                "trig": round(trig, 2), "to_band": round(to_band * 100, 1), "gap": round(gap, 3),
                                "vol_ratio": round(float(vr.iloc[i]), 2) if pd.notna(vr.iloc[i]) else None,
