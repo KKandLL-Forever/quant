@@ -385,10 +385,11 @@ def _cz_portfolio(data, px, cal, parts):
                 for lg in op:
                     if lg["pid"] == pid:
                         pr = price(ts, d) or lg["entry"]
-                        cash += lg["amt"] * (pr / lg["entry"])
+                        gross = (pr / lg["entry"]) * (1 - 2 * COST)
+                        cash += lg["amt"] * gross
                         rec = lg.get("rec")
                         if rec:
-                            rec.update(ret=pr / lg["entry"] - 1, exit=d, hold=bd(rec["date"], d), open=False)
+                            rec.update(ret=round((gross - 1) * 100, 1), exit=d, hold=bd(rec["date"], d), open=False)
                     else:
                         keep.append(lg)
                 op = keep
@@ -413,11 +414,12 @@ def _cz_portfolio(data, px, cal, parts):
             pr = price(lg["ts"], d) or lg["entry"]
             eq += lg["amt"] * (pr / lg["entry"])
         curve.append([d, round(eq)])
-    for lg in op:   # 收尾:未平仓按最新价盯市
+    for lg in op:   # 收尾:未平仓按最新价盯市(扣双边费)
         pr = price(lg["ts"], last) or lg["entry"]
         rec = lg.get("rec")
         if rec:
-            rec.update(ret=pr / lg["entry"] - 1, exit=None, hold=bd(rec["date"], last), open=True)
+            rec.update(ret=round(((pr / lg["entry"]) * (1 - 2 * COST) - 1) * 100, 1),
+                       exit=None, hold=bd(rec["date"], last), open=True)
     return curve, log
 
 
