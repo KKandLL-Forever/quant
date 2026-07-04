@@ -63,9 +63,13 @@ def compute(px):
     return px
 
 
-def _membership(memb, dates):
-    """把月度成分快照前向填充成 {date: set(codes)},供 point-in-time 判断在册。"""
+def _membership(memb, dates, pit=True):
+    """成分归属:pit=True 用月度快照前向填充(point-in-time,当时真实成分);
+    pit=False 用【最新一期快照】铺满全历史(=用今天的名单看过去,幸存者偏差/未来数据)。"""
     snaps = sorted(memb["trade_date"].unique())
+    if not pit:
+        latest = set(memb[memb["trade_date"] == snaps[-1]]["con_code"])
+        return {d: latest for d in dates}
     bycode = {d: set(memb[memb["trade_date"] == d]["con_code"]) for d in snaps}
     out, cur = {}, set()
     si = 0
@@ -76,12 +80,12 @@ def _membership(memb, dates):
     return out
 
 
-def backtest(px, memb, idx, top_pct=0.10, slots=5, hold=20, refresh=10, mkt_thr=-0.03, liq_floor=0.0):
+def backtest(px, memb, idx, top_pct=0.10, slots=5, hold=20, refresh=10, mkt_thr=-0.03, liq_floor=0.0, pit=True):
     """事件驱动定槽:每 refresh 天选 alpha144 前 top_pct 候选;候选中当日突破5日新高→次日开盘买入;
-    最多 slots 只等权、持满 hold 天开盘卖出、不止损;中证500 近20日跌幅<mkt_thr 时不新开。返回日净值 + 成交。"""
+    最多 slots 只等权、持满 hold 天开盘卖出、不止损;近20日跌幅<mkt_thr 时不新开。pit=False 用今天名单(未来数据)。"""
     dates = sorted(px["trade_date"].unique())
     di = {d: i for i, d in enumerate(dates)}
-    inmemb = _membership(memb, dates)
+    inmemb = _membership(memb, dates, pit)
     idxc = idx.set_index("trade_date")["close"]
     idx_ret20 = (idxc / idxc.shift(20) - 1).to_dict()
     day_groups = {d: g.set_index("ts_code") for d, g in px.groupby("trade_date")}
@@ -163,10 +167,12 @@ if __name__ == "__main__":
     ap.add_argument("--liq-floor", type=float, default=0.0, help="剔除当日成交额(千元)低于此值的票,做流动性稳健性检验")
     ap.add_argument("--start", default="2020-06-01")
     ap.add_argument("--universe", default="csi500", choices=["csi500", "csi1000", "csi2000"])
+    ap.add_argument("--no-pit", action="store_true", help="用今天的成分名单铺满全历史(幸存者偏差/未来数据,演示坑用)")
     args = ap.parse_args()
     px, memb, idx = load(args.start, args.universe)
     px = compute(px)
-    curve, trades = backtest(px, memb, idx, args.top_pct, args.slots, args.hold, args.refresh, liq_floor=args.liq_floor)
+    curve, trades = backtest(px, memb, idx, args.top_pct, args.slots, args.hold, args.refresh,
+                             liq_floor=args.liq_floor, pit=not args.no_pit)
     cagr, mdd, sharpe, byyear, corr = metrics(curve, idx)
     print(f"\n=== Alpha#144 流动性冲击择时(中证500,top{args.top_pct:.0%},{args.slots}只,持{args.hold}日,刷新{args.refresh}日,"
           f"liq_floor={args.liq_floor:g})===")
