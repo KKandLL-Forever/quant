@@ -1225,6 +1225,11 @@ def fetch_csi2000_members(pro, duck_path: str) -> None:
     _fetch_index_members(pro, duck_path, "932000.CSI", "csi2000_members", 2023, "csi2000")
 
 
+def fetch_csi500_members(pro, duck_path: str) -> None:
+    """中证500成分(index_weight 000905.SH)→ csi500_members 表。"""
+    _fetch_index_members(pro, duck_path, "000905.SH", "csi500_members", 2019, "csi500")
+
+
 def fetch_sw_members(pro, duck_path: str) -> None:
     """全量重建申万一级行业成分(index_member_all 按31个L1分类遍历)写入 DuckDB sw_member 表。
 
@@ -1881,6 +1886,7 @@ INDEX_CODES = [
     "000680.SH",  # 科创综指
     "000852.SH",  # 中证1000（沪）
     "399852.SZ",  # 中证1000（深）
+    "000905.SH",  # 中证500（alpha144 大盘过滤用）
 ]
 
 _INDEX_FIELDS = "ts_code,trade_date,close,open,high,low,pre_close,change,pct_chg,vol,amount"
@@ -2884,6 +2890,10 @@ def main() -> None:
             fetch_csi2000_members(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[csi2000] 成分更新跳过({e})")
+        try:
+            fetch_csi500_members(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[csi500] 成分更新跳过({e})")
         try:
             fetch_sw_members(pro, DUCKDB_PATH)
         except Exception as e:
