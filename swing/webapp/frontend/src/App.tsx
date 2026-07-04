@@ -476,8 +476,8 @@ function MainPage() {
         {kl?.loading ? <div style={{ textAlign: 'center', padding: 40 }}><Spin tip="加载中..." /><div style={{ height: 30 }} /></div> :
           kl?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{kl.data.error}</pre> :
             kl?.data?.ok ? <div>
-              <KLineChart data={kl.data} marks={kl.data.marks || kl.marks} />
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买/补(缠论M3:卖点止盈+回调回补);绿▼=卖(缠=缠论卖点、止=跌破60日线/止损);红涨绿跌(前复权)</div>
+              <KLineChart data={kl.data} marks={kl.data.marks ? [...kl.data.marks, ...kl.marks.filter((m: Mark) => m.label === '唐')] : kl.marks} />
+              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔(连接顶/底分型);橙框=中枢;灰虚线=突破日;红▲=买/补(缠论M3:卖点止盈+回调回补);绿▼=卖(唐=唐奇安下轨清仓〔ML策略出场〕、缠=缠论卖点、止=跌破60日线/止损);红涨绿跌(前复权)</div>
             </div> : <div>无数据</div>}
       </Modal>
 
