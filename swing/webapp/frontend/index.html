@@ -49,6 +49,27 @@
       .hold-chip:hover { border-color: var(--accent); background: #f1f6f2; box-shadow: 0 3px 10px -5px #0b6e4f88; transform: translateY(-1px); }
       .hold-code { color: #9b958a; font-family: var(--font-mono); font-size: 11px; }
       .hold-tag { background: var(--accent); color: #fff; border-radius: 4px; padding: 0 5px; font-size: 10px; line-height: 16px; font-weight: 600; }
+      /* 最新交易日面板 */
+      .tday { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin: 10px 0;
+        box-shadow: 0 2px 14px -10px rgba(23,20,15,.4); }
+      .tday-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+        padding-bottom: 10px; border-bottom: 1px dashed var(--line); }
+      .tday-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+      .tday-date { font-family: var(--font-mono); font-size: 12px; color: var(--ink-soft); }
+      .tday-pill { font-size: 12px; padding: 1px 10px; border-radius: 999px; border: 1px solid var(--line); background: #fff; margin-left: 2px; }
+      .tday-grid { display: grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 16px; }
+      @media (max-width: 900px) { .tday-grid { grid-template-columns: 1fr; } }
+      .tday-colh { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; font-weight: 700; margin-bottom: 8px;
+        display: flex; align-items: center; gap: 6px; }
+      .tday-colh::before { content: ''; width: 3px; height: 12px; border-radius: 2px; background: currentColor; display: inline-block; }
+      .tday-empty { color: #b7b0a2; font-size: 13px; }
+      .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; margin: 0 6px 6px 0;
+        border-radius: 999px; font-size: 13px; border: 1px solid var(--line); background: #fff; transition: all .12s ease; }
+      .chip-buy { border-color: #e6d6a8; background: #fbf6e8; }
+      .chip-sell { border-color: #e3b9b2; background: #fbecec; }
+      .chip-code { color: #9b958a; font-family: var(--font-mono); font-size: 11px; }
+      .chip-meta { font-size: 11px; color: var(--ink-soft); }
+      .chip-rsn { background: var(--down); color: #fff; border-radius: 4px; padding: 0 5px; font-size: 10px; line-height: 16px; font-weight: 600; }
       .cursor { animation: blink 1s step-end infinite; color: var(--accent); font-weight: 700; }
       @keyframes blink { 50% { opacity: 0; } }
       /* LLM 分析 聊天布局 */

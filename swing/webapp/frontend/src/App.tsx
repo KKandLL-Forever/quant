@@ -371,23 +371,52 @@ function MainPage() {
         列出 top{payload.tier}% = {payload.signals.length} 条 | 已满60日的 {stats.doneN} 条中走出主升浪 {stats.succ} | 档位:top1/3/5/10/20/30
       </p>}
 
-      {today && <div style={{ background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 8, padding: '8px 12px', margin: '8px 0' }}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>最新交易日({today.L}) · 买入 {today.buys.length} 条 / 需卖出 {today.sells.length} 条</div>
-        <div><b>买入:</b> {today.buys.length ? today.buys.map(r => <span key={'b' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> {r.tier} ML{r.score} <span style={{ color: r.mkt === '健康' ? '#c0392b' : '#27ae60' }}>[{r.board}{r.mkt}]</span></span>) : <span style={{ color: '#999' }}>无</span>}</div>
-        <div style={{ marginTop: 4 }}><b>需卖出:</b> {today.sells.length ? today.sells.map(r => { const t: string[] = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场'); return <span key={'s' + r.ts} style={{ marginRight: 10, fontSize: 13 }}><b>{r.name}({r.ts})</b> <span style={{ color: '#27ae60' }}>{t.join('/')}</span></span> }) : <span style={{ color: '#999' }}>无</span>}</div>
-        <div style={{ marginTop: 8 }}>
-          <b>当前持仓</b> <span style={{ fontSize: 12, color: '#9b958a' }}>· 点击按最新交易日 {today.L} 分析该不该卖</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: 6 }}>
-            {today.holds.length ? today.holds.map(r => {
-              const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
+      {today && <div className="tday">
+        <div className="tday-head">
+          <span className="tday-title">最新交易日</span>
+          <span className="tday-date">{today.L}</span>
+          <span style={{ flex: 1 }} />
+          <span className="tday-pill" style={{ color: '#c0392b' }}>买入 {today.buys.length}</span>
+          <span className="tday-pill" style={{ color: '#1f8e5a' }}>卖出 {today.sells.length}</span>
+          <span className="tday-pill">持仓 {today.holds.length}</span>
+        </div>
+        <div className="tday-grid">
+          <div>
+            <div className="tday-colh" style={{ color: '#c0392b' }}>今日买入</div>
+            {today.buys.length ? today.buys.map(r => (
+              <span key={'b' + r.ts} className="chip chip-buy">
+                <b>{r.name}</b><span className="chip-code">{r.ts.slice(0, 6)}</span>
+                <span className="chip-meta">{r.tier}·ML{r.score}</span>
+                <span style={{ fontSize: 11, color: r.mkt === '健康' ? '#c0392b' : '#1f8e5a' }}>{r.board}{r.mkt}</span>
+              </span>
+            )) : <span className="tday-empty">无</span>}
+          </div>
+          <div>
+            <div className="tday-colh" style={{ color: '#1f8e5a' }}>今日需卖出</div>
+            {today.sells.length ? today.sells.map(r => {
+              const t: string[] = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场')
               return (
-                <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
-                  <span style={{ fontWeight: 600 }}>{r.name}</span>
-                  <span className="hold-code">{r.ts.slice(0, 6)}</span>
-                  {who && <span className="hold-tag">{who}</span>}
+                <span key={'s' + r.ts} className="chip chip-sell">
+                  <b>{r.name}</b><span className="chip-code">{r.ts.slice(0, 6)}</span>
+                  {t.map(x => <span key={x} className="chip-rsn">{x}</span>)}
                 </span>
               )
-            }) : <span style={{ color: '#9b958a' }}>无</span>}
+            }) : <span className="tday-empty">无</span>}
+          </div>
+          <div>
+            <div className="tday-colh" style={{ color: '#0b6e4f' }}>当前持仓<span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: 11, color: '#9b958a', marginLeft: 4 }}>点击分析该不该卖</span></div>
+            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+              {today.holds.length ? today.holds.map(r => {
+                const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
+                return (
+                  <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
+                    <span style={{ fontWeight: 600 }}>{r.name}</span>
+                    <span className="hold-code">{r.ts.slice(0, 6)}</span>
+                    {who && <span className="hold-tag">{who}</span>}
+                  </span>
+                )
+              }) : <span className="tday-empty">无</span>}
+            </div>
           </div>
         </div>
       </div>}
