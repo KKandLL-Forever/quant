@@ -29,10 +29,12 @@ export default function ConceptPage() {
   }
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const [hov, setHov] = useState<string | null>(null)
   const cs = data?.concepts || []
   const mains = cs.filter(c => c.main)
   // 散点只画扩散榜 top60,避免 400 个点糊成一团
   const scatter = [...cs].sort((a, b) => b.diffusion - a.diffusion).slice(0, 60)
+  const hovC = scatter.find(c => c.code === hov) || null
   const dist = cs.reduce((m, c) => { m[c.quadrant] = (m[c.quadrant] || 0) + 1; return m }, {} as Record<string, number>)
 
   const cols = [
@@ -73,7 +75,7 @@ export default function ConceptPage() {
             <span style={{ marginLeft: 10, color: '#c0392b', fontWeight: 600 }}>主线候选 {mains.length} 个</span>
           </Card>
 
-          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;主线候选带近8周轨迹尾巴→看往哪转)" style={{ marginBottom: 14 }}>
+          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周流动轨迹,虚线流向=往哪转)" style={{ marginBottom: 14 }}>
             <ResponsiveContainer width="100%" height={480}>
               <ScatterChart margin={{ top: 10, right: 30, bottom: 24, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -85,12 +87,12 @@ export default function ConceptPage() {
                 <XAxis type="number" dataKey="rs_ratio" name="RS强度" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS强度 (相对强度) →', position: 'insideBottom', offset: -12, fontSize: 12 }} />
                 <YAxis type="number" dataKey="rs_momentum" name="RS动量" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS动量 ↑', angle: -90, position: 'insideLeft', fontSize: 12 }} />
                 <ZAxis type="number" dataKey="diffusion" range={[40, 600]} />
-                {mains.map((c) => (
-                  <Scatter key={'t' + c.code} isAnimationActive={false} legendType="none"
-                    data={c.trail.map(([x, y]) => ({ rs_ratio: x, rs_momentum: y, diffusion: c.diffusion }))}
-                    line={{ stroke: QC[c.quadrant], strokeWidth: 1.5, strokeOpacity: 0.5 }} lineType="joint"
-                    shape={(p: any) => <circle cx={p.cx} cy={p.cy} r={2} fill={QC[c.quadrant]} fillOpacity={0.4} />} />
-                ))}
+                {hovC && hovC.trail.length > 1 && (
+                  <Scatter key={'t' + hovC.code} isAnimationActive={false} legendType="none"
+                    data={hovC.trail.map(([x, y]) => ({ rs_ratio: x, rs_momentum: y, diffusion: hovC.diffusion }))}
+                    line={{ stroke: QC[hovC.quadrant], strokeWidth: 2.5, strokeDasharray: '7 5', className: 'rrg-flow' } as any} lineType="joint"
+                    shape={(p: any) => <circle cx={p.cx} cy={p.cy} r={3} fill={QC[hovC.quadrant]} fillOpacity={0.55} />} />
+                )}
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
                   if (!active || !payload?.length) return null
                   const d: Cpt = payload[0].payload
@@ -101,8 +103,10 @@ export default function ConceptPage() {
                     <div>RS强度 {d.rs_ratio.toFixed(1)} · RS动量 {d.rs_momentum.toFixed(1)}</div>
                   </div>
                 }} />
-                <Scatter data={scatter}>
-                  {scatter.map((c, i) => <Cell key={i} fill={QC[c.quadrant]} fillOpacity={c.main ? 0.95 : 0.5} stroke={c.main ? '#17140f' : 'none'} strokeWidth={c.main ? 1.2 : 0} />)}
+                <Scatter data={scatter} isAnimationActive={false}
+                  onMouseEnter={(d: any) => setHov(d?.code ?? d?.payload?.code ?? null)}
+                  onMouseLeave={() => setHov(null)}>
+                  {scatter.map((c, i) => <Cell key={i} fill={QC[c.quadrant]} fillOpacity={c.main ? 0.95 : 0.5} stroke={c.code === hov ? '#17140f' : c.main ? '#17140f' : 'none'} strokeWidth={c.code === hov ? 2 : c.main ? 1.2 : 0} />)}
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>

@@ -82,7 +82,7 @@ def _combine_from(g: pd.DataFrame, r: pd.DataFrame, diff_top: int = 40) -> pd.Da
     return m.sort_values(["主线候选", "diffusion"], ascending=[False, False])
 
 
-def _trails(r: pd.DataFrame, n: int = 8, step: int = 5) -> dict:
+def _trails(r: pd.DataFrame, n: int = 4, step: int = 5) -> dict:
     """每个概念取最近 n 周(每 step 交易日一点)的 RRG 路径 [[rs_ratio,rs_momentum],...] 旧→新。"""
     out = {}
     for code, sub in r.sort_values("trade_date").groupby("ts_code"):
