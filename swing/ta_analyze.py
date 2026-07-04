@@ -181,10 +181,10 @@ def _business_prompt(code):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
         FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
-    mv = con.execute("""SELECT total_mv,pe_ttm,pb,trade_date FROM daily_basic WHERE ts_code=?
+    mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,trade_date FROM daily_basic WHERE ts_code=?
         ORDER BY trade_date DESC LIMIT 1""", [tscode]).fetchone()
     swr = con.execute("SELECT l1_name,l2_name,l3_name FROM sw_member WHERE ts_code=?", [tscode]).fetchone()
-    yr = (mv[3].year if mv else __import__("datetime").date.today().year)
+    yr = (mv[5].year if mv else __import__("datetime").date.today().year)
     ytd = con.execute("""SELECT d.close*a.adj_factor FROM daily d JOIN adj_factor a
         ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
         WHERE d.ts_code=? AND d.trade_date>=? ORDER BY d.trade_date""", [tscode, f"{yr}-01-01"]).fetchall()
@@ -195,6 +195,8 @@ def _business_prompt(code):
     ann = con.execute("""SELECT end_date, n_income_attr_p/1e8 FROM income
         WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL
         ORDER BY end_date DESC LIMIT 4""", [tscode]).fetchall()
+    roey = con.execute("""SELECT roe_yearly FROM fina_indicator WHERE ts_code=? AND roe_yearly IS NOT NULL
+        ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
     con.close()
     import math
     cagr = None   # 近3年归母净利复合增速
@@ -223,6 +225,17 @@ def _business_prompt(code):
         f"3年净利CAGR {cagr*100:.0f}% | 券商全年预测净利 {fwd_np:.2f}亿 | 前瞻PE {fwd_pe:.1f} | "
         f"前瞻PEG {fwd_peg:.2f}({tier};<0.5极低估/0.5-1低估/1-1.5合理/1.5-2偏贵/>2高估)"
         + (f" | 当前PE需 {digest:.1f} 年增长消化到30x" if digest else ""))
+    # PB-ROE / RIM(内在价值/现价 V/P):合理PB=(ROE-g)/(r-g),r=10%,g 取保守增长
+    roe = (roey[0] / 100.0) if (roey and roey[0] is not None) else None   # 年化ROE(roe_yearly)
+    pb = mv[2] if mv else None
+    g_l = min(cagr, 0.08) if (cagr and cagr > 0) else 0.03
+    just_pb = ((roe - g_l) / (0.10 - g_l)) if (roe is not None and roe > g_l) else None
+    vp = (just_pb / pb) if (just_pb and pb and pb > 0) else None
+    tooltxt = "；".join(x for x in [
+        (f"PB-ROE:合理PB {just_pb:.2f}(ROE {roe*100:.0f}%,r10%,g{g_l*100:.0f}%),现PB {pb:.2f} → RIM内在价值/现价 V/P {vp:.2f}(>1低估/<1高估)"
+         if vp else None),
+        (f"股息率 {mv[4]:.1f}%" if (mv and mv[4]) else None),
+        (f"PS(TTM) {mv[3]:.1f}" if (mv and mv[3]) else None)] if x)
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
                                    f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
     mvtxt = "无" if not mv else f"总市值{mv[0]/10000:.0f}亿 PE(TTM){mv[1]} PB{mv[2]}"
@@ -232,7 +245,7 @@ def _business_prompt(code):
     sw = "/".join(x for x in (swr or []) if x) if swr else ""
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
             f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}\n"
-            f"前瞻PEG(彼得·林奇口径):{pegtxt}")
+            f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
 
 {info}
@@ -244,14 +257,22 @@ def _business_prompt(code):
 4) pricing: 议价能力——结合毛利率{('('+str(fin[0])+'%)') if fin else ''}与行业对比,说强/中/弱及原因(高毛利=强议价)
 5) bottleneck: 卡脖子方向——是"被卡"(依赖海外/国产替代)还是"卡别人"(我方主导/海外依赖我)还是"否";给 被卡|卡别人|否|部分,reason 一句话带依据
 6) summary: 一句话总结其在供应链的真实地位
-7) valuation: **股价-业绩-估值 匹配分析(重点,必须用数据说话,按下面这套方法做)**:
-   - 对比【年初至今涨幅】与【最近季报/半年报的归母净利同比增速】,判断业绩有没有跟上股价(涨幅远大于利润增速=背离);
-   - 用【当前 PE(TTM)/PB/总市值】判断估值绝对水平;**结合上面给的「前瞻PEG」**(=前瞻PE÷(3年净利CAGR×100),林奇法):PEG<1 表示估值被增长消化得起、>1.5 偏贵;并说明"当前PE需几年增长消化到30x"意味着什么(若资料/新闻里有更新的券商预测可修正);
-   - **匹配测算**:若要维持 PE 不变,利润需与股价同步增长(涨X% → 利润需同比+X%)。据此反推下一个报告期(半年报/年报)需要的利润额与单季增速,并对照已披露季度看现实性(如:H1 需 A 亿 = 上年同期×(1+涨幅),而 Q1 已知 B 亿 → Q2 单季需 A−B 亿,是 Q1 的几倍);
-   - 结论明确区分"业绩已兑现 / 靠预期题材透支",以及"逻辑验证(Q2 需出现环比拐点) vs 估值支撑"。给一句话判断 + 关键数字(涨幅、季度利润、PE、需要的单季利润)。
-8) peg: **PEG 一句话结论**(基于上面「前瞻PEG」那行数据,直接给判断,如"前瞻PEG 0.57、CAGR33%,增长消化得起、偏低估";若标注"PEG不适用"则说明为何不适用——利润为负/无券商覆盖)。
+7) val_type: **先判企业类型**(据行业+财务特征,单选并说明依据一句话):
+   消费白马/稳定成长 | 高成长科技医药 | 周期股 | 金融重资产 | 未盈利成长 | 公用高分红
+8) val_method: **按类型选最合适的估值法**(别一律用PEG!):
+   - 消费白马/稳定成长 → PE历史分位 + 前瞻PEG(增长匹配)
+   - 高成长科技医药 → 前瞻PEG;未盈利则用 PS(TTM);讲清增长兑现节奏
+   - 周期股 → **PB(底部区)+ PB-ROE**,**忌用PE**(顶部PE最低=陷阱)
+   - 金融重资产 → **PB-ROE / RIM内在价值(V/P)**
+   - 未盈利成长 → **PS(TTM)** + 赛道空间
+   - 公用高分红 → **股息率 / DDM**
+   说明:选了哪种、为什么、用上面「估值工具箱/前瞻PEG」里的对应数字得出的结论(一句话判断+关键数字)。
+9) valuation: **股价-业绩 匹配测算**(所有类型都做):对比【年初至今涨幅】与【最近季报/半年报归母净利同比】判断背离;
+   若要维持PE不变,涨X%→利润需同比+X%,据此反推下一报告期需要的利润额与单季增速,对照已披露季度看现实性;
+   结论区分"业绩已兑现 / 靠预期透支"。给一句话+关键数字(涨幅、季度利润、PE、需要的单季利润)。
+10) peg: **前瞻PEG 一句话结论**(基于「前瞻PEG」那行;标注不适用则说明为何——利润为负/无券商覆盖)。
 
-只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","valuation":"","peg":""}}"""
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":""}}"""
     return prompt, fintxt, pegdict
 
 

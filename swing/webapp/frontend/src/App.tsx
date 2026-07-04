@@ -570,6 +570,10 @@ function MainPage() {
               {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
               {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
               {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
+              {(b.val_type || b.val_method) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 6 }}>
+                {b.val_type && <div><b>企业类型:</b> <Tag color="green">{b.val_type}</Tag></div>}
+                {b.val_method && <div style={{ marginTop: 2 }}><b>估值方法:</b> {b.val_method}</div>}
+              </div>}
               {b.peg_data && (() => { const p = b.peg_data; const col = p.peg < 1 ? '#c0392b' : p.peg < 1.5 ? '#7a5d18' : '#1f8e5a'
                 return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef3f8', border: '1px solid #cfe0ef', borderRadius: 6 }}>
                   <b>前瞻PEG(林奇):</b> <b style={{ color: col, fontSize: 15 }}>{p.peg}</b> <Tag color={p.peg < 1 ? 'red' : p.peg < 1.5 ? 'gold' : 'green'}>{p.tier}</Tag>
