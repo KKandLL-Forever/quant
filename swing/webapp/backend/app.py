@@ -843,15 +843,16 @@ class BollReq(BaseModel):
 
 
 def _attach_main_concepts(signals):
-    """给每个信号股附 main_concepts:该股所属同花顺概念中,当天处于主线候选(领先/改善区)的概念名。"""
+    """给每个信号股附 main_concepts:该股所属同花顺概念中,当天处于主线候选(领先/改善区)的概念名。返回概念数据日期。"""
     if not signals:
-        return
+        return None
     import duckdb, cache_tushare as ct
     codes = [s["code"] for s in signals]
     con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
     try:
         if con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name='concept_signals'").fetchone()[0] == 0:
-            return
+            return None
+        cdate = con.execute("SELECT max(trade_date) FROM concept_signals").fetchone()[0]
         ph = ",".join(["?"] * len(codes))
         rows = con.execute(
             f"""SELECT m.con_code AS stock, cs.name
@@ -866,6 +867,7 @@ def _attach_main_concepts(signals):
         mp.setdefault(stock, []).append(name)
     for s in signals:
         s["main_concepts"] = mp.get(s["code"], [])
+    return f"{cdate[:4]}-{cdate[4:6]}-{cdate[6:]}" if cdate else None
 
 
 @app.post("/api/boll")
@@ -876,7 +878,7 @@ def boll(req: BollReq):
         sys.path.insert(0, os.path.join(_ROOT, "boll_narrow_exit"))
         import boll_expand_macd as bem
         r = bem.latest_signals(req.pool, req.up)
-        _attach_main_concepts(r.get("signals", []))
+        r["concept_date"] = _attach_main_concepts(r.get("signals", []))
         return {"ok": True, **r}
     except Exception:
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
