@@ -299,21 +299,24 @@ def _tag_states(out):
         bykey.setdefault(ts, []).append(ds)
     final = {}
     for ts, dss in bykey.items():
-        cur_exit = "flat"   # "flat" | None(持仓中) | pd.Timestamp(已离场日)
+        cur_exit = "flat"       # "flat" | None(持仓中) | pd.Timestamp(已离场日)
+        anchor_exit = None      # 当前锚点仓位的离场日 str(持仓中则 None)
         for ds in sorted(dss):
             ret_, raw_, exit_, opn_, hold_, rebought_, legs_ = out[(ts, ds)]
             d = pd.Timestamp(ds)
             anchor = (cur_exit == "flat") or (isinstance(cur_exit, pd.Timestamp) and d > cur_exit)
+            posinfo = None
             if anchor:
                 if opn_:
                     state = "持仓中(回补)" if rebought_ else "持仓中"
-                    cur_exit = None
+                    cur_exit, anchor_exit = None, None
                 else:
                     state = None   # 已离场,列显示离场日
-                    cur_exit = pd.Timestamp(exit_)
+                    cur_exit, anchor_exit = pd.Timestamp(exit_), exit_
             else:
-                state = "加仓"
-            final[(ts, ds)] = (ret_, raw_, exit_, opn_, hold_, state, legs_)
+                state = "加仓"     # 归属当前锚点仓位,带上锚点的离场日/持仓状态
+                posinfo = [anchor_exit, anchor_exit is None]
+            final[(ts, ds)] = (ret_, raw_, exit_, opn_, hold_, state, legs_, posinfo)
     return final
 
 
@@ -735,7 +738,7 @@ def main():
         st = ("已走出主升浪" if r["label"] == 1 else "未达") if r["done"] else "进行中"
         code = r["ts"][:3]
         board = "科创" if r["ts"].startswith(("688", "689")) else "创业" if code in ("300", "301") else "主板"
-        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None, None, []))
+        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None, None, [], None))
         data.append({
             "date": str(r["date"].date()), "ts": r["ts"], "name": names.get(r["ts"], ""),
             "board": board, "mkt": "健康" if regs.get(BOARD_IDX.get(board, "沪深300"), {}).get(r["date"], False) else "走坏",
@@ -752,7 +755,7 @@ def main():
             "swexit": None if pd.isna(r["swexit"]) else str(r["swexit"].date()),
             "swtp": None if pd.isna(r["swtp"]) else str(r["swtp"].date()),
             "czret": cz[0], "czr": cz[1], "czexit": cz[2], "czopen": cz[3], "czhold": cz[4],
-            "czstate": cz[5], "czlegs": cz[6],
+            "czstate": cz[5], "czlegs": cz[6], "czposinfo": cz[7],
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "hold": int(np.busday_count(r["date"].date(),
                      (r["donexit"] if not pd.isna(r["donexit"]) else pd.Timestamp(sel)).date())),

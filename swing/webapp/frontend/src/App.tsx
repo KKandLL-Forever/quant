@@ -72,7 +72,7 @@ type Sig = SignalRow & {
   maxfwd?: number | null
   donret?: number | null; donr?: number | null; donexit?: string | null; donopen?: boolean; hold?: number | null
   czret?: number | null; czr?: number | null; czexit?: string | null; czopen?: boolean; czhold?: number | null
-  czstate?: string | null; czlegs?: [string, string][]
+  czstate?: string | null; czlegs?: [string, string][]; czposinfo?: [string | null, boolean] | null
   swret?: number | null; swr?: number | null; swexit?: string | null; swopen?: boolean; swhold?: number | null
 }
 import { useSignalStore } from './store/signalStore'
@@ -331,7 +331,7 @@ function MainPage() {
     { title: '缠论M3盈亏', dataIndex: 'czret', sorter: (a, b) => (a.czret ?? -999) - (b.czret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.czopen ? '(持仓)' : ''}</span> },
     { title: '缠论M3终止', dataIndex: 'czexit', render: (v, r) => {
       if (r.czret == null) return '—'
-      if (r.czstate === '加仓') return <Tag color="gold">加仓</Tag>
+      if (r.czstate === '加仓') { const p = r.czposinfo; return <span><Tag color="gold">加仓</Tag>{p ? (p[1] ? <span style={{ color: '#888' }}>持仓中</span> : <span style={{ color: '#888' }}>离场 {p[0]}</span>) : null}</span> }
       if (r.czstate === '持仓中(回补)') return <Tag color="green">持仓中(回补)</Tag>
       if (r.czstate === '持仓中') return <Tag color="blue">持仓中</Tag>
       return (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '')   // 已离场
