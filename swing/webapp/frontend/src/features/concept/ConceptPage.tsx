@@ -4,7 +4,7 @@ import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
 import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, ReferenceLine, ReferenceArea, Tooltip, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { Header, PageTitle } from '../../shell'
 
-interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean }
+interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean; trail: number[][] }
 interface Payload { ok: boolean; error?: string; date: string; bench: string; concepts: Cpt[] }
 
 const BENCH = [{ value: '000852.SH', label: '中证1000' }, { value: '000001.SH', label: '上证综指' }, { value: '399852.SZ', label: '中证2000' }]
@@ -73,7 +73,7 @@ export default function ConceptPage() {
             <span style={{ marginLeft: 10, color: '#c0392b', fontWeight: 600 }}>主线候选 {mains.length} 个</span>
           </Card>
 
-          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高)" style={{ marginBottom: 14 }}>
+          <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;主线候选带近8周轨迹尾巴→看往哪转)" style={{ marginBottom: 14 }}>
             <ResponsiveContainer width="100%" height={480}>
               <ScatterChart margin={{ top: 10, right: 30, bottom: 24, left: 10 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
@@ -85,6 +85,12 @@ export default function ConceptPage() {
                 <XAxis type="number" dataKey="rs_ratio" name="RS强度" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS强度 (相对强度) →', position: 'insideBottom', offset: -12, fontSize: 12 }} />
                 <YAxis type="number" dataKey="rs_momentum" name="RS动量" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS动量 ↑', angle: -90, position: 'insideLeft', fontSize: 12 }} />
                 <ZAxis type="number" dataKey="diffusion" range={[40, 600]} />
+                {mains.map((c) => (
+                  <Scatter key={'t' + c.code} isAnimationActive={false} legendType="none"
+                    data={c.trail.map(([x, y]) => ({ rs_ratio: x, rs_momentum: y, diffusion: c.diffusion }))}
+                    line={{ stroke: QC[c.quadrant], strokeWidth: 1.5, strokeOpacity: 0.5 }} lineType="joint"
+                    shape={(p: any) => <circle cx={p.cx} cy={p.cy} r={2} fill={QC[c.quadrant]} fillOpacity={0.4} />} />
+                ))}
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
                   if (!active || !payload?.length) return null
                   const d: Cpt = payload[0].payload

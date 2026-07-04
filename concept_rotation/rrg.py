@@ -65,8 +65,11 @@ def compute_rrg(bench: str = "000852.SH", win: int = 60) -> pd.DataFrame:
 
 def combine(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -> pd.DataFrame:
     """最新交易日:扩散指标 + RRG 合并,标出主线候选(扩散高 + 领先/改善区)。"""
-    g = compute_diffusion(up=up)
-    r = compute_rrg(bench=bench)
+    return _combine_from(compute_diffusion(up=up), compute_rrg(bench=bench), diff_top)
+
+
+def _combine_from(g: pd.DataFrame, r: pd.DataFrame, diff_top: int = 40) -> pd.DataFrame:
+    """从已算好的 diffusion(g)+ rrg(r) 合并出最新交易日主线候选,供 combine/to_payload 复用。"""
     gd = g["trade_date"].astype(str).str.replace("-", "").str[:8]
     g = g.assign(td=gd)
     d = g["td"].max()
@@ -79,19 +82,31 @@ def combine(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -> p
     return m.sort_values(["主线候选", "diffusion"], ascending=[False, False])
 
 
+def _trails(r: pd.DataFrame, n: int = 8, step: int = 5) -> dict:
+    """每个概念取最近 n 周(每 step 交易日一点)的 RRG 路径 [[rs_ratio,rs_momentum],...] 旧→新。"""
+    out = {}
+    for code, sub in r.sort_values("trade_date").groupby("ts_code"):
+        s = sub.iloc[::-1].iloc[::step].iloc[:n].iloc[::-1]
+        out[code] = [[round(a, 2), round(b, 2)] for a, b in zip(s["rs_ratio"], s["rs_momentum"])]
+    return out
+
+
 def to_payload(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -> dict:
-    """前端用:{date, bench, concepts:[{name,code,diffusion,diffusion_raw,mom20,rs_ratio,rs_momentum,quadrant,main}]}。"""
-    m = combine(bench, diff_top, up)
+    """前端用:{date, bench, concepts:[{name,code,diffusion,...,quadrant,main,trail}]}。trail=近8周RRG路径。"""
     g = compute_diffusion(up=up)
+    r = compute_rrg(bench=bench)
+    m = _combine_from(g, r, diff_top)
+    tr = _trails(r)
     d = str(g["trade_date"].max())[:10]
-    rows = [{"name": r["name"], "code": r.ts_code,
-             "diffusion": round(r.diffusion, 4), "diffusion_raw": round(r.diffusion_raw, 4),
-             "mom20": round(r.mom20, 4) if pd.notna(r.mom20) else None,
-             "rs_ratio": round(r.rs_ratio, 2), "rs_momentum": round(r.rs_momentum, 2),
-             "chg": round(r.chg, 2) if pd.notna(r.chg) else None,
-             "excess": round(r.excess, 2) if pd.notna(r.excess) else None,
-             "quadrant": r.quadrant, "main": bool(r["主线候选"])}
-            for _, r in m.iterrows()]
+    rows = [{"name": r_["name"], "code": r_.ts_code,
+             "diffusion": round(r_.diffusion, 4), "diffusion_raw": round(r_.diffusion_raw, 4),
+             "mom20": round(r_.mom20, 4) if pd.notna(r_.mom20) else None,
+             "rs_ratio": round(r_.rs_ratio, 2), "rs_momentum": round(r_.rs_momentum, 2),
+             "chg": round(r_.chg, 2) if pd.notna(r_.chg) else None,
+             "excess": round(r_.excess, 2) if pd.notna(r_.excess) else None,
+             "quadrant": r_.quadrant, "main": bool(r_["主线候选"]),
+             "trail": tr.get(r_.ts_code, [])}
+            for _, r_ in m.iterrows()]
     return {"date": d, "bench": bench, "concepts": rows}
 
 
