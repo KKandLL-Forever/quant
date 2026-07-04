@@ -52,6 +52,11 @@ export default function ConceptPage() {
   // 散点只画扩散榜 top60,避免 400 个点糊成一团
   const scatter = [...cs].sort((a, b) => b.diffusion - a.diffusion).slice(0, 60)
   const hovC = scatter.find(c => c.code === hov) || null
+  // domain 把所有点+轨迹都算进去→固定不抖,且轨迹永远落在框内
+  const allPts = scatter.flatMap(c => [[c.rs_ratio, c.rs_momentum] as number[], ...c.trail])
+  const xsv = allPts.map(p => p[0]), ysv = allPts.map(p => p[1])
+  const xdom: [number, number] = allPts.length ? [Math.min(...xsv) - 0.3, Math.max(...xsv) + 0.3] : [98, 102]
+  const ydom: [number, number] = allPts.length ? [Math.min(...ysv) - 0.3, Math.max(...ysv) + 0.3] : [98, 102]
   const dist = cs.reduce((m, c) => { m[c.quadrant] = (m[c.quadrant] || 0) + 1; return m }, {} as Record<string, number>)
 
   const cols = [
@@ -101,8 +106,8 @@ export default function ConceptPage() {
                 <ReferenceArea x2={100} y1={100} fill="#e08e0b" fillOpacity={0.05} />
                 <ReferenceArea x2={100} y2={100} fill="#1f8e5a" fillOpacity={0.04} />
                 <ReferenceLine x={100} stroke="#999" /><ReferenceLine y={100} stroke="#999" />
-                <XAxis type="number" dataKey="rs_ratio" name="RS强度" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS强度 (相对强度) →', position: 'insideBottom', offset: -12, fontSize: 12 }} />
-                <YAxis type="number" dataKey="rs_momentum" name="RS动量" domain={['dataMin - 0.5', 'dataMax + 0.5']} tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS动量 ↑', angle: -90, position: 'insideLeft', fontSize: 12 }} />
+                <XAxis type="number" dataKey="rs_ratio" name="RS强度" domain={xdom} allowDataOverflow tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS强度 (相对强度) →', position: 'insideBottom', offset: -12, fontSize: 12 }} />
+                <YAxis type="number" dataKey="rs_momentum" name="RS动量" domain={ydom} allowDataOverflow tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS动量 ↑', angle: -90, position: 'insideLeft', fontSize: 12 }} />
                 <ZAxis type="number" dataKey="diffusion" range={[40, 600]} />
                 <TrailLayer c={hovC} />
                 <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
