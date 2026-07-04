@@ -234,7 +234,7 @@ def _business_prompt(code):
     just_pb = ((roe - g_l) / (0.10 - g_l)) if (roe is not None and roe > g_l) else None
     vp = (just_pb / pb) if (just_pb and pb and pb > 0) else None
     tooltxt = "；".join(x for x in [
-        (f"PB-ROE:合理PB {just_pb:.2f}(ROE {roe*100:.0f}%,r10%,g{g_l*100:.0f}%),现PB {pb:.2f} → RIM内在价值/现价 V/P {vp:.2f}(>1低估/<1高估)"
+        (f"PB-ROE:合理PB {just_pb:.2f}(用**当前年化ROE {roe*100:.0f}%**,r10%,g{g_l*100:.0f}%——注意:若ROE处周期底部/正拐点上行,此合理PB会被严重低估),现PB {pb:.2f} → RIM内在价值/现价 V/P {vp:.2f}(>1低估/<1高估)"
          if vp else None),
         (f"股息率 {mv[4]:.1f}%" if (mv and mv[4]) else None),
         (f"PS(TTM) {mv[3]:.1f}" if (mv and mv[3]) else None)] if x)
@@ -264,11 +264,12 @@ def _business_prompt(code):
 8) val_method: **按类型选最合适的估值法**(别一律用PEG!):
    - 消费白马/稳定成长 → PE历史分位 + 前瞻PEG(增长匹配)
    - 高成长科技医药 → 前瞻PEG;未盈利则用 PS(TTM);讲清增长兑现节奏
-   - 周期股 → **PB(底部区)+ PB-ROE**,**忌用PE**(顶部PE最低=陷阱)
-   - 金融重资产 → **PB-ROE / RIM内在价值(V/P)**
+   - 周期股 → **PB(底部区)**;**用 PB-ROE 要警惕:若当前ROE处周期底部/利润刚拐点(如近期净利暴增),用底部ROE算的合理PB会假性"高估",这正是周期陷阱——此时应改用正常化/中周期ROE判断,或直接以"利润拐点+PB历史分位"定夺,别被 V/P<1 误导**;忌用PE(顶部PE最低=陷阱)
+   - 金融重资产 → **PB-ROE / RIM内在价值(V/P)**(ROE 较稳,V/P 可信度高)
    - 未盈利成长 → **PS(TTM)** + 赛道空间
    - 公用高分红 → **股息率 / DDM**
    说明:选了哪种、为什么、用上面「估值工具箱/前瞻PEG」里的对应数字得出的结论(一句话判断+关键数字)。
+   **⚠️ 若 val_method(如RIM V/P)与 valuation(前瞻匹配)结论相反,必须点破原因**(通常=滞后ROE vs 前瞻业绩;周期股底部尤甚)并给一个统一判断,不要把两个相反结论并排丢出。
 9) valuation: **股价-业绩 匹配测算**(所有类型都做):对比【年初至今涨幅】与【最近季报/半年报归母净利同比】判断背离;
    若要维持PE不变,涨X%→利润需同比+X%,据此反推下一报告期需要的利润额与单季增速,对照已披露季度看现实性;
    结论区分"业绩已兑现 / 靠预期透支"。给一句话+关键数字(涨幅、季度利润、PE、需要的单季利润)。
