@@ -24,7 +24,7 @@ A 股量化研究仓库:一个共享数据层(tushare → 本地 DuckDB)之上,*
 - `quant_select/` — **通用截面多因子选股**(月频,多空 + 纯多头)。
 - `xiaoxifu/` — **风险调整动量轮动**(复现小西西弗)3 策略:龙头股 / 全天候ETF / 行业ETF(`engine.py` 共用引擎)+ **牛熊切换组合**(沪深300 MA30&MA60 门控 龙头↔全天候,`regime_combo.py`,已验证有超额);前后端「小西西弗」页。
 - `boll_narrow_exit/` — **BOLL缩口扩张+MACD金叉 择时研究**(`boll_expand_macd.py` 信号+多维口径 / `backtest.py` 真实净值 / `ml_rank.py` ML排序器(已否决)/ `robustness.py` 稳健性)。结论:小盘=陷阱、大盘可用;最优=ML池+第二次+大盘健康+MA60上行+RS跑赢+15日(夏普~1.8,下行保护型);前端「BOLL突破信号」页。
-- `concept_rotation/` — **概念轮动:扩散指标 + RRG 四象限**(复现「做量化的西蒙」)。`diffusion.py` 扩散指标(成分股站上MA20的自由流通市值占比+MA20平滑,出扩散榜/扩散上升榜)+ `rrg.py` RRG相对强弱四象限(相对中证1000)+ 组合出「扩散高+领先/改善区」主线候选,含 `to_payload()` 前端结构。数据:ths_member(同花顺概念成分,静态,有前视偏差)+ ths_daily(板块指数,历史时点成分,无偏差)。前端待接入。
+- `concept_rotation/` — **概念轮动:扩散指标 + RRG 四象限**(复现「做量化的西蒙」)。`diffusion.py` 扩散指标(成分股站上MA20的自由流通市值占比+MA20平滑,出扩散榜/扩散上升榜)+ `rrg.py` RRG相对强弱四象限(相对中证1000)+ 组合出「扩散高+领先/改善区」主线候选,含 `to_payload()` 前端结构。数据:ths_member(同花顺概念成分,静态,有前视偏差)+ ths_daily(板块指数,历史时点成分,无偏差)。前端「概念轮动」页(RRG散点+悬停4周流动轨迹)。历史落库:`python concept_rotation/rrg.py --persist`→ 写 DuckDB 表 `concept_signals`(每日全概念快照+main主线标记,幂等增量,已回填2024-12起)。
 - `qlib_workflow/` — qlib 工作流(Alpha158 + LGBM),吃自有 DuckDB 数据。
 - `x2_library/` — x2strategy 止盈止损方法库;`old/` — 废弃旧策略(含最早的 BOLL 网格)。
 - `docs/` — PRD / SCHEMA / 数据字典。

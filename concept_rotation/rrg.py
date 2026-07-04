@@ -110,6 +110,45 @@ def to_payload(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20") -
     return {"date": d, "bench": bench, "concepts": rows}
 
 
+def persist_signals(bench: str = "000852.SH", diff_top: int = 40, up: str = "ma20", lookback_days: int = 400) -> int:
+    """把每个交易日的全概念 扩散+RRG 快照(含 main 主线候选标记)写入 DuckDB concept_signals 表。
+
+    幂等增量:按 (trade_date,ts_code,bench,up) INSERT OR REPLACE。回填深度由 lookback_days 决定
+    (受 diffusion 的 MA20+20日动量热身限制,实际可用约 lookback_days-40 个交易日)。返回写入行数。"""
+    from diffusion import compute_diffusion
+    g = compute_diffusion(lookback_days=lookback_days, up=up)
+    r = compute_rrg(bench=bench)
+    g["td"] = g["trade_date"].astype(str).str.replace("-", "").str[:8]
+    m = g.dropna(subset=["diffusion"]).merge(
+        r.rename(columns={"trade_date": "td"}), on=["ts_code", "td"], how="inner", suffixes=("", "_r"))
+    m["diff_rank"] = m.groupby("td")["diffusion"].rank(ascending=False)
+    m["main"] = (m["diff_rank"] <= diff_top) & m["quadrant"].isin(["领先", "改善"])
+    out = m[["td", "ts_code", "name", "diffusion", "diffusion_raw", "mom20",
+             "rs_ratio", "rs_momentum", "quadrant", "chg", "excess", "diff_rank", "main"]].copy()
+    out.insert(0, "bench", bench)
+    out.insert(0, "up", up)
+    out = out.rename(columns={"td": "trade_date"})
+
+    con = duckdb.connect(c.DUCKDB_PATH)
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS concept_signals (
+            trade_date VARCHAR, ts_code VARCHAR, name VARCHAR, bench VARCHAR, up VARCHAR,
+            diffusion DOUBLE, diffusion_raw DOUBLE, mom20 DOUBLE, rs_ratio DOUBLE, rs_momentum DOUBLE,
+            quadrant VARCHAR, chg DOUBLE, excess DOUBLE, diff_rank DOUBLE, main BOOLEAN,
+            PRIMARY KEY (trade_date, ts_code, bench, up))""")
+        con.register("_cs", out)
+        con.execute("""INSERT OR REPLACE INTO concept_signals
+            SELECT trade_date, ts_code, name, bench, up, diffusion, diffusion_raw, mom20,
+                   rs_ratio, rs_momentum, quadrant, chg, excess, diff_rank, main FROM _cs""")
+        con.unregister("_cs")
+        n = con.execute("SELECT COUNT(*) FROM concept_signals").fetchone()[0]
+        dd = con.execute("SELECT COUNT(DISTINCT trade_date) FROM concept_signals").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[concept_signals] 写入 {len(out)} 行;表内共 {n} 行 / {dd} 个交易日")
+    return len(out)
+
+
 def _print(bench: str, up: str):
     m = combine(bench, up=up)
     fmt = lambda x: f"{x*100:5.1f}%"
@@ -126,5 +165,10 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--bench", default="000852.SH")
     ap.add_argument("--up", choices=["ma20", "pctup"], default="ma20")
+    ap.add_argument("--persist", action="store_true", help="落库 concept_signals(含历史回填)")
+    ap.add_argument("--lookback", type=int, default=400, help="回填交易日窗口(实际可用约 -40)")
     args = ap.parse_args()
-    _print(args.bench, args.up)
+    if args.persist:
+        persist_signals(args.bench, up=args.up, lookback_days=args.lookback)
+    else:
+        _print(args.bench, args.up)
