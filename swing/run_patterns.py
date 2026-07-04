@@ -81,6 +81,32 @@ def _detect(c, thr, start_i):
     return events
 
 
+def pending_breakouts(c, thr=0.09, near=0.05):
+    """最新bar上"形态已成型但尚未突破、现价接近突破价"的待突破setup(明日预判)。
+    返回 [(形态, 突破价, [piv idxs])]:N字突破价=高B,W型突破价=颈线C;要求现价<突破价且距离≤near。"""
+    pv = _pivots_typed(c, thr)
+    if len(pv) < 3:
+        return []
+    t = len(c) - 1
+    pidx = [p[0] for p in pv]
+    prior = [k for k in range(len(pv)) if pidx[k] < t]
+    if len(prior) < 3:
+        return []
+    res = []
+    a, b, cc = prior[-3], prior[-2], prior[-1]
+    if pv[a][1] and (not pv[b][1]) and pv[cc][1]:
+        pa, pb, pcc = c[pidx[a]], c[pidx[b]], c[pidx[cc]]
+        if pa < pcc < pb and c[t] < pb and (pb - c[t]) / c[t] <= near:
+            res.append(("N字型", pb, [pidx[a], pidx[b], pidx[cc]]))
+    if len(prior) >= 4:
+        h0, lb, hc, ld = prior[-4], prior[-3], prior[-2], prior[-1]
+        if (not pv[h0][1]) and pv[lb][1] and (not pv[hc][1]) and pv[ld][1]:
+            pB, pC, pD = c[pidx[lb]], c[pidx[hc]], c[pidx[ld]]
+            if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] < pC and (pC - c[t]) / c[t] <= near:
+                res.append(("W型", pC, [pidx[lb], pidx[hc], pidx[ld]]))
+    return res
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--thr", type=float, default=0.09)

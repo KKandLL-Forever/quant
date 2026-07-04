@@ -475,6 +475,24 @@ function MainPage() {
 
       {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
 
+      {payload && (payload as any).ml_forecast?.length > 0 && (
+        <Card size="small" style={{ marginTop: 12 }} title={`明日预判 ${(payload as any).ml_forecast.length} 只(形态已成型、只差站上突破价;非实时,需明日收盘站上+放量+创新高)`}>
+          <Table rowKey={(r: any) => r.code + r.typ} size="small" pagination={{ pageSize: 20 }}
+            dataSource={(payload as any).ml_forecast}
+            columns={[
+              { title: '形态', dataIndex: 'typ', width: 80, filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v: any, r: any) => r.typ === v, render: (v: string) => <Tag color={v === 'W型' ? 'purple' : 'blue'}>{v}</Tag> },
+              { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <a onClick={() => openKline(r.code, payload.latest ?? '', undefined)}>{v}</a> },
+              { title: '代码', dataIndex: 'code' },
+              { title: '现价', dataIndex: 'price', render: (v: number) => `${v}元` },
+              { title: '突破价', dataIndex: 'trig', render: (v: number) => <b style={{ color: '#c0392b' }}>{v}元</b> },
+              { title: '距突破', dataIndex: 'dist', defaultSortOrder: 'ascend', sorter: (a: any, b: any) => a.dist - b.dist, render: (v: number) => <span style={{ color: v <= 1 ? '#c0392b' : '#5b554a' }}>+{v}%</span> },
+            ]} />
+          <div style={{ fontSize: 12, color: '#999', marginTop: 6 }}>
+            预判=N字(站上高B)/W型(站上颈线C)形态已成型、现价在突破价下方 ≤5% 的票。<b>明日站上突破价 + 放量 + 创新高</b> 才算触发;且突破后还需 ML 打分进档才进上方信号表。非实时提示。
+          </div>
+        </Card>
+      )}
+
       {payload && <div style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: 10, fontSize: 12, color: '#7a5d18', marginTop: 10 }}>
         <b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈,非实际买卖收益;"唐奇安/缠论离场"括号内为持仓交易日数(仍持仓算到最新交易日);
         "进行中"=该出场口径下尚未离场。点表头可排序/筛选。模型严格用区间起始日之前的数据训练,无未来函数。

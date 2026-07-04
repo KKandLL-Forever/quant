@@ -37,7 +37,7 @@ import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
 
 from cache_tushare import DUCKDB_PATH
-from run_patterns import _detect
+from run_patterns import _detect, pending_breakouts
 from kernel_pivots import _detect_kernel
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
@@ -770,11 +770,23 @@ def main():
     _cal = px["trade_date"].drop_duplicates()
     _end = end_ts or pd.Timestamp(sel)
     ntrade = int(((_cal >= start_ts) & (_cal <= _end)).sum())
-    cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
+    latest_px = px["trade_date"].max()
+    ml_fc = []
+    for ts, g in px.groupby("ts_code"):
+        g = g.sort_values("trade_date")
+        if g["trade_date"].iloc[-1] != latest_px or len(g) < 60:
+            continue
+        cc = g["c"].to_numpy(); craw = g["c_raw"].to_numpy()
+        ratio = float(craw[-1]) / float(cc[-1])
+        for typ, brk, _pv in pending_breakouts(cc, args.thr):
+            ml_fc.append({"code": ts, "name": names.get(ts, ""), "typ": typ,
+                          "price": round(float(craw[-1]), 2), "trig": round(float(brk) * ratio, 2),
+                          "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1)})
+    ml_fc.sort(key=lambda x: x["dist"])
     if args.json:
         payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",
                    "pivot": args.pivot, "latest": latest_td, "ntrade": ntrade, "cal": cal_js,
-                   "signals": data,
+                   "signals": data, "ml_forecast": ml_fc,
                    "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
                               "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 3),
                                         "pct": None if cr_pct != cr_pct else round(cr_pct, 2), "label": cr_label}}}
