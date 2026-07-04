@@ -192,7 +192,32 @@ def _business_prompt(code):
     prof = con.execute("""SELECT i.end_date, i.n_income_attr_p/1e8, f.netprofit_yoy FROM income i
         LEFT JOIN fina_indicator f ON f.ts_code=i.ts_code AND f.end_date=i.end_date
         WHERE i.ts_code=? ORDER BY i.end_date DESC LIMIT 6""", [tscode]).fetchall()
+    ann = con.execute("""SELECT end_date, n_income_attr_p/1e8 FROM income
+        WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL
+        ORDER BY end_date DESC LIMIT 4""", [tscode]).fetchall()
     con.close()
+    import math
+    cagr = None   # 近3年归母净利复合增速
+    if len(ann) >= 2 and ann[-1][1] and ann[-1][1] > 0 and ann[0][1] and ann[0][1] > 0:
+        cagr = (ann[0][1] / ann[-1][1]) ** (1 / (len(ann) - 1)) - 1
+    fwd_np = None   # 券商一致预期·全年归母净利(亿)
+    try:
+        rc = pro.report_rc(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr}1231")
+        if rc is not None and len(rc):
+            rc = rc[rc["quarter"].astype(str).str.endswith("Q4")]
+            rc = rc[rc["quarter"].astype(str).str[:4].astype(int) >= yr]
+            if len(rc):
+                fwd_np = float(rc["np"].median()) / 1e4   # np 万元→亿
+    except Exception:
+        pass
+    fwd_pe = (mv[0] / 1e4 / fwd_np) if (mv and fwd_np and fwd_np > 0) else None   # 市值(亿)/全年预测净利(亿)
+    fwd_peg = (fwd_pe / (cagr * 100)) if (fwd_pe and cagr and cagr > 0) else None
+    digest = (math.log((mv[1] if mv else 0) / 30) / math.log(1 + cagr)
+              if (mv and mv[1] and mv[1] > 30 and cagr and cagr > 0) else None)
+    pegtxt = "无券商预测/增速为负,PEG不适用" if fwd_peg is None else (
+        f"3年净利CAGR {cagr*100:.0f}% | 券商全年预测净利 {fwd_np:.2f}亿 | 前瞻PE {fwd_pe:.1f} | "
+        f"前瞻PEG {fwd_peg:.2f}(<0.5极低估/0.5-1低估/1-1.5合理/1.5-2偏贵/>2高估)"
+        + (f" | 当前PE需 {digest:.1f} 年增长消化到30x" if digest else ""))
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
                                    f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
     mvtxt = "无" if not mv else f"总市值{mv[0]/10000:.0f}亿 PE(TTM){mv[1]} PB{mv[2]}"
@@ -201,7 +226,8 @@ def _business_prompt(code):
                          for p in reversed(prof)) or "无"
     sw = "/".join(x for x in (swr or []) if x) if swr else ""
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
-            f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}")
+            f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}\n"
+            f"前瞻PEG(彼得·林奇口径):{pegtxt}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
 
 {info}
@@ -215,7 +241,7 @@ def _business_prompt(code):
 6) summary: 一句话总结其在供应链的真实地位
 7) valuation: **股价-业绩-估值 匹配分析(重点,必须用数据说话,按下面这套方法做)**:
    - 对比【年初至今涨幅】与【最近季报/半年报的归母净利同比增速】,判断业绩有没有跟上股价(涨幅远大于利润增速=背离);
-   - 用【当前 PE(TTM)/PB/总市值】判断估值绝对水平;若资料/新闻里有券商全年净利预测,用"市值÷全年预测净利"算前瞻 PE,看是否已透支;
+   - 用【当前 PE(TTM)/PB/总市值】判断估值绝对水平;**结合上面给的「前瞻PEG」**(=前瞻PE÷(3年净利CAGR×100),林奇法):PEG<1 表示估值被增长消化得起、>1.5 偏贵;并说明"当前PE需几年增长消化到30x"意味着什么(若资料/新闻里有更新的券商预测可修正);
    - **匹配测算**:若要维持 PE 不变,利润需与股价同步增长(涨X% → 利润需同比+X%)。据此反推下一个报告期(半年报/年报)需要的利润额与单季增速,并对照已披露季度看现实性(如:H1 需 A 亿 = 上年同期×(1+涨幅),而 Q1 已知 B 亿 → Q2 单季需 A−B 亿,是 Q1 的几倍);
    - 结论明确区分"业绩已兑现 / 靠预期题材透支",以及"逻辑验证(Q2 需出现环比拐点) vs 估值支撑"。给一句话判断 + 关键数字(涨幅、季度利润、PE、需要的单季利润)。
 
