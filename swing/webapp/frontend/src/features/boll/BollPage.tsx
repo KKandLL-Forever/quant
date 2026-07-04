@@ -65,8 +65,8 @@ export default function BollPage() {
             </div>
           </Card>
 
-          <Card size="small" title={`当日信号 ${data.signals.length} 条(重点=大盘健康+第二次+领先区概念,已置顶)`}>
-            <Table rowKey="code" size="small" columns={cols} dataSource={data.signals} pagination={false}
+          <Card size="small" title={`当日信号 ${data.signals.filter(s => s.ma60_up).length} 条(已过滤MA60下行;重点=大盘健康+第二次+领先区概念,已置顶)`}>
+            <Table rowKey="code" size="small" columns={cols} dataSource={data.signals.filter(s => s.ma60_up)} pagination={false}
               onRow={(r: Sig) => ({ style: r.is_rep30 && r.ma60_up && r.rs_win && healthy ? { background: '#fff7f5' } : {} })} />
           </Card>
           <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
