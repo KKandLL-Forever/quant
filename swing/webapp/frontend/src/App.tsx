@@ -403,20 +403,20 @@ function MainPage() {
               )
             }) : <span className="tday-empty">无</span>}
           </div>
-          <div>
-            <div className="tday-colh" style={{ color: '#0b6e4f' }}>当前持仓<span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: 11, color: '#9b958a', marginLeft: 4 }}>点击分析该不该卖</span></div>
-            <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-              {today.holds.length ? today.holds.map(r => {
-                const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
-                return (
-                  <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
-                    <span style={{ fontWeight: 600 }}>{r.name}</span>
-                    <span className="hold-code">{r.ts.slice(0, 6)}</span>
-                    {who && <span className="hold-tag">{who}</span>}
-                  </span>
-                )
-              }) : <span className="tday-empty">无</span>}
-            </div>
+        </div>
+        <div className="tday-holds">
+          <div className="tday-colh" style={{ color: '#0b6e4f' }}>当前持仓 {today.holds.length}<span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: 11, color: '#9b958a', marginLeft: 4 }}>点击分析该不该卖</span></div>
+          <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+            {today.holds.length ? today.holds.map(r => {
+              const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
+              return (
+                <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
+                  <span style={{ fontWeight: 600 }}>{r.name}</span>
+                  <span className="hold-code">{r.ts.slice(0, 6)}</span>
+                  {who && <span className="hold-tag">{who}</span>}
+                </span>
+              )
+            }) : <span className="tday-empty">无</span>}
           </div>
         </div>
       </div>}
