@@ -1501,6 +1501,94 @@ def _update_market_crowding(con) -> None:
         con.unregister("_crowd")
 
 
+def rebuild_concept_signals(duck_path: str, bench: str = "000852.SH", diff_top: int = 40,
+                            lookback_days: int = 150) -> None:
+    """重算最近若干交易日的 概念扩散指标 + RRG 四象限 快照,upsert 到 concept_signals(概念轮动页/历史回看)。
+
+    纯本地重算(daily/adj_factor/daily_basic/ths_member/ths_daily/index_daily),幂等增量;算法内联,
+    不依赖 concept_rotation/rrg.py。扩散=成分股后复权站上MA20的自由流通市值占比再MA20;RRG=概念相对
+    基准(默认中证1000)的 JdK 相对强弱四象限;main=扩散前 diff_top 且落在领先/改善区。"""
+    if not _DUCKDB_AVAILABLE or not duck_path:
+        return
+    con = _duckdb.connect(duck_path)
+    try:
+        for t in ("ths_daily", "ths_member", "ths_index"):
+            if con.execute(f"SELECT count(*) FROM information_schema.tables WHERE table_name='{t}'").fetchone()[0] == 0:
+                print(f"[concept_signals] 缺表 {t},跳过"); return
+        max_date = con.execute("SELECT max(trade_date) FROM daily_basic").fetchone()[0]
+        if max_date is None:
+            return
+        start = con.execute(
+            "SELECT min(trade_date) FROM (SELECT DISTINCT trade_date FROM daily "
+            "WHERE trade_date<=? ORDER BY trade_date DESC LIMIT ?)", [max_date, lookback_days]).fetchone()[0]
+        px = con.execute(
+            "SELECT d.ts_code, d.trade_date, d.close*a.adj_factor AS hfq FROM daily d "
+            "JOIN adj_factor a USING (ts_code, trade_date) WHERE d.trade_date>=?", [start]).df()
+        mv = con.execute("SELECT ts_code, trade_date, circ_mv FROM daily_basic WHERE trade_date>=?", [start]).df()
+        mem = con.execute("SELECT ts_code AS cpt, con_code AS ts_code FROM ths_member").df()
+        idxnm = con.execute("SELECT ts_code AS cpt, name FROM ths_index").df()
+        cp = con.execute("SELECT t.ts_code, t.trade_date AS td, t.close, t.pct_change AS chg FROM ths_daily t").df()
+        bm = con.execute("SELECT strftime(trade_date,'%Y%m%d') AS td, close AS bclose, pct_chg AS bchg "
+                         "FROM index_daily WHERE ts_code=?", [bench]).df()
+
+        px = px.sort_values(["ts_code", "trade_date"])
+        px["ma20"] = px.groupby("ts_code")["hfq"].transform(lambda s: s.rolling(20).mean())
+        px["upstate"] = (px["hfq"] > px["ma20"]).astype(float)
+        df = px.merge(mv, on=["ts_code", "trade_date"]).merge(mem, on="ts_code")
+        df["w_up"] = df["circ_mv"] * df["upstate"]
+        g = df.groupby(["cpt", "trade_date"]).agg(w_up=("w_up", "sum"), w_all=("circ_mv", "sum")).reset_index()
+        g = g[g["w_all"] > 0].sort_values(["cpt", "trade_date"])
+        g["diffusion_raw"] = g["w_up"] / g["w_all"]
+        g["diffusion"] = g.groupby("cpt")["diffusion_raw"].transform(lambda s: s.rolling(20).mean())
+        g["mom20"] = g.groupby("cpt")["diffusion"].transform(lambda s: s - s.shift(20))
+        g = g.merge(idxnm, on="cpt").rename(columns={"cpt": "ts_code"})
+        g["td"] = g["trade_date"].astype(str).str.replace("-", "").str[:8]
+        g = g.drop(columns=["trade_date"])
+
+        r = cp.merge(bm, on="td").sort_values(["ts_code", "td"])
+        r["rs"] = 100 * r["close"] / r["bclose"]
+        def _jdk(s):
+            rsr = 100 + (s - s.rolling(60).mean()) / s.rolling(60).std()
+            mom = rsr - rsr.shift(10)
+            rsm = 100 + (mom - mom.rolling(60).mean()) / mom.rolling(60).std()
+            return rsr, rsm
+        parts = []
+        for _, sub in r.groupby("ts_code"):
+            sub = sub.copy()
+            sub["rs_ratio"], sub["rs_momentum"] = _jdk(sub["rs"])
+            parts.append(sub)
+        r = pd.concat(parts, ignore_index=True).dropna(subset=["rs_ratio", "rs_momentum"])
+        r["quadrant"] = np.where(r["rs_ratio"] > 100,
+                                 np.where(r["rs_momentum"] > 100, "领先", "转弱"),
+                                 np.where(r["rs_momentum"] > 100, "改善", "落后"))
+        r["excess"] = r["chg"] - r["bchg"]
+
+        m = g.dropna(subset=["diffusion"]).merge(
+            r[["ts_code", "td", "rs_ratio", "rs_momentum", "quadrant", "chg", "excess"]], on=["ts_code", "td"])
+        if m.empty:
+            print("[concept_signals] 无可写数据"); return
+        m["diff_rank"] = m.groupby("td")["diffusion"].rank(ascending=False)
+        m["main"] = (m["diff_rank"] <= diff_top) & m["quadrant"].isin(["领先", "改善"])
+        m["bench"] = bench
+        m["up"] = "ma20"
+        out = m.rename(columns={"td": "trade_date"})[
+            ["trade_date", "ts_code", "name", "bench", "up", "diffusion", "diffusion_raw", "mom20",
+             "rs_ratio", "rs_momentum", "quadrant", "chg", "excess", "diff_rank", "main"]]
+
+        con.execute("""CREATE TABLE IF NOT EXISTS concept_signals (
+            trade_date VARCHAR, ts_code VARCHAR, name VARCHAR, bench VARCHAR, up VARCHAR,
+            diffusion DOUBLE, diffusion_raw DOUBLE, mom20 DOUBLE, rs_ratio DOUBLE, rs_momentum DOUBLE,
+            quadrant VARCHAR, chg DOUBLE, excess DOUBLE, diff_rank DOUBLE, main BOOLEAN,
+            PRIMARY KEY (trade_date, ts_code, bench, up))""")
+        con.register("_cs", out)
+        con.execute("INSERT OR REPLACE INTO concept_signals SELECT * FROM _cs")
+        con.unregister("_cs")
+        dd = con.execute("SELECT COUNT(DISTINCT trade_date) FROM concept_signals").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[concept_signals] upsert {len(out)} 行(近{lookback_days}日重算);表内共 {dd} 个交易日")
+
+
 def rebuild_market_state(duck_path: str) -> None:
     """数据更新落地后，重建本地 DuckDB 的 market_state 表（连板生态 + 中证1000 指数位置）。
 
@@ -2809,6 +2897,10 @@ def main() -> None:
         except Exception as e:
             print(f"[ths_daily] 板块指数更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
+        try:
+            rebuild_concept_signals(DUCKDB_PATH)
+        except Exception as e:
+            print(f"[concept_signals] 概念信号更新跳过({e})")
 
 
 if __name__ == "__main__":
