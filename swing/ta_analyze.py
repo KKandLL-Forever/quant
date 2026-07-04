@@ -214,9 +214,14 @@ def _business_prompt(code):
     fwd_peg = (fwd_pe / (cagr * 100)) if (fwd_pe and cagr and cagr > 0) else None
     digest = (math.log((mv[1] if mv else 0) / 30) / math.log(1 + cagr)
               if (mv and mv[1] and mv[1] > 30 and cagr and cagr > 0) else None)
+    tier = None if fwd_peg is None else (
+        "极度低估" if fwd_peg < 0.5 else "低估" if fwd_peg < 1 else "合理" if fwd_peg < 1.5 else "偏贵" if fwd_peg < 2 else "高估")
+    pegdict = None if fwd_peg is None else {
+        "peg": round(fwd_peg, 2), "cagr": round(cagr * 100, 0), "fwd_pe": round(fwd_pe, 1),
+        "fwd_np": round(fwd_np, 2), "tier": tier, "digest": round(digest, 1) if digest else None}
     pegtxt = "无券商预测/增速为负,PEG不适用" if fwd_peg is None else (
         f"3年净利CAGR {cagr*100:.0f}% | 券商全年预测净利 {fwd_np:.2f}亿 | 前瞻PE {fwd_pe:.1f} | "
-        f"前瞻PEG {fwd_peg:.2f}(<0.5极低估/0.5-1低估/1-1.5合理/1.5-2偏贵/>2高估)"
+        f"前瞻PEG {fwd_peg:.2f}({tier};<0.5极低估/0.5-1低估/1-1.5合理/1.5-2偏贵/>2高估)"
         + (f" | 当前PE需 {digest:.1f} 年增长消化到30x" if digest else ""))
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
                                    f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
@@ -244,13 +249,14 @@ def _business_prompt(code):
    - 用【当前 PE(TTM)/PB/总市值】判断估值绝对水平;**结合上面给的「前瞻PEG」**(=前瞻PE÷(3年净利CAGR×100),林奇法):PEG<1 表示估值被增长消化得起、>1.5 偏贵;并说明"当前PE需几年增长消化到30x"意味着什么(若资料/新闻里有更新的券商预测可修正);
    - **匹配测算**:若要维持 PE 不变,利润需与股价同步增长(涨X% → 利润需同比+X%)。据此反推下一个报告期(半年报/年报)需要的利润额与单季增速,并对照已披露季度看现实性(如:H1 需 A 亿 = 上年同期×(1+涨幅),而 Q1 已知 B 亿 → Q2 单季需 A−B 亿,是 Q1 的几倍);
    - 结论明确区分"业绩已兑现 / 靠预期题材透支",以及"逻辑验证(Q2 需出现环比拐点) vs 估值支撑"。给一句话判断 + 关键数字(涨幅、季度利润、PE、需要的单季利润)。
+8) peg: **PEG 一句话结论**(基于上面「前瞻PEG」那行数据,直接给判断,如"前瞻PEG 0.57、CAGR33%,增长消化得起、偏低估";若标注"PEG不适用"则说明为何不适用——利润为负/无券商覆盖)。
 
-只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","valuation":""}}"""
-    return prompt, fintxt
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","valuation":"","peg":""}}"""
+    return prompt, fintxt, pegdict
 
 
-def _parse_business(txt, fintxt):
-    """解析公司分析 JSON,规整 chain 字段、附财务串;失败回退 raw。"""
+def _parse_business(txt, fintxt, pegdict=None):
+    """解析公司分析 JSON,规整 chain 字段、附财务串 + 确定性 PEG 数据;失败回退 raw。"""
     import json
     try:
         d = json.loads(txt[txt.index("{"):txt.rindex("}") + 1])
@@ -259,14 +265,15 @@ def _parse_business(txt, fintxt):
                 d["chain"] = x
                 break
         d["fin"] = fintxt
+        d["peg_data"] = pegdict
         return d
     except Exception:
-        return {"raw": txt[:400]}
+        return {"raw": txt[:400], "peg_data": pegdict}
 
 
 def business_stream(code):
     """流式版公司分析:逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。"""
-    prompt, fintxt = _business_prompt(code)
+    prompt, fintxt, pegdict = _business_prompt(code)
     if prompt is None:
         yield {"final": {"raw": "无公司资料"}}
         return
@@ -277,17 +284,17 @@ def business_stream(code):
         if d:
             buf += d
             yield {"delta": d}
-    yield {"final": _parse_business(buf, fintxt)}
+    yield {"final": _parse_business(buf, fintxt, pegdict)}
 
 
 def business_profile(code):
     """公司产业链地位深度分析(非流式,供缓存/回退)。"""
-    prompt, fintxt = _business_prompt(code)
+    prompt, fintxt, pegdict = _business_prompt(code)
     if prompt is None:
         return {"raw": "无公司资料"}
     txt = _cli().chat.completions.create(model="deepseek-v4-pro", temperature=0.3,
                                          messages=[{"role": "user", "content": prompt}]).choices[0].message.content
-    return _parse_business(txt, fintxt)
+    return _parse_business(txt, fintxt, pegdict)
 
 
 def _latest_td():
