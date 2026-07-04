@@ -257,7 +257,7 @@ def _czsc_one(job):
         exd = None if exi is None else pd.Timestamp(gd[exi])
         hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
         rebought = any(k == "补" for _, k in legs)
-        legdates = [[str(pd.Timestamp(gd[i]).date()), k] for i, k in legs]
+        legdates = [[str(pd.Timestamp(gd[i]).date()), k, round(float(cc[i]), 3)] for i, k in legs]
         res.append(((ts, str(pd.Timestamp(d).date())),
                     (round(ret * 100, 0), round(ret, 4),
                      None if exd is None else str(exd.date()), opn, hold, rebought, legdates)))
@@ -318,109 +318,6 @@ def _tag_states(out):
                 posinfo = [anchor_exit, anchor_exit is None]
             final[(ts, ds)] = (ret_, raw_, exit_, opn_, hold_, state, legs_, posinfo)
     return final
-
-
-def _cz_positions(data):
-    """从带 czstate/czlegs 的信号重建"逐股票缠论M3仓位":锚点(建仓)+其后加仓信号+滚动腿事件。
-    返回 list[{ts, buys:[(date,'建仓'|'加仓')], sells:[(date,'缠'|'止')], rebuys:[date], open:bool}]。"""
-    bystock = {}
-    for r in data:
-        if r.get("czret") is None:
-            continue
-        bystock.setdefault(r["ts"], []).append(r)
-    pos = []
-    for ts, rows in bystock.items():
-        rows = sorted(rows, key=lambda r: r["date"])
-        cur = None
-        cur_exit = "flat"
-        for r in rows:
-            d = pd.Timestamp(r["date"])
-            anchor = (cur_exit == "flat") or (isinstance(cur_exit, pd.Timestamp) and d > cur_exit)
-            if anchor:
-                legs = r.get("czlegs") or []
-                cur = {"ts": ts, "buys": [(r["date"], "建仓")], "rebuys": [], "sells": [], "open": bool(r["czopen"])}
-                for ld, lk in legs:
-                    if lk == "补":
-                        cur["rebuys"].append(ld)
-                    elif lk in ("缠", "止"):
-                        cur["sells"].append((ld, lk))
-                pos.append(cur)
-                cur_exit = None if r["czopen"] else pd.Timestamp(r["czexit"])
-            else:
-                cur["buys"].append((r["date"], "加仓"))
-    return pos
-
-
-def _cz_portfolio(data, px, cal, parts):
-    """缠论M3 份级组合(B并仓):建仓/加仓/回补各占1份,满仓则该买入取消;缠卖/止=释放整仓全部份;逐日后复权盯市。
-    返回 (curve[[date,权益]], log[{ts,date,type,status,exit,ret,hold,open}])。"""
-    pxm = {(t, str(pd.Timestamp(d).date())): c
-           for t, d, c in zip(px["ts_code"], px["trade_date"], px["c"])}
-    nm = {r["ts"]: r.get("name", "") for r in data}
-    last = cal[-1]
-    bd = lambda a, b: int(np.busday_count(pd.Timestamp(a).date(), pd.Timestamp(b).date()))
-
-    def price(ts, d):
-        return pxm.get((ts, d))
-
-    ev = {}   # date -> list of (kind, ts, posid, extra)
-    for pid, p in enumerate(_cz_positions(data)):
-        ts = p["ts"]
-        for bdt, bk in p["buys"]:
-            ev.setdefault(bdt, []).append(("buy", ts, pid, bk))
-        for rd in p["rebuys"]:
-            ev.setdefault(rd, []).append(("buy", ts, pid, "回补"))
-        for sd, sk in p["sells"]:
-            ev.setdefault(sd, []).append(("sell", ts, pid, sk))
-
-    INIT = 150000
-    cash = INIT
-    op = []   # {ts, pid, amt, entry, type}
-    log = []
-    curve = []
-    for d in cal:
-        for kind, ts, pid, tag in sorted(ev.get(d, []), key=lambda e: e[0]):   # sell 在 buy 前(释放份)
-            if kind == "sell":
-                keep = []
-                for lg in op:
-                    if lg["pid"] == pid:
-                        pr = price(ts, d) or lg["entry"]
-                        gross = (pr / lg["entry"]) * (1 - 2 * COST)
-                        cash += lg["amt"] * gross
-                        rec = lg.get("rec")
-                        if rec:
-                            rec.update(ret=round((gross - 1) * 100, 1), exit=d, hold=bd(rec["date"], d), open=False)
-                    else:
-                        keep.append(lg)
-                op = keep
-            else:
-                pr = price(ts, d)
-                status = "满仓取消" if len(op) >= parts else ("已买入" if pr else "无价跳过")
-                rec = None
-                if status == "已买入":
-                    unit = (cash + sum(l["amt"] for l in op)) / parts
-                    if cash + 1e-6 >= unit and unit > 0:
-                        rec = {"ts": ts, "name": nm.get(ts, ""), "date": d, "type": tag,
-                               "status": "已买入", "exit": None, "ret": None, "hold": None, "open": False}
-                        op.append({"ts": ts, "pid": pid, "amt": unit, "entry": pr, "rec": rec})
-                        cash -= unit
-                    else:
-                        status = "满仓取消"
-                if tag != "回补":   # 回补不进交易记录(只影响净值);建仓/加仓记
-                    log.append(rec or {"ts": ts, "name": nm.get(ts, ""), "date": d, "type": tag,
-                                       "status": status, "exit": None, "ret": None, "hold": None, "open": False})
-        eq = cash
-        for lg in op:
-            pr = price(lg["ts"], d) or lg["entry"]
-            eq += lg["amt"] * (pr / lg["entry"])
-        curve.append([d, round(eq)])
-    for lg in op:   # 收尾:未平仓按最新价盯市(扣双边费)
-        pr = price(lg["ts"], last) or lg["entry"]
-        rec = lg.get("rec")
-        if rec:
-            rec.update(ret=round(((pr / lg["entry"]) * (1 - 2 * COST) - 1) * 100, 1),
-                       exit=None, hold=bd(rec["date"], last), open=True)
-    return curve, log
 
 
 def _fit_lgb(trf, vaf, seed):
@@ -836,6 +733,7 @@ def main():
 
     import json
     czx = _czsc_exits(px, top, sel, args.workers)
+    lastc = px.groupby("ts_code")["c"].last().to_dict()
     data = []
     for _, r in top.iterrows():
         st = ("已走出主升浪" if r["label"] == 1 else "未达") if r["done"] else "进行中"
@@ -859,6 +757,7 @@ def main():
             "swtp": None if pd.isna(r["swtp"]) else str(r["swtp"].date()),
             "czret": cz[0], "czr": cz[1], "czexit": cz[2], "czopen": cz[3], "czhold": cz[4],
             "czstate": cz[5], "czlegs": cz[6], "czposinfo": cz[7],
+            "czcur": round(float(lastc.get(r["ts"], r["price"])), 3),
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "hold": int(np.busday_count(r["date"].date(),
                      (r["donexit"] if not pd.isna(r["donexit"]) else pd.Timestamp(sel)).date())),
@@ -872,12 +771,10 @@ def main():
     _end = end_ts or pd.Timestamp(sel)
     ntrade = int(((_cal >= start_ts) & (_cal <= _end)).sum())
     cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
-    cz_pf = {str(p): dict(zip(("curve", "log"), _cz_portfolio(data, px, cal_js, p)))
-             for p in (2, 3, 4, 5, 6, 8, 10)} if cal_js else {}
     if args.json:
         payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",
                    "pivot": args.pivot, "latest": latest_td, "ntrade": ntrade, "cal": cal_js,
-                   "signals": data, "cz_pf": cz_pf,
+                   "signals": data,
                    "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
                               "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 3),
                                         "pct": None if cr_pct != cr_pct else round(cr_pct, 2), "label": cr_label}}}
