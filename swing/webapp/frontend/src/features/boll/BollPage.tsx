@@ -26,7 +26,7 @@ export default function BollPage() {
 
   const healthy = data ? data.mkt_bad === false : false
   const cols = [
-    { title: '', dataIndex: 'is_rep30', width: 60, render: (_: boolean, r: Sig) => r.is_rep30 && r.ma60_up && r.rs_win ? <Tag color="red">重点</Tag> : r.is_rep30 ? <Tag color="orange">第二次</Tag> : <Tag>首次</Tag> },
+    { title: '', dataIndex: 'is_rep30', width: 60, render: (_: boolean, r: Sig) => healthy && r.is_rep30 && (r.main_concepts?.length ?? 0) > 0 ? <Tag color="red">重点</Tag> : r.is_rep30 ? <Tag color="orange">第二次</Tag> : <Tag>首次</Tag> },
     { title: '名称', dataIndex: 'name', render: (v: string, r: Sig) => <span><b>{v}</b> <span style={{ opacity: .55 }}>{r.code}</span></span> },
     { title: '现价', dataIndex: 'price', render: (v: number) => `¥${v}` },
     { title: 'MA60趋势', dataIndex: 'ma60_up', width: 90, render: (v: boolean) => v ? <Tag color="red">上行</Tag> : <Tag color="green">下行</Tag> },
@@ -59,12 +59,12 @@ export default function BollPage() {
             <b>最新交易日 {data.date}</b> · 沪深300 当天{data.mkt_up ? <span style={{ color: '#c0392b' }}>上涨</span> : <span style={{ color: '#1f8e5a' }}>下跌</span>}、
             <b style={{ color: healthy ? '#0b6e4f' : '#c0392b' }}>{healthy ? '健康' : '走坏(MA30&MA60同时走坏)'}</b>
             <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
-              研究最优配置:<b>大盘健康 + 第二次信号 + 个股MA60上行 + 相对大盘跑赢</b> = 市场/个股/相对 三重对齐(夏普1.80/卡玛1.77/回撤9.4%);持有约15日。
-              {healthy ? '今日大盘健康,重点看下方红色「重点」(第二次+MA60上行+跑赢大盘)。' : <b style={{ color: '#c0392b' }}>今日大盘走坏,按纪律应空仓观望,信号仅供记录。</b>}
+              重点买点(交叉回测验证):<b>大盘健康 + 第二次信号 + 所属概念处于RRG领先区</b> = 市场/个股/板块三重对齐,领先区为尾部增强(赢时更大)。持有约10~15日。
+              {healthy ? '今日大盘健康,重点看下方红色「重点」(第二次+领先区概念)。' : <b style={{ color: '#c0392b' }}>今日大盘走坏,按纪律应空仓观望,信号仅供记录。</b>}
             </div>
           </Card>
 
-          <Card size="small" title={`当日信号 ${data.signals.length} 条(重点=第二次+MA60上行+跑赢大盘,已置顶)`}>
+          <Card size="small" title={`当日信号 ${data.signals.length} 条(重点=大盘健康+第二次+领先区概念,已置顶)`}>
             <Table rowKey="code" size="small" columns={cols} dataSource={data.signals} pagination={false}
               onRow={(r: Sig) => ({ style: r.is_rep30 && r.ma60_up && r.rs_win && healthy ? { background: '#fff7f5' } : {} })} />
           </Card>

@@ -843,7 +843,7 @@ class BollReq(BaseModel):
 
 
 def _attach_main_concepts(signals):
-    """给每个信号股附 main_concepts:该股所属同花顺概念中,当天处于主线候选(领先/改善区)的概念名。返回概念数据日期。"""
+    """给每个信号股附 main_concepts:该股所属同花顺概念中,当天处于「领先区」主线候选的概念名(回测:领先区为尾部增强,改善区无效故不返回)。返回概念数据日期。"""
     if not signals:
         return None
     import duckdb, cache_tushare as ct
@@ -858,7 +858,7 @@ def _attach_main_concepts(signals):
             f"""SELECT m.con_code AS stock, cs.name
                 FROM ths_member m JOIN concept_signals cs ON cs.ts_code = m.ts_code
                 WHERE cs.trade_date = (SELECT max(trade_date) FROM concept_signals)
-                  AND cs.main AND cs.bench='000852.SH' AND cs.up='ma20'
+                  AND cs.main AND cs.quadrant='领先' AND cs.bench='000852.SH' AND cs.up='ma20'
                   AND m.con_code IN ({ph})""", codes).fetchall()
     finally:
         con.close()
@@ -879,6 +879,10 @@ def boll(req: BollReq):
         import boll_expand_macd as bem
         r = bem.latest_signals(req.pool, req.up)
         r["concept_date"] = _attach_main_concepts(r.get("signals", []))
+        healthy = r.get("mkt_bad") is False
+        r["signals"].sort(key=lambda s: (
+            not (healthy and s.get("is_rep30") and len(s.get("main_concepts") or [])),  # 重点置顶
+            not s.get("is_rep30"), -s.get("vol_ratio", 0)))
         return {"ok": True, **r}
     except Exception:
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
