@@ -480,7 +480,7 @@ function MainPage() {
           <Table rowKey={(r: any) => r.code + r.typ} size="small" pagination={{ pageSize: 20 }}
             dataSource={(payload as any).ml_forecast}
             columns={[
-              { title: '形态', dataIndex: 'typ', width: 80, filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v: any, r: any) => r.typ === v, render: (v: string) => <Tag color={v === 'W型' ? 'purple' : 'blue'}>{v}</Tag> },
+              { title: '形态', dataIndex: 'typ', width: 100, filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v: any, r: any) => r.typ.includes(v), render: (v: string) => v.includes('/') ? <Tag color="gold">N字/W型</Tag> : <Tag color={v === 'W型' ? 'purple' : 'blue'}>{v}</Tag> },
               { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <a onClick={() => openKline(r.code, payload.latest ?? '', undefined)}>{v}</a> },
               { title: '代码', dataIndex: 'code' },
               { title: '现价', dataIndex: 'price', render: (v: number) => `${v}元` },

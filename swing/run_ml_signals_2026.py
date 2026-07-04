@@ -779,10 +779,14 @@ def main():
             continue
         cc = g["c"].to_numpy(); craw = g["c_raw"].to_numpy()
         ratio = float(craw[-1]) / float(cc[-1])
-        for typ, brk, _pv in pending_breakouts(cc, args.thr):
-            ml_fc.append({"code": ts, "name": names.get(ts, ""), "typ": typ,
-                          "price": round(float(craw[-1]), 2), "trig": round(float(brk) * ratio, 2),
-                          "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1)})
+        pends = pending_breakouts(cc, args.thr)
+        if not pends:
+            continue
+        typ = "/".join(t for t, _, _ in pends)   # 同股 N/W 都成立则合并
+        _, brk, _pv = min(pends, key=lambda p: p[1])   # 取最近的突破价(现价固定,brk 越小越近)
+        ml_fc.append({"code": ts, "name": names.get(ts, ""), "typ": typ,
+                      "price": round(float(craw[-1]), 2), "trig": round(float(brk) * ratio, 2),
+                      "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1)})
     ml_fc.sort(key=lambda x: x["dist"])
     if args.json:
         payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",
