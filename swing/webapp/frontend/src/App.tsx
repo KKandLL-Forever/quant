@@ -617,6 +617,7 @@ function MainPage() {
               { title: '现价', dataIndex: 'price', render: (v: number) => `${v}元` },
               { title: '突破价', dataIndex: 'trig', render: (v: number) => <b style={{ color: '#c0392b' }}>{v}元</b> },
               { title: '距突破', dataIndex: 'dist', defaultSortOrder: 'ascend', sorter: (a: any, b: any) => a.dist - b.dist, render: (v: number) => <span style={{ color: v <= 1 ? '#c0392b' : '#5b554a' }}>+{v}%</span> },
+              { title: 'LLM分析', width: 80, render: (_: any, r: any) => <Button size="small" type="primary" ghost onClick={() => analyze(r.code, payload.latest ?? '', false, r.name)}>分析</Button> },
             ]} />
           <div style={{ fontSize: 12, color: '#999', marginTop: 6 }}>
             预判=N字(站上高B)/W型(站上颈线C)形态已成型、现价在突破价下方 ≤5% 的票。<b>明日站上突破价 + 放量 + 创新高</b> 才算触发;且突破后还需 ML 打分进档才进上方信号表。非实时提示。
