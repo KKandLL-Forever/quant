@@ -295,6 +295,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
         {(ana.business || ana.bizText) && <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师">
           {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
             <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
+            {b.new_biz && !/^无[,，。]?/.test(b.new_biz) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#fbeff7', border: '1px solid #eac4dd', borderRadius: 6 }}><b>🚀 新业务/转型:</b> {b.new_biz}</div>}
             {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
             {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
             {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}

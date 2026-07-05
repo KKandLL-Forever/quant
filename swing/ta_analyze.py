@@ -215,6 +215,11 @@ def _business_prompt(code):
         ORDER BY end_date DESC LIMIT 4""", [tscode]).fetchall()
     roey = con.execute("""SELECT roe_yearly FROM fina_indicator WHERE ts_code=? AND roe_yearly IS NOT NULL
         ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
+    try:
+        rpt = con.execute("""SELECT DISTINCT title FROM skill_research_em WHERE ts_code=?
+            ORDER BY ann_date DESC LIMIT 10""", [tscode]).fetchall()
+    except Exception:
+        rpt = []
     pbh = [r[0] for r in con.execute("SELECT pb FROM daily_basic WHERE ts_code=? AND pb IS NOT NULL AND pb>0", [tscode]).fetchall()]
     peh = [r[0] for r in con.execute("SELECT pe_ttm FROM daily_basic WHERE ts_code=? AND pe_ttm IS NOT NULL AND pe_ttm>0", [tscode]).fetchall()]
     anh = con.execute("""SELECT n_income_attr_p/1e8 FROM income
@@ -314,9 +319,11 @@ def _business_prompt(code):
     proftxt = " | ".join(f"{p[0]} 归母净利{p[1]:.2f}亿" + (f"(同比{p[2]:+.0f}%)" if p[2] is not None else "")
                          for p in reversed(prof)) or "无"
     sw = "/".join(x for x in (swr or []) if x) if swr else ""
+    rpttxt = " / ".join(x[0] for x in rpt) if rpt else "无"
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
             f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}\n"
-            f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}\n多方法目标价:{fairtxt}")
+            f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}\n多方法目标价:{fairtxt}\n"
+            f"近期券商研报标题(反映市场当期关注的逻辑/新业务,财报常滞后于此):{rpttxt}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
 
 {info}
@@ -347,12 +354,13 @@ def _business_prompt(code):
    结论区分"业绩已兑现 / 靠预期透支"。给一句话+关键数字(涨幅、季度利润、PE、需要的单季利润)。
 10) peg: **前瞻PEG 一句话结论**(基于「前瞻PEG」那行;标注不适用则说明为何——利润为负/无券商覆盖)。
 11) fair_value: **合理股价区间(多方法交叉,football field)**:从上面「多方法目标价」里**挑与本企业原型匹配的 2-3 个方法**(成长型用 PEG=1/历史PE;资产/金融用 PB-ROE;现金流用股息;周期用正常化PE+PB,别用PEG),取其**区间下沿~上沿**给"合理价 X~Y 元";再对比现价说明**当前处于区间下方(低估)/上方(高估),幅度约±Z%**。用了哪几法要点明。**铁律**:①若目标价那行标注「分歧>3x/标准估值失效」或你选的几法自身差 3 倍以上,**不得**硬凑窄区间——只取最适用的单一锚定价并说明其余法为何失真(资源/主题/困境反转股常见);②若标注「盈利中枢结构性抬升」,正常化PE/历史峰值口径已失真,别用它当下沿;③各法数据不足则直说无法给区间。
+12) new_biz: **业务转型/新业务(第二增长曲线)**:结合「主营/简介」与「近期券商研报标题」判断——公司是否在向**热门赛道**(如人形机器人/AI算力/液冷/低空/储能/固态电池等)转型或拓展新业务?若有:说清**是什么新业务、切入的环节/卡位、当前是纯题材预期还是已有订单收入落地**(主营构成/财报里通常还看不到→多为预期驱动)、以及**这块给估值贡献了多少想象空间(是不是主升逻辑)**。若研报标题反复出现某新方向,重点点出。**没有明显新业务/转型就直说"无,主业为主"**,不要硬编。
 
-只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":"","fair_value":""}}"""
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":"","fair_value":"","new_biz":""}}"""
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05i"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05j"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
