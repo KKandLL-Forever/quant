@@ -43,7 +43,10 @@ def load_fund_full(codes, start, end):
         cols[c] = m["close"] * m["adj_factor"] / m["adj_factor"].iloc[-1]
     return pd.DataFrame(cols).sort_index()
 
-POOL = {"510880.SH": "红利", "159915.SZ": "创业板", "513100.SH": "纳指", "518880.SH": "黄金"}
+POOL = {
+    "510300.SH": "沪深300", "588000.SH": "科创50", "159682.SZ": "创业板50", "518880.SH": "黄金",
+    "511260.SH": "十年国债", "513100.SH": "纳指", "513500.SH": "标普500",
+}
 BENCH = "510300.SH"
 
 
