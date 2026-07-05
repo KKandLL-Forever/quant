@@ -1344,8 +1344,22 @@ def fetch_stk_surv(pro, duck_path: str) -> None:
         con.close()
     if not days:
         print("[stk_surv] 无新增交易日"); return
+    print(f"[stk_surv] 待抓 {len(days)} 个交易日(首次自 {_STK_SURV_FIRST} 回补会较久)...")
+
+    def _flush(parts):
+        if not parts:
+            return
+        allp = pd.concat(parts, ignore_index=True).drop_duplicates(["ts_code", "surv_date", "rece_org"])
+        con = _duckdb.connect(duck_path)
+        try:
+            con.register("_s", allp)
+            con.execute("INSERT OR REPLACE INTO stk_surv SELECT * FROM _s")
+            con.unregister("_s")
+        finally:
+            con.close()
+
     parts = []
-    for d in days:
+    for i, d in enumerate(days, 1):
         off = 0
         while True:
             df = None
@@ -1366,14 +1380,11 @@ def fetch_stk_surv(pro, duck_path: str) -> None:
             off += 400
             time.sleep(0.12)
         time.sleep(0.12)
-    if not parts:
-        print(f"[stk_surv] {len(days)} 日无调研数据"); return
-    allp = pd.concat(parts, ignore_index=True).drop_duplicates(["ts_code", "surv_date", "rece_org"])
+        if i % 100 == 0 or i == len(days):
+            _flush(parts); parts = []
+            print(f"[stk_surv] 进度 {i}/{len(days)} (至 {d},已落库)")
     con = _duckdb.connect(duck_path)
     try:
-        con.register("_s", allp)
-        con.execute("INSERT OR REPLACE INTO stk_surv SELECT * FROM _s")
-        con.unregister("_s")
         n = con.execute("SELECT COUNT(DISTINCT surv_date) FROM stk_surv").fetchone()[0]
     finally:
         con.close()
