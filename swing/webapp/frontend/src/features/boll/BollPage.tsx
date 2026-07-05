@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
 import { Header, PageTitle } from '../../shell'
+import { StockName } from '../../StockInfo'
+import { useAna } from '../../App'
 
 interface Sig { code: string; name: string; price: number; vol_ratio: number; atr_pct: number; days_since: number | null; is_rep30: boolean; ma60_up: boolean; rs_win: boolean; main_concepts?: string[] }
 interface Fc { code: string; name: string; price: number; trig: number; to_band: number; vol_ratio: number | null; band_ok: boolean; macd_ok: boolean; widen_ok: boolean; ready: number; miss: string }
@@ -13,6 +15,7 @@ export default function BollPage() {
   const [pool, setPool] = useState('ml')
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
+  const analyze = useAna()
 
   const load = async () => {
     setLoading(true)
@@ -28,7 +31,7 @@ export default function BollPage() {
   const healthy = data ? data.mkt_bad === false : false
   const cols = [
     { title: '', dataIndex: 'is_rep30', width: 60, render: (_: boolean, r: Sig) => healthy && r.is_rep30 && (r.main_concepts?.length ?? 0) > 0 ? <Tag color="red">重点</Tag> : r.is_rep30 ? <Tag color="orange">第二次</Tag> : <Tag>首次</Tag> },
-    { title: '名称', dataIndex: 'name', render: (v: string, r: Sig) => <span><b>{v}</b> <span style={{ opacity: .55 }}>{r.code}</span></span> },
+    { title: '名称', dataIndex: 'name', render: (v: string, r: Sig) => <span><StockName code={r.code}><a onClick={() => data && analyze(r.code, data.date, false, v)}><b>{v}</b></a></StockName> <span style={{ opacity: .55 }}>{r.code}</span></span> },
     { title: '现价', dataIndex: 'price', render: (v: number) => `¥${v}` },
     { title: 'MA60趋势', dataIndex: 'ma60_up', width: 90, render: (v: boolean) => v ? <Tag color="red">上行</Tag> : <Tag color="green">下行</Tag> },
     { title: '相对大盘', dataIndex: 'rs_win', width: 90, render: (v: boolean) => v ? <Tag color="red">跑赢</Tag> : <Tag color="green">跑输</Tag> },
@@ -81,7 +84,7 @@ export default function BollPage() {
                 columns={[
                   { title: '就绪', dataIndex: 'ready', width: 60, sorter: (a: Fc, b: Fc) => a.ready - b.ready, defaultSortOrder: 'descend',
                     render: (v: number) => <Tag color={v >= 2 ? 'red' : v === 1 ? 'orange' : 'default'}>{v}/3</Tag> },
-                  { title: '名称', dataIndex: 'name', render: (v: string, r: Fc) => <span><b>{v}</b> <span style={{ opacity: .55 }}>{r.code}</span></span> },
+                  { title: '名称', dataIndex: 'name', render: (v: string, r: Fc) => <span><StockName code={r.code}><a onClick={() => data && analyze(r.code, data.date, false, v)}><b>{v}</b></a></StockName> <span style={{ opacity: .55 }}>{r.code}</span></span> },
                   { title: '现价', dataIndex: 'price', render: (v: number) => `¥${v}` },
                   { title: '缩口', width: 56, render: () => <Tag color="green">✓</Tag> },
                   { title: '金叉', dataIndex: 'macd_ok', width: 56, render: (v: boolean) => v ? <Tag color="green">✓</Tag> : <Tag>待</Tag> },

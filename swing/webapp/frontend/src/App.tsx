@@ -177,7 +177,7 @@ const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: str
 
 // 全站通用 LLM 分析:AnaHost 持有分析弹窗+流式逻辑+悬浮输入,各页经 useAna() 触发
 const AnaCtx = React.createContext<(code: string, date: string, force?: boolean, name?: string) => void>(() => { })
-const useAna = () => React.useContext(AnaCtx)
+export const useAna = () => React.useContext(AnaCtx)
 
 function AnaHost({ children }: { children: React.ReactNode }) {
   const [ana, setAna] = useState<any>(null)
