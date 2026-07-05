@@ -155,6 +155,33 @@ def latest_signals(pool="ml", up_mode="mid"):
             "signals": out, "forecast": fc}
 
 
+def signal_history(pool="ml", hold=15, years=2, limit=200):
+    """综合口径历史信号(供前端历史表):全条件(站上上轨+放量+大盘健康+第二次+MA60上行+RS跑赢),带未来10/20日涨幅与持有收益。"""
+    codes = {"ml": members_ml, "csi2000": members_2000, "csi1000": members_1000}[pool]()
+    start = (pd.Timestamp.today() - pd.Timedelta(days=int(years * 365 + hold + 40))).strftime("%Y-%m-%d")
+    df = load(codes, start)
+    sig = build_signals(df, 0.25, 3, "mid", hold)
+    if sig.empty:
+        return {"pool": pool, "rows": []}
+    mkt = hs300_market(start)
+    sig = sig.merge(mkt, on="date", how="left")
+    sig = sig[(sig["mkt_up"] == True) & (sig["mkt_bad"] == False) & (sig["ma60_up"] == True)]
+    sig = sig.sort_values(["ts_code", "date"])
+    sig = sig[sig.groupby("ts_code")["date"].diff().dt.days <= 30]                 # 第二次
+    sig = sig[(sig["mom20"] - sig["hs300_mom20"]) > 0]                             # RS跑赢
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
+    con.close()
+    sig = sig.sort_values("date", ascending=False).head(limit)
+    rows = [{"date": str(pd.Timestamp(r.date).date()), "code": r.ts_code, "name": names.get(r.ts_code, ""),
+             "price": round(float(r.price), 2), "vol_ratio": round(float(r.vol_ratio), 2),
+             "thrust": round(float(r.thrust), 2),
+             "f10": None if pd.isna(r.f10) else round(float(r.f10) * 100, 1),
+             "f20": None if pd.isna(r.f20) else round(float(r.f20) * 100, 1),
+             "ret": None if pd.isna(r.ret_gross) else round(float(r.ret_gross) * 100, 1)} for r in sig.itertuples()]
+    return {"pool": pool, "hold": hold, "rows": rows}
+
+
 def hs300_market(start, index_code="000300.SH"):
     """大盘口径(默认沪深300,可传中证2000等):返回 DataFrame[date, mkt_up(当天涨), mkt_bad(MA30与MA60同时走坏)]。"""
     import tushare as ts
@@ -196,7 +223,7 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         atr_pct = g["atr"] / adjc
         entry_p, exit_p = adjc.shift(-1), adjc.shift(-(1 + hold))
         ma60 = adjc.rolling(60).mean()
-        s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
+        s = pd.DataFrame({"ts_code": ts, "date": g["td"], "price": g["close_raw"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
                           "atr_pct": atr_pct, "vol_ratio": vol_ratio, "bw_jump": bw_jump, "thrust": thrust,
                           "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5), "macd_above0": g["dif"] > 0,
                           "mf_ratio": g["mf_ratio"], "mom20": adjc / adjc.shift(20) - 1,

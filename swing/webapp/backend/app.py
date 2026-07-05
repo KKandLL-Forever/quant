@@ -904,6 +904,18 @@ def boll(req: BollReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+@app.post("/api/boll_history")
+def boll_history(req: BollReq):
+    """BOLL 综合口径历史信号(全条件)+ 未来10/20日涨幅、15日持有收益。"""
+    import traceback
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, "boll_narrow_exit"))
+        import boll_expand_macd as bem
+        return {"ok": True, **bem.signal_history(req.pool)}
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 class ConceptReq(BaseModel):
     bench: str = "000852.SH"
     up: str = "ma20"

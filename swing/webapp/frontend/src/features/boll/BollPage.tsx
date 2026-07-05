@@ -15,7 +15,17 @@ export default function BollPage() {
   const [pool, setPool] = useState('ml')
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
+  const [hist, setHist] = useState<any[] | null>(null)
+  const [histLoading, setHistLoading] = useState(false)
   const analyze = useAna()
+
+  const loadHist = async (p: string) => {
+    setHistLoading(true); setHist(null)
+    try {
+      const j = await (await fetch('/api/boll_history', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pool: p }) })).json()
+      if (j.ok) setHist(j.rows || [])
+    } catch { /* 忽略 */ } finally { setHistLoading(false) }
+  }
 
   const load = async () => {
     setLoading(true)
@@ -24,6 +34,7 @@ export default function BollPage() {
       const j: Payload = await r.json()
       if (!j.ok) throw new Error(j.error || '请求失败')
       setData(j)
+      loadHist(pool)
     } catch (e) { message.error((e as Error).message) } finally { setLoading(false) }
   }
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -94,15 +105,32 @@ export default function BollPage() {
                   { title: '现价', dataIndex: 'price', render: (v: number) => `¥${v}` },
                   { title: '缩口', width: 56, render: () => <Tag color="green">✓</Tag> },
                   { title: '金叉', dataIndex: 'macd_ok', width: 56, render: (v: boolean) => v ? <Tag color="green">✓</Tag> : <Tag>待</Tag> },
-                  { title: '站上中轨', dataIndex: 'band_ok', width: 80, render: (v: boolean) => v ? <Tag color="green">✓</Tag> : <Tag>待</Tag> },
+                  { title: '站上上轨', dataIndex: 'band_ok', width: 80, render: (v: boolean) => v ? <Tag color="green">✓</Tag> : <Tag>待</Tag> },
                   { title: '扩张', dataIndex: 'widen_ok', width: 56, render: (v: boolean) => v ? <Tag color="green">✓</Tag> : <Tag>待</Tag> },
                   { title: '还差(明日触发条件)', dataIndex: 'miss', render: (v: string) => <span style={{ color: '#c0392b' }}>{v}</span> },
                 ]} />
               <div style={{ fontSize: 12, color: '#999', marginTop: 6 }}>
-                预判=今日已在缩口区、其余条件接近的票。就绪 X/3 = 扩张/金叉/站上中轨 已满足数(缩口为前提)。均需明日<b>收盘</b>确认,非实时提示。
+                预判=今日已在缩口区、其余条件接近的票。就绪 X/3 = 扩张/金叉/站上上轨 已满足数(缩口为前提)。均需明日<b>收盘</b>确认,非实时提示。
               </div>
             </Card>
           )}
+
+          <Card size="small" style={{ marginTop: 14 }} loading={histLoading}
+            title={`信号历史(综合口径,近${hist?.length ?? 0}条 · 全条件回测同口径,含事后涨幅)`}>
+            <Table rowKey={(r: any) => r.code + r.date} size="small" pagination={{ pageSize: 20, showSizeChanger: false }}
+              dataSource={hist || []}
+              columns={[
+                { title: '信号日', dataIndex: 'date', width: 110, defaultSortOrder: 'descend', sorter: (a: any, b: any) => a.date < b.date ? -1 : 1 },
+                { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <span><StockName code={r.code}><a onClick={() => analyze(r.code, r.date, false, v)}><b>{v}</b></a></StockName> <span style={{ opacity: .55 }}>{r.code}</span></span> },
+                { title: '信号价', dataIndex: 'price', render: (v: number) => `¥${v}` },
+                { title: '量比', dataIndex: 'vol_ratio', sorter: (a: any, b: any) => a.vol_ratio - b.vol_ratio, render: (v: number) => <span style={{ color: v >= 2 ? '#c0392b' : '#5b554a' }}>{v}</span> },
+                { title: '突破力度', dataIndex: 'thrust', sorter: (a: any, b: any) => a.thrust - b.thrust, render: (v: number) => v },
+                { title: '未来10日', dataIndex: 'f10', sorter: (a: any, b: any) => (a.f10 ?? -99) - (b.f10 ?? -99), render: (v: number | null) => v == null ? '—' : <b style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</b> },
+                { title: '未来20日', dataIndex: 'f20', sorter: (a: any, b: any) => (a.f20 ?? -99) - (b.f20 ?? -99), render: (v: number | null) => v == null ? '—' : <b style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</b> },
+                { title: '持有15日', dataIndex: 'ret', sorter: (a: any, b: any) => (a.ret ?? -99) - (b.ret ?? -99), render: (v: number | null) => v == null ? <span style={{ color: '#999' }}>持有中</span> : <b style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</b> },
+              ]} />
+            <div style={{ fontSize: 12, color: '#999', marginTop: 6 }}>近2年综合口径历史信号(与回测同口径);未来10/20日、持有15日涨幅按后复权、未扣费,仅供检视信号质量。</div>
+          </Card>
         </>
       )}
     </div>
