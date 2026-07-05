@@ -304,7 +304,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
             {b.peg_data && (() => { const p = b.peg_data; const col = p.peg < 1 ? '#c0392b' : p.peg < 1.5 ? '#7a5d18' : '#1f8e5a'
               return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef3f8', border: '1px solid #cfe0ef', borderRadius: 6 }}>
                 <b>前瞻PEG(林奇):</b> <b style={{ color: col, fontSize: 15 }}>{p.peg}</b> <Tag color={p.peg < 1 ? 'red' : p.peg < 1.5 ? 'gold' : 'green'}>{p.tier}</Tag>
-                <span style={{ color: '#5b554a' }}>= 前瞻PE {p.fwd_pe} ÷ (CAGR {p.cagr}%×100);券商全年预测净利 {p.fwd_np}亿{p.digest ? `;当前PE需 ${p.digest} 年增长消化到30x` : ''}</span>
+                <span style={{ color: '#5b554a' }}>= 前瞻PE {p.fwd_pe} ÷ ({p.gsrc || ''}增速 {p.cagr}%×100);券商全年预测净利 {p.fwd_np}亿{p.digest ? `;当前PE需 ${p.digest} 年增长消化到30x` : ''}</span>
                 {b.peg && <div style={{ marginTop: 2 }}>{b.peg}</div>}
               </div> })()}
             {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}

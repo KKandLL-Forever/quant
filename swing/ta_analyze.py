@@ -219,30 +219,46 @@ def _business_prompt(code):
         WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL ORDER BY end_date DESC LIMIT 6""", [tscode]).fetchall()
     con.close()
     import math
-    cagr = None   # 近3年归母净利复合增速
-    if len(ann) >= 2 and ann[-1][1] and ann[-1][1] > 0 and ann[0][1] and ann[0][1] > 0:
-        cagr = (ann[0][1] / ann[-1][1]) ** (1 / (len(ann) - 1)) - 1
-    fwd_np = None   # 券商一致预期·全年归母净利(亿)
+    fyr = {}   # 券商预测:每年(Q4=全年)中位归母净利(亿)
     try:
-        rc = pro.report_rc(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr}1231")
+        rc = pro.report_rc(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr+2}1231")
         if rc is not None and len(rc):
             rc = rc[rc["quarter"].astype(str).str.endswith("Q4")]
-            rc = rc[rc["quarter"].astype(str).str[:4].astype(int) >= yr]
-            if len(rc):
-                fwd_np = float(rc["np"].median()) / 1e4   # np 万元→亿
+            for key, g in rc.groupby(rc["quarter"].astype(str).str[:4]):
+                y = int(key)
+                if y >= yr and g["np"].notna().any():
+                    fyr[y] = float(g["np"].median()) / 1e4
     except Exception:
         pass
-    fwd_pe = (mv[0] / 1e4 / fwd_np) if (mv and fwd_np and fwd_np > 0) else None   # 市值(亿)/全年预测净利(亿)
-    fwd_peg = (fwd_pe / (cagr * 100)) if (fwd_pe and cagr and cagr > 0) else None
-    digest = (math.log((mv[1] if mv else 0) / 30) / math.log(1 + cagr)
-              if (mv and mv[1] and mv[1] > 30 and cagr and cagr > 0) else None)
+    fwd_np = fyr.get(yr) or (fyr[min(fyr)] if fyr else None)   # 最近全年预测
+    fcagr = None   # 前瞻增速:券商多年预测CAGR(优先,穿越当前低谷)
+    if len(fyr) >= 2:
+        ys = sorted(fyr); a, b = fyr[ys[0]], fyr[ys[-1]]
+        if a and a > 0 and b and b > 0:
+            fcagr = (b / a) ** (1 / (ys[-1] - ys[0])) - 1
+    tcagr = None   # 历史增速(回退):要求各年为正、无缺口
+    hv = [v[1] for v in ann if v[1] is not None]
+    if len(hv) >= 2 and all(v > 0 for v in hv):
+        tcagr = (hv[0] / hv[-1]) ** (1 / (len(hv) - 1)) - 1
+    gsrc = "前瞻" if fcagr is not None else "历史"
+    cagr = fcagr if fcagr is not None else tcagr
+    peg_bad = None   # PEG 不适用原因
+    if cagr is None:
+        peg_bad = "利润含亏损/无有效增速"
+    elif cagr <= 0:
+        peg_bad = "增速为负"
+    elif cagr > 2.0:
+        peg_bad = "利润大幅波动(增速>200%,失真)"; cagr = None
+    fwd_pe = (mv[0] / 1e4 / fwd_np) if (mv and fwd_np and fwd_np > 0) else None
+    fwd_peg = (fwd_pe / (cagr * 100)) if (fwd_pe and cagr) else None
+    digest = (math.log(mv[1] / 30) / math.log(1 + cagr) if (mv and mv[1] and mv[1] > 30 and cagr) else None)
     tier = None if fwd_peg is None else (
         "极度低估" if fwd_peg < 0.5 else "低估" if fwd_peg < 1 else "合理" if fwd_peg < 1.5 else "偏贵" if fwd_peg < 2 else "高估")
     pegdict = None if fwd_peg is None else {
-        "peg": round(fwd_peg, 2), "cagr": round(cagr * 100, 0), "fwd_pe": round(fwd_pe, 1),
+        "peg": round(fwd_peg, 2), "cagr": round(cagr * 100, 0), "gsrc": gsrc, "fwd_pe": round(fwd_pe, 1),
         "fwd_np": round(fwd_np, 2), "tier": tier, "digest": round(digest, 1) if digest else None}
-    pegtxt = "无券商预测/增速为负,PEG不适用" if fwd_peg is None else (
-        f"3年净利CAGR {cagr*100:.0f}% | 券商全年预测净利 {fwd_np:.2f}亿 | 前瞻PE {fwd_pe:.1f} | "
+    pegtxt = (f"PEG不适用({peg_bad or ('无券商预测' if not fwd_pe else '数据不足')})") if fwd_peg is None else (
+        f"{gsrc}净利增速 {cagr*100:.0f}% | 券商全年预测净利 {fwd_np:.2f}亿 | 前瞻PE {fwd_pe:.1f} | "
         f"前瞻PEG {fwd_peg:.2f}({tier};<0.5极低估/0.5-1低估/1-1.5合理/1.5-2偏贵/>2高估)"
         + (f" | 当前PE需 {digest:.1f} 年增长消化到30x" if digest else ""))
     # PB-ROE / RIM(内在价值/现价 V/P):合理PB=(ROE-g)/(r-g),r=10%,g 取保守增长
@@ -305,7 +321,7 @@ def _business_prompt(code):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05d"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05e"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
