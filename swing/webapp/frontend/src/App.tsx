@@ -590,7 +590,7 @@ function MainPage() {
               <span style={{ color: '#bbb', fontSize: 12 }}>胜率/盈亏含持仓中按现价</span>
             </div>
           )
-          return <div>{summary}<Table rowKey="key" columns={tcols} dataSource={log} size="small" pagination={{ pageSize: 30 }}
+          return <div>{summary}<Table rowKey="key" columns={tcols} dataSource={log} size="small" pagination={{ defaultPageSize: 30, showSizeChanger: true, pageSizeOptions: [10, 30, 50, 100] }}
             onRow={(r: any) => ({ style: !r.done ? { background: '#f3efe5', color: '#9b958a' } : undefined })} /></div>
         }
         return <Tabs style={{ marginBottom: 12 }} items={[
@@ -599,7 +599,7 @@ function MainPage() {
         ]} />
       })()}
 
-      {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ pageSize: 30 }} />}
+      {payload && <Table rowKey={r => r.ts + r.date} columns={cols} dataSource={rows} size="small" scroll={{ x: 1500 }} pagination={{ defaultPageSize: 30, showSizeChanger: true, pageSizeOptions: [10, 30, 50, 100] }} />}
 
       {payload && (() => {
         const bd = (c: string) => c.startsWith('688') || c.startsWith('689') ? '科创' : (c.slice(0, 3) === '300' || c.slice(0, 3) === '301') ? '创业' : '主板'
