@@ -309,6 +309,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
               </div> })()}
             {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}
             {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配:</b> {b.valuation}</div>}
+            {b.fair_value && <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}><b>合理股价区间(多方法交叉):</b> {b.fair_value}</div>}
             {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
             {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
           </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}

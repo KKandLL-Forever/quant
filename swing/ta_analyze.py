@@ -199,10 +199,10 @@ def _business_prompt(code):
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
         FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
-    mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,trade_date FROM daily_basic WHERE ts_code=?
+    mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,close,trade_date FROM daily_basic WHERE ts_code=?
         ORDER BY trade_date DESC LIMIT 1""", [tscode]).fetchone()
     swr = con.execute("SELECT l1_name,l2_name,l3_name FROM sw_member WHERE ts_code=?", [tscode]).fetchone()
-    yr = (mv[5].year if mv else __import__("datetime").date.today().year)
+    yr = (mv[6].year if mv else __import__("datetime").date.today().year)
     ytd = con.execute("""SELECT d.close*a.adj_factor FROM daily d JOIN adj_factor a
         ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
         WHERE d.ts_code=? AND d.trade_date>=? ORDER BY d.trade_date""", [tscode, f"{yr}-01-01"]).fetchall()
@@ -216,11 +216,12 @@ def _business_prompt(code):
     roey = con.execute("""SELECT roe_yearly FROM fina_indicator WHERE ts_code=? AND roe_yearly IS NOT NULL
         ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
     pbh = [r[0] for r in con.execute("SELECT pb FROM daily_basic WHERE ts_code=? AND pb IS NOT NULL AND pb>0", [tscode]).fetchall()]
+    peh = [r[0] for r in con.execute("SELECT pe_ttm FROM daily_basic WHERE ts_code=? AND pe_ttm IS NOT NULL AND pe_ttm>0", [tscode]).fetchall()]
     anh = con.execute("""SELECT n_income_attr_p/1e8 FROM income
         WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL ORDER BY end_date DESC LIMIT 6""", [tscode]).fetchall()
     con.close()
     import math
-    fyr = {}   # 券商预测:每年(Q4=全年)中位归母净利(亿);只取近半年+每券商最新一份,避免陈旧预测拖累
+    fyr, feps = {}, {}   # 券商预测:每年(Q4=全年)中位归母净利(亿)/中位EPS;只取近半年+每券商最新一份
     try:
         rc = pro.report_rc(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr+2}1231")
         if rc is not None and len(rc):
@@ -232,6 +233,8 @@ def _business_prompt(code):
                 y = int(key)
                 if y >= yr and g["np"].notna().any():
                     fyr[y] = float(g["np"].median()) / 1e4
+                if y >= yr and g["eps"].notna().any():
+                    feps[y] = float(g["eps"].median())
     except Exception:
         pass
     fwd_np = fyr.get(yr) or (fyr[min(fyr)] if fyr else None)   # 最近全年预测
@@ -281,6 +284,24 @@ def _business_prompt(code):
         (f"**正常化PE {norm_pe:.1f}**(=市值÷近年峰值净利 {peak_np:.1f}亿;周期股顶部研判用它:若已跌到个位数且市场鼓吹长期高增长=顶部信号)" if norm_pe else None),
         (f"股息率 {mv[4]:.1f}%" if (mv and mv[4]) else None),
         (f"PS(TTM) {mv[3]:.1f}" if (mv and mv[3]) else None)] if x)
+    close = mv[5] if mv else None
+    fwd_eps = feps.get(yr) or (feps[min(feps)] if feps else None)
+    bps = (close / pb) if (close and pb and pb > 0) else None
+    _sp = sorted(peh); pe_med = (_sp[len(_sp) // 2] if len(_sp) % 2 else (_sp[len(_sp) // 2 - 1] + _sp[len(_sp) // 2]) / 2) if _sp else None
+    dv = mv[4] if mv else None
+    fp = {}
+    if fwd_eps and cagr:
+        fp["PEG=1(成长)"] = fwd_eps * cagr * 100
+    if fwd_eps and pe_med:
+        fp["历史PE中位"] = fwd_eps * pe_med
+    if bps and just_pb:
+        fp["PB-ROE(资产/金融)"] = bps * just_pb
+    if close and dv:
+        fp["股息率4%(现金流)"] = close * dv / 100 / 0.04
+    if close and norm_pe and norm_pe > 0:
+        fp["正常化PE12x(周期)"] = close * 12 / norm_pe
+    fairtxt = ((f"现价 {close:.2f}元 | " if close else "") +
+               ("；".join(f"{k} {v:.2f}元" for k, v in fp.items()) if fp else "各法数据不足"))
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
                                    f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
     mvtxt = "无" if not mv else f"总市值{mv[0]/10000:.0f}亿 PE(TTM){mv[1]} PB{mv[2]}"
@@ -290,7 +311,7 @@ def _business_prompt(code):
     sw = "/".join(x for x in (swr or []) if x) if swr else ""
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
             f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}\n"
-            f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}")
+            f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}\n多方法目标价:{fairtxt}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
 
 {info}
@@ -320,12 +341,13 @@ def _business_prompt(code):
    若要维持PE不变,涨X%→利润需同比+X%,据此反推下一报告期需要的利润额与单季增速,对照已披露季度看现实性;
    结论区分"业绩已兑现 / 靠预期透支"。给一句话+关键数字(涨幅、季度利润、PE、需要的单季利润)。
 10) peg: **前瞻PEG 一句话结论**(基于「前瞻PEG」那行;标注不适用则说明为何——利润为负/无券商覆盖)。
+11) fair_value: **合理股价区间(多方法交叉,football field)**:从上面「多方法目标价」里**挑与本企业原型匹配的 2-3 个方法**(成长型用 PEG=1/历史PE;资产/金融用 PB-ROE;现金流用股息;周期用正常化PE+PB,别用PEG),取其**区间下沿~上沿**给"合理价 X~Y 元";再对比现价说明**当前处于区间下方(低估)/上方(高估),幅度约±Z%**。用了哪几法要点明;若各法数据不足则说明。
 
-只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":""}}"""
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":"","fair_value":""}}"""
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05f"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05g"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
