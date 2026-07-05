@@ -298,10 +298,15 @@ def _business_prompt(code):
         fp["PB-ROE(资产/金融)"] = bps * just_pb
     if close and dv:
         fp["股息率4%(现金流)"] = close * dv / 100 / 0.04
-    if close and norm_pe and norm_pe > 0:
+    norm_regime_up = bool(fwd_np and peak_np and fwd_np > peak_np * 1.5)
+    if close and norm_pe and norm_pe > 0 and not norm_regime_up:
         fp["正常化PE12x(周期)"] = close * 12 / norm_pe
+    _lo, _hi = (min(fp.values()), max(fp.values())) if fp else (None, None)
+    diverge = bool(_lo and _lo > 0 and _hi / _lo > 3)
     fairtxt = ((f"现价 {close:.2f}元 | " if close else "") +
-               ("；".join(f"{k} {v:.2f}元" for k, v in fp.items()) if fp else "各法数据不足"))
+               ("；".join(f"{k} {v:.2f}元" for k, v in fp.items()) if fp else "各法数据不足")
+               + ("；【各法分歧>3x,标准估值失效,勿给点/窄区间】" if diverge else "")
+               + ("；【前瞻净利远超历史峰值→盈利中枢结构性抬升,正常化PE法已弃用】" if norm_regime_up else ""))
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
                                    f"营收同比{fin[3]:+.1f}% 净利同比{fin[4]:+.1f}%")
     mvtxt = "无" if not mv else f"总市值{mv[0]/10000:.0f}亿 PE(TTM){mv[1]} PB{mv[2]}"
@@ -341,13 +346,13 @@ def _business_prompt(code):
    若要维持PE不变,涨X%→利润需同比+X%,据此反推下一报告期需要的利润额与单季增速,对照已披露季度看现实性;
    结论区分"业绩已兑现 / 靠预期透支"。给一句话+关键数字(涨幅、季度利润、PE、需要的单季利润)。
 10) peg: **前瞻PEG 一句话结论**(基于「前瞻PEG」那行;标注不适用则说明为何——利润为负/无券商覆盖)。
-11) fair_value: **合理股价区间(多方法交叉,football field)**:从上面「多方法目标价」里**挑与本企业原型匹配的 2-3 个方法**(成长型用 PEG=1/历史PE;资产/金融用 PB-ROE;现金流用股息;周期用正常化PE+PB,别用PEG),取其**区间下沿~上沿**给"合理价 X~Y 元";再对比现价说明**当前处于区间下方(低估)/上方(高估),幅度约±Z%**。用了哪几法要点明;若各法数据不足则说明。
+11) fair_value: **合理股价区间(多方法交叉,football field)**:从上面「多方法目标价」里**挑与本企业原型匹配的 2-3 个方法**(成长型用 PEG=1/历史PE;资产/金融用 PB-ROE;现金流用股息;周期用正常化PE+PB,别用PEG),取其**区间下沿~上沿**给"合理价 X~Y 元";再对比现价说明**当前处于区间下方(低估)/上方(高估),幅度约±Z%**。用了哪几法要点明。**铁律**:①若目标价那行标注「分歧>3x/标准估值失效」或你选的几法自身差 3 倍以上,**不得**硬凑窄区间——只取最适用的单一锚定价并说明其余法为何失真(资源/主题/困境反转股常见);②若标注「盈利中枢结构性抬升」,正常化PE/历史峰值口径已失真,别用它当下沿;③各法数据不足则直说无法给区间。
 
 只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":"","fair_value":""}}"""
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05g"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05h"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
