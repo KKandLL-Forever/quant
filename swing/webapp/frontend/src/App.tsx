@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
 dayjs.locale('zh-cn')
 import ReactMarkdown from 'react-markdown'
+import { StockName } from './StockInfo'
 import remarkGfm from 'remark-gfm'
 
 const MD = ({ children }: { children?: string }) => (
@@ -414,7 +415,7 @@ function MainPage() {
     { title: '板块', dataIndex: 'board', filters: ['主板', '科创', '创业'].map(v => ({ text: v, value: v })), onFilter: (v, r) => r.board === v },
     { title: '档位/ML分', dataIndex: 'score', defaultSortOrder: 'descend', sorter: (a, b) => a.score - b.score, render: (v, r) => <span><b>{r.tier}</b> {v}</span> },
     { title: '代码', dataIndex: 'ts', render: (v: string) => <span style={{ color: boardColor(v), fontFamily: 'var(--font-mono)' }}>{v}</span> },
-    { title: '名称', dataIndex: 'name', render: (v, r) => <a onClick={() => openKline(r.ts, r.date, r)}>{v}</a> },
+    { title: '名称', dataIndex: 'name', render: (v, r) => <StockName code={r.ts}><a onClick={() => openKline(r.ts, r.date, r)}>{v}</a></StockName> },
     { title: '价格', dataIndex: 'price', sorter: (a, b) => (a.price ?? 0) - (b.price ?? 0), render: v => v + '元' },
     { title: '形态', dataIndex: 'typ', filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v, r) => r.typ === v },
     { title: '至今最大涨幅', dataIndex: 'maxfwd', sorter: (a, b) => (a.maxfwd || -999) - (b.maxfwd || -999), render: v => pct(v, true) },
@@ -480,7 +481,7 @@ function MainPage() {
             <div className="tday-colh" style={{ color: '#c0392b' }}>今日买入</div>
             {today.buys.length ? today.buys.map(r => (
               <span key={'b' + r.ts} className="chip chip-buy">
-                <b>{r.name}</b><span className="chip-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
+                <StockName code={r.ts}><b>{r.name}</b></StockName><span className="chip-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
                 <span className="chip-meta">{r.tier}·ML{r.score}</span>
                 <span style={{ fontSize: 11, color: r.mkt === '健康' ? '#c0392b' : '#1f8e5a' }}>{r.board}{r.mkt}</span>
               </span>
@@ -492,7 +493,7 @@ function MainPage() {
               const t: string[] = []; if (r.donexit === today.L) t.push('唐奇安清仓'); if (r.czexit === today.L) t.push('缠论M3离场')
               return (
                 <span key={'s' + r.ts} className="chip chip-sell">
-                  <b>{r.name}</b><span className="chip-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
+                  <StockName code={r.ts}><b>{r.name}</b></StockName><span className="chip-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
                   {t.map(x => <span key={x} className="chip-rsn">{x}</span>)}
                 </span>
               )
@@ -506,7 +507,7 @@ function MainPage() {
               const who = [r.donopen && '唐', r.czopen && '缠'].filter(Boolean).join('/')
               return (
                 <span key={'h' + r.ts} className="hold-chip" onClick={() => analyze(r.ts, today.L, false, r.name)}>
-                  <span style={{ fontWeight: 600 }}>{r.name}</span>
+                  <StockName code={r.ts}><span style={{ fontWeight: 600 }}>{r.name}</span></StockName>
                   <span className="hold-code" style={{ color: boardColor(r.ts) }}>{r.ts.slice(0, 6)}</span>
                   {who && <span className="hold-tag">{who}</span>}
                 </span>
@@ -610,7 +611,7 @@ function MainPage() {
             dataSource={mlFc}
             columns={[
               { title: '形态', dataIndex: 'typ', width: 100, filters: [{ text: 'N字型', value: 'N字型' }, { text: 'W型', value: 'W型' }], onFilter: (v: any, r: any) => r.typ.includes(v), render: (v: string) => v.includes('/') ? <Tag color="gold">N字/W型</Tag> : <Tag color={v === 'W型' ? 'purple' : 'blue'}>{v}</Tag> },
-              { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <a onClick={() => openKline(r.code, payload.latest ?? '', undefined)}>{v}</a> },
+              { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <StockName code={r.code}><a onClick={() => openKline(r.code, payload.latest ?? '', undefined)}>{v}</a></StockName> },
               { title: '代码', dataIndex: 'code' },
               { title: '现价', dataIndex: 'price', render: (v: number) => `${v}元` },
               { title: '突破价', dataIndex: 'trig', render: (v: number) => <b style={{ color: '#c0392b' }}>{v}元</b> },

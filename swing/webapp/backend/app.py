@@ -924,6 +924,34 @@ def stock_search(q: str = ""):
     return {"ok": True, "items": [{"code": c, "name": n} for c, n in rows]}
 
 
+@app.get("/api/stock_info")
+def stock_info(code: str = ""):
+    """个股悬浮卡数据:现价/涨跌/估值(PE/PB/市值/股息)/申万行业/最相关前2概念。"""
+    ts = _norm_code(code)
+    if not ts:
+        return {"ok": False}
+    import duckdb
+    import cache_tushare as ct
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    try:
+        meta = con.execute("SELECT name FROM stock_meta WHERE ts_code=?", [ts]).fetchone()
+        px = con.execute("SELECT close, pct_chg FROM daily WHERE ts_code=? ORDER BY trade_date DESC LIMIT 1", [ts]).fetchone()
+        val = con.execute("SELECT pe_ttm, pb, total_mv, dv_ttm FROM daily_basic WHERE ts_code=? ORDER BY trade_date DESC LIMIT 1", [ts]).fetchone()
+        sw = con.execute("SELECT l1_name, l2_name, l3_name FROM sw_member WHERE ts_code=? ORDER BY is_new DESC LIMIT 1", [ts]).fetchone()
+        cons = con.execute(
+            "SELECT i.name FROM ths_member m JOIN ths_index i ON m.ts_code=i.ts_code "
+            "WHERE m.con_code=? AND i.count>0 ORDER BY i.count ASC LIMIT 2", [ts]).fetchall()
+    finally:
+        con.close()
+    _r = lambda x, n=2: (round(float(x), n) if x is not None else None)
+    return {"ok": True, "code": ts, "name": (meta[0] if meta else ts),
+            "price": _r(px[0]) if px else None, "pct_chg": _r(px[1]) if px else None,
+            "pe_ttm": _r(val[0], 1) if val else None, "pb": _r(val[1]) if val else None,
+            "mv_yi": _r(val[2] / 1e4, 0) if (val and val[2]) else None, "dv": _r(val[3]) if val else None,
+            "sw": ("/".join(x for x in sw if x) if sw else None),
+            "concepts": [c[0] for c in cons]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}
