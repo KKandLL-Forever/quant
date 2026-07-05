@@ -186,6 +186,7 @@ def analyst_verdict(state):
 def _business_prompt(code):
     """构造公司产业链分析 prompt,返回 (prompt, fintxt);无资料返回 (None, None)。"""
     import duckdb
+    import pandas as pd
     import tushare as ts
     import ta_bridge
     from cache_tushare import DUCKDB_PATH
@@ -219,11 +220,14 @@ def _business_prompt(code):
         WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL ORDER BY end_date DESC LIMIT 6""", [tscode]).fetchall()
     con.close()
     import math
-    fyr = {}   # 券商预测:每年(Q4=全年)中位归母净利(亿)
+    fyr = {}   # 券商预测:每年(Q4=全年)中位归母净利(亿);只取近半年+每券商最新一份,避免陈旧预测拖累
     try:
         rc = pro.report_rc(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr+2}1231")
         if rc is not None and len(rc):
-            rc = rc[rc["quarter"].astype(str).str.endswith("Q4")]
+            rc = rc[rc["quarter"].astype(str).str.endswith("Q4")].copy()
+            rc["rd"] = pd.to_datetime(rc["report_date"])
+            rc = rc[rc["rd"] >= rc["rd"].max() - pd.Timedelta(days=180)]   # 只留近半年研报
+            rc = rc.sort_values("rd").groupby(["org_name", "quarter"], as_index=False).tail(1)   # 每券商每年最新一份
             for key, g in rc.groupby(rc["quarter"].astype(str).str[:4]):
                 y = int(key)
                 if y >= yr and g["np"].notna().any():
@@ -321,7 +325,7 @@ def _business_prompt(code):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05e"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05f"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
