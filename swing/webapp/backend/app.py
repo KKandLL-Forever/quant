@@ -905,6 +905,25 @@ def concept(req: ConceptReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+@app.get("/api/stock_search")
+def stock_search(q: str = ""):
+    """按代码或名称模糊搜股票(供全站LLM分析悬浮框),返回 [{code,name}]。"""
+    q = (q or "").strip()
+    if not q:
+        return {"ok": True, "items": []}
+    import duckdb
+    import cache_tushare as ct
+    con = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT ts_code, name FROM stock_meta WHERE (delist_date IS NULL OR delist_date='') "
+            "AND (ts_code LIKE ? OR name LIKE ?) ORDER BY ts_code LIMIT 20",
+            [f"%{q}%", f"%{q}%"]).fetchall()
+    finally:
+        con.close()
+    return {"ok": True, "items": [{"code": c, "name": n} for c, n in rows]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}

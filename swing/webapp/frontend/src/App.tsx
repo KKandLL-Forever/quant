@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider, FloatButton, AutoComplete } from 'antd'
 import type { TableColumnsType } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
@@ -174,49 +174,19 @@ const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: str
   </Card>
 )
 
-function MainPage() {
-  const { params, setParams, parts, setParts, payload, loading, train } = useSignalStore()
-  const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
-  const [ana, setAna] = useState<any>(null)   // {open, loading, code, date, data}
-  const [kl, setKl] = useState<any>(null)     // K线弹窗 {open, loading, code, date, data}
-  const [adv, setAdv] = useState<any>(null)   // 缠论卖点提示弹窗 {open, loading, code, date, data}
+// 全站通用 LLM 分析:AnaHost 持有分析弹窗+流式逻辑+悬浮输入,各页经 useAna() 触发
+const AnaCtx = React.createContext<(code: string, date: string, force?: boolean, name?: string) => void>(() => { })
+const useAna = () => React.useContext(AnaCtx)
 
-  const openAdvise = async (code: string, date: string) => {
-    setAdv({ open: true, loading: true, code, date })
-    try {
-      const r = await fetch('/api/advise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, buy_date: date }) })
-      const j = await r.json()
-      setAdv((a: any) => (a && a.code === code && a.date === date) ? { open: true, loading: false, code, date, data: j } : a)
-    } catch (e) {
-      setAdv((a: any) => (a && a.code === code) ? { open: true, loading: false, code, date, data: { ok: false, error: String(e) } } : a)
-    }
-  }
-
-  const openKline = async (code: string, date: string, row?: Sig) => {
-    const marks: Mark[] = []
-    if (row?.czlegs?.length) {   // 缠论M3全历史腿事件:买/补=买点,缠/止=卖点(与表格同口径)
-      for (const [d0, k] of row.czlegs) marks.push({ date: d0, kind: (k === '买' || k === '补') ? 'buy' : 'sell', label: k })
-    } else {
-      marks.push({ date, kind: 'buy', label: '买' })
-    }
-    if (row?.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
-    setKl({ open: true, loading: true, code, date, marks })
-    try {
-      const r = await fetch('/api/kline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date }) })
-      setKl({ open: true, loading: false, code, date, marks, data: await r.json() })
-    } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
-  }
-
-  useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
-
+function AnaHost({ children }: { children: React.ReactNode }) {
+  const [ana, setAna] = useState<any>(null)
   const esRef = React.useRef<EventSource | null>(null)
   const pollRef = React.useRef<any>(null)
   const curRid = React.useRef<string | null>(null)
   const timers = React.useRef<any[]>([])
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const stickRef = React.useRef(true)
-  React.useEffect(() => {   // 新内容到达时:若停在底部就跟随,若上滑了则不打扰
+  React.useEffect(() => {
     const el = scrollRef.current
     if (el && stickRef.current) el.scrollTop = el.scrollHeight
   }, [ana?.market_report, ana?.news_report, (ana?.shownDlg || []).length, ana?.bizText, ana?.verText, ana?.phase, ana?.verdict, ana?.business])
@@ -256,9 +226,9 @@ function MainPage() {
         try {
           const pr = await (await fetch('/api/analyze/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid }) })).json()
           if (!pr.ok) { clearInterval(pollRef.current); up(rid, { phase: 'error', stage: pr.error }); return }
-          up(rid, { stage: pr.stage || '分析中…', market_report: pr.market_report || '', news_report: pr.news_report || '', shownDlg: pr.dialogue || [] })   // 实时反映后端已产出的部分
+          up(rid, { stage: pr.stage || '分析中…', market_report: pr.market_report || '', news_report: pr.news_report || '', shownDlg: pr.dialogue || [] })
           if (pr.done) { clearInterval(pollRef.current); _startStream(rid, code, date) }
-        } catch { /* 网络抖动,下次轮询继续 */ }
+        } catch { /* 网络抖动 */ }
       }, 1500)
     } catch (e) { up(rid, { phase: 'error', stage: String(e) }) }
   }
@@ -269,10 +239,131 @@ function MainPage() {
     timers.current.forEach(clearTimeout); timers.current = []
     esRef.current?.close()
     if (ana?.rid && ana?.phase !== 'done') {
-      fetch('/api/analyze_cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid: ana.rid }) }).catch(() => {})
+      fetch('/api/analyze_cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rid: ana.rid }) }).catch(() => { })
     }
     setAna(null)
   }
+
+  const [inp, setInp] = useState<any>(null)   // 悬浮输入 {open, code, name, date}
+  const [opts, setOpts] = useState<{ value: string; label: string; code: string; name: string }[]>([])
+  const searchStock = async (q: string) => {
+    if (!q || !q.trim()) { setOpts([]); return }
+    try {
+      const j = await (await fetch(`/api/stock_search?q=${encodeURIComponent(q.trim())}`)).json()
+      setOpts((j.items || []).map((it: any) => ({ value: it.code, label: `${it.name}(${it.code})`, code: it.code, name: it.name })))
+    } catch { setOpts([]) }
+  }
+  const submitInp = () => {
+    if (!inp?.code) { message.warning('请选择股票'); return }
+    analyze(inp.code, inp.date, false, inp.name || '')
+    setInp(null)
+  }
+
+  return <AnaCtx.Provider value={analyze}>
+    {children}
+
+    <FloatButton type="primary" description="AI" tooltip="LLM 分析任意股票" style={{ right: 28, bottom: 28, width: 52, height: 52 }}
+      onClick={() => { setOpts([]); setInp({ open: true, date: dayjs().format('YYYY-MM-DD') }) }} />
+
+    <Modal open={!!inp?.open} width={440} onCancel={() => setInp(null)} onOk={submitInp} okText="分析" title="LLM 分析 · 查任意股票">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+        <AutoComplete options={opts} style={{ width: '100%' }} onSearch={searchStock}
+          placeholder="输入代码或名称,如 002407 / 多氟多"
+          value={inp?.name ? `${inp.name}(${inp.code})` : (inp?.q ?? '')}
+          onChange={(v) => setInp((s: any) => ({ ...s, q: v, code: undefined, name: undefined }))}
+          onSelect={(_v, o: any) => setInp((s: any) => ({ ...s, code: o.code, name: o.name, q: o.label }))} />
+        <DatePicker style={{ width: '100%' }} value={inp?.date ? dayjs(inp.date) : null} allowClear={false}
+          onChange={(d) => setInp((s: any) => ({ ...s, date: d ? d.format('YYYY-MM-DD') : s.date }))} />
+        <div style={{ fontSize: 12, color: '#999' }}>按所选股票 + 日期跑技术面/消息面/基本面/综合决策;可查不在选股策略里的票。</div>
+      </div>
+    </Modal>
+
+    <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
+      title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code} @ {ana?.date}
+        {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
+        {ana?.phase === 'done' && <span className="ana-redo" onClick={() => analyze(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
+      </span>}>
+      {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
+        ref={scrollRef} onScroll={(e) => { const el = e.currentTarget; stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
+        style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 6 }}>
+        {ana.market_report && <ChatMsg img={AV.market} bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
+        {ana.news_report && <ChatMsg img={AV.news} bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
+        <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} />
+        {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
+          <ChatMsg av="🤖" bg="#8a8378" role="进行中"><span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span></ChatMsg>}
+        {(ana.business || ana.bizText) && <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师">
+          {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
+            <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
+            {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
+            {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
+            {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
+            {(b.val_type || b.val_method) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 6 }}>
+              {b.val_type && <div><b>企业类型:</b> <Tag color="green">{b.val_type}</Tag></div>}
+              {b.val_method && <div style={{ marginTop: 2 }}><b>估值方法:</b> {b.val_method}</div>}
+            </div>}
+            {b.peg_data && (() => { const p = b.peg_data; const col = p.peg < 1 ? '#c0392b' : p.peg < 1.5 ? '#7a5d18' : '#1f8e5a'
+              return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef3f8', border: '1px solid #cfe0ef', borderRadius: 6 }}>
+                <b>前瞻PEG(林奇):</b> <b style={{ color: col, fontSize: 15 }}>{p.peg}</b> <Tag color={p.peg < 1 ? 'red' : p.peg < 1.5 ? 'gold' : 'green'}>{p.tier}</Tag>
+                <span style={{ color: '#5b554a' }}>= 前瞻PE {p.fwd_pe} ÷ (CAGR {p.cagr}%×100);券商全年预测净利 {p.fwd_np}亿{p.digest ? `;当前PE需 ${p.digest} 年增长消化到30x` : ''}</span>
+                {b.peg && <div style={{ marginTop: 2 }}>{b.peg}</div>}
+              </div> })()}
+            {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}
+            {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配:</b> {b.valuation}</div>}
+            {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
+            {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
+          </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}
+        </ChatMsg>}
+        {ana.phase === 'streaming' && !ana.business && !ana.bizText &&
+          <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师"><Typing /></ChatMsg>}
+        {(ana.verdict || ana.verText) && <ChatMsg img={AV.decision} bg="#0b6e4f" role="综合决策">
+          {ana.verdict
+            ? <div className="verdict-card" style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: '10px 12px' }}>
+                <Tag style={{ fontSize: 15, padding: '2px 12px' }} color={ana.verdict.action === '卖出' ? 'red' : ana.verdict.action === '买入' ? 'green' : 'blue'}>{ana.verdict.action}</Tag>
+                <b style={{ marginLeft: 6 }}>置信 {ana.verdict.confidence}</b>
+                <div style={{ marginTop: 6 }}>{ana.verdict.reasoning}</div>
+              </div>
+            : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.verText}<span className="cursor">▍</span></span>}
+        </ChatMsg>}
+      </div>}
+    </Modal>
+  </AnaCtx.Provider>
+}
+
+function MainPage() {
+  const { params, setParams, parts, setParts, payload, loading, train } = useSignalStore()
+  const analyze = useAna()
+  const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
+  const [kl, setKl] = useState<any>(null)     // K线弹窗 {open, loading, code, date, data}
+  const [adv, setAdv] = useState<any>(null)   // 缠论卖点提示弹窗 {open, loading, code, date, data}
+
+  const openAdvise = async (code: string, date: string) => {
+    setAdv({ open: true, loading: true, code, date })
+    try {
+      const r = await fetch('/api/advise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, buy_date: date }) })
+      const j = await r.json()
+      setAdv((a: any) => (a && a.code === code && a.date === date) ? { open: true, loading: false, code, date, data: j } : a)
+    } catch (e) {
+      setAdv((a: any) => (a && a.code === code) ? { open: true, loading: false, code, date, data: { ok: false, error: String(e) } } : a)
+    }
+  }
+
+  const openKline = async (code: string, date: string, row?: Sig) => {
+    const marks: Mark[] = []
+    if (row?.czlegs?.length) {   // 缠论M3全历史腿事件:买/补=买点,缠/止=卖点(与表格同口径)
+      for (const [d0, k] of row.czlegs) marks.push({ date: d0, kind: (k === '买' || k === '补') ? 'buy' : 'sell', label: k })
+    } else {
+      marks.push({ date, kind: 'buy', label: '买' })
+    }
+    if (row?.donexit) marks.push({ date: row.donexit, kind: 'sell', label: '唐' })
+    setKl({ open: true, loading: true, code, date, marks })
+    try {
+      const r = await fetch('/api/kline', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, date }) })
+      setKl({ open: true, loading: false, code, date, marks, data: await r.json() })
+    } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
+  }
+
+  useEffect(() => { train() }, [])   // 进页自动按默认(long/20260101)加载,一般命中缓存秒显
 
   const rows = useMemo<Sig[]>(() => !payload ? [] : (payload.signals as Sig[]).filter((r) =>
     (showKc || r.board !== '科创') && (showCy || r.board !== '创业') && (!only50 || (r.price ?? 0) <= 50)), [payload, showKc, showCy, only50])
@@ -547,60 +638,6 @@ function MainPage() {
             </div> : <div>无数据</div>}
       </Modal>
 
-      <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
-        title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code} @ {ana?.date}
-          {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
-          {ana?.phase === 'done' && <span className="ana-redo" onClick={() => analyze(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
-        </span>}>
-        {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
-          ref={scrollRef} onScroll={(e) => { const el = e.currentTarget; stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
-          style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 6 }}>
-          {ana.market_report && <ChatMsg img={AV.market} bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
-          {ana.news_report && <ChatMsg img={AV.news} bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
-          <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} />
-
-          {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
-            <ChatMsg av="🤖" bg="#8a8378" role="进行中">
-              <span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span>
-            </ChatMsg>}
-
-          {(ana.business || ana.bizText) && <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师">
-            {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
-              <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
-              {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
-              {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
-              {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
-              {(b.val_type || b.val_method) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 6 }}>
-                {b.val_type && <div><b>企业类型:</b> <Tag color="green">{b.val_type}</Tag></div>}
-                {b.val_method && <div style={{ marginTop: 2 }}><b>估值方法:</b> {b.val_method}</div>}
-              </div>}
-              {b.peg_data && (() => { const p = b.peg_data; const col = p.peg < 1 ? '#c0392b' : p.peg < 1.5 ? '#7a5d18' : '#1f8e5a'
-                return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef3f8', border: '1px solid #cfe0ef', borderRadius: 6 }}>
-                  <b>前瞻PEG(林奇):</b> <b style={{ color: col, fontSize: 15 }}>{p.peg}</b> <Tag color={p.peg < 1 ? 'red' : p.peg < 1.5 ? 'gold' : 'green'}>{p.tier}</Tag>
-                  <span style={{ color: '#5b554a' }}>= 前瞻PE {p.fwd_pe} ÷ (CAGR {p.cagr}%×100);券商全年预测净利 {p.fwd_np}亿{p.digest ? `;当前PE需 ${p.digest} 年增长消化到30x` : ''}</span>
-                  {b.peg && <div style={{ marginTop: 2 }}>{b.peg}</div>}
-                </div> })()}
-              {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}
-              {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配:</b> {b.valuation}</div>}
-              {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
-              {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
-            </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}
-          </ChatMsg>}
-
-          {ana.phase === 'streaming' && !ana.business && !ana.bizText &&
-            <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师"><Typing /></ChatMsg>}
-
-          {(ana.verdict || ana.verText) && <ChatMsg img={AV.decision} bg="#0b6e4f" role="综合决策">
-            {ana.verdict
-              ? <div className="verdict-card" style={{ background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 8, padding: '10px 12px' }}>
-                  <Tag style={{ fontSize: 15, padding: '2px 12px' }} color={ana.verdict.action === '卖出' ? 'red' : ana.verdict.action === '买入' ? 'green' : 'blue'}>{ana.verdict.action}</Tag>
-                  <b style={{ marginLeft: 6 }}>置信 {ana.verdict.confidence}</b>
-                  <div style={{ marginTop: 6 }}>{ana.verdict.reasoning}</div>
-                </div>
-              : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.verText}<span className="cursor">▍</span></span>}
-          </ChatMsg>}
-        </div>}
-      </Modal>
 
       <Modal open={!!adv?.open} width={1560} footer={null} onCancel={() => setAdv(null)}
         title={<span>缠论卖点提示 {adv?.code} · 突破日 {adv?.date} 买入</span>}>
@@ -687,18 +724,20 @@ export default function App() {
   }, [])
   return (
     <ConfigProvider locale={zhCN} theme={QUANT_THEME}>
-      {(() => {
-        const r = hash.replace('#', '')
-        if (r === '/advise') return <AdvisePage />
-        if (r === '/holdings') return <HoldingsPage />
-        if (r === '/limitup') return <LimitUpPage />
-        if (r === '/etfshare') return <EtfSharePage />
-        if (r === '/bulltop') return <BullTopPage />
-        if (r === '/xiaoxifu') return <XiaoxifuPage />
-        if (r === '/boll') return <BollPage />
-        if (r === '/concept') return <ConceptPage />
-        return <MainPage />
-      })()}
+      <AnaHost>
+        {(() => {
+          const r = hash.replace('#', '')
+          if (r === '/advise') return <AdvisePage />
+          if (r === '/holdings') return <HoldingsPage />
+          if (r === '/limitup') return <LimitUpPage />
+          if (r === '/etfshare') return <EtfSharePage />
+          if (r === '/bulltop') return <BullTopPage />
+          if (r === '/xiaoxifu') return <XiaoxifuPage />
+          if (r === '/boll') return <BollPage />
+          if (r === '/concept') return <ConceptPage />
+          return <MainPage />
+        })()}
+      </AnaHost>
     </ConfigProvider>
   )
 }
