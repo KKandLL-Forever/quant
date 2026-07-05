@@ -214,6 +214,9 @@ def _business_prompt(code):
         ORDER BY end_date DESC LIMIT 4""", [tscode]).fetchall()
     roey = con.execute("""SELECT roe_yearly FROM fina_indicator WHERE ts_code=? AND roe_yearly IS NOT NULL
         ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
+    pbh = [r[0] for r in con.execute("SELECT pb FROM daily_basic WHERE ts_code=? AND pb IS NOT NULL AND pb>0", [tscode]).fetchall()]
+    anh = con.execute("""SELECT n_income_attr_p/1e8 FROM income
+        WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL ORDER BY end_date DESC LIMIT 6""", [tscode]).fetchall()
     con.close()
     import math
     cagr = None   # 近3年归母净利复合增速
@@ -248,9 +251,14 @@ def _business_prompt(code):
     g_l = min(cagr, 0.08) if (cagr and cagr > 0) else 0.03
     just_pb = ((roe - g_l) / (0.10 - g_l)) if (roe is not None and roe > g_l) else None
     vp = (just_pb / pb) if (just_pb and pb and pb > 0) else None
+    pb_pct = (sum(1 for x in pbh if x <= pb) / len(pbh)) if (pb and pbh) else None   # 现PB在自身历史的分位
+    peak_np = max((v[0] for v in anh if v[0] is not None), default=None)   # 近年峰值年度归母净利(亿)
+    norm_pe = ((mv[0] / 1e4) / peak_np) if (mv and peak_np and peak_np > 0) else None   # 正常化PE=市值/峰值净利
     tooltxt = "；".join(x for x in [
-        (f"PB-ROE:合理PB {just_pb:.2f}(用**当前年化ROE {roe*100:.0f}%**,r10%,g{g_l*100:.0f}%——注意:若ROE处周期底部/正拐点上行,此合理PB会被严重低估),现PB {pb:.2f} → RIM内在价值/现价 V/P {vp:.2f}(>1低估/<1高估)"
+        (f"PB-ROE:合理PB {just_pb:.2f}(用**当前年化ROE {roe*100:.0f}%**,r10%,g{g_l*100:.0f}%——**周期股慎用:若ROE处底部/拐点,此值严重低估,别据此判顶**),现PB {pb:.2f} → V/P {vp:.2f}"
          if vp else None),
+        (f"**PB历史分位 {pb_pct*100:.0f}%**(现PB {pb:.2f} 在自身历史;<10%=底部安全垫,>90%=历史极高)" if pb_pct is not None else None),
+        (f"**正常化PE {norm_pe:.1f}**(=市值÷近年峰值净利 {peak_np:.1f}亿;周期股顶部研判用它:若已跌到个位数且市场鼓吹长期高增长=顶部信号)" if norm_pe else None),
         (f"股息率 {mv[4]:.1f}%" if (mv and mv[4]) else None),
         (f"PS(TTM) {mv[3]:.1f}" if (mv and mv[3]) else None)] if x)
     fintxt = "无" if not fin else (f"毛利率{fin[0]:.1f}% 净利率{fin[1]:.1f}% ROE{fin[2]:.1f}% "
@@ -275,11 +283,16 @@ def _business_prompt(code):
 5) bottleneck: 卡脖子方向——是"被卡"(依赖海外/国产替代)还是"卡别人"(我方主导/海外依赖我)还是"否";给 被卡|卡别人|否|部分,reason 一句话带依据
 6) summary: 一句话总结其在供应链的真实地位
 7) val_type: **先判企业类型**(据行业+财务特征,单选并说明依据一句话):
-   消费白马/稳定成长 | 高成长科技医药 | 周期股 | 金融重资产 | 未盈利成长 | 公用高分红
+   消费白马/稳定成长 | 高成长科技医药 | 传统纯周期(钢铁煤炭航运化工) | 周期成长(半导体/存储等,受AI/国产替代拉动) | 金融重资产 | 未盈利成长 | 公用高分红
 8) val_method: **按类型选最合适的估值法**(别一律用PEG!):
    - 消费白马/稳定成长 → PE历史分位 + 前瞻PEG(增长匹配)
    - 高成长科技医药 → 前瞻PEG;未盈利则用 PS(TTM);讲清增长兑现节奏
-   - 周期股 → **PB(底部区)**;**用 PB-ROE 要警惕:若当前ROE处周期底部/利润刚拐点(如近期净利暴增),用底部ROE算的合理PB会假性"高估",这正是周期陷阱——此时应改用正常化/中周期ROE判断,或直接以"利润拐点+PB历史分位"定夺,别被 V/P<1 误导**;忌用PE(顶部PE最低=陷阱)
+   - 周期股 → **先区分子类**:①传统重资产纯周期(钢铁/煤炭/航运/基础化工):正常化ROE中枢8-12%、合理PB 1.5-3倍;②周期成长(半导体/存储/半导体材料等,需求受AI/国产替代长期抬升):正常化ROE 15-30%(景气龙头可40%+)、合理PB 4-8倍、龙头景气期可10倍+——**别拿传统周期的"合理PB 2-3倍"错杀成长赛道**。
+     **周期股判顶/底的正确方法(务必遵守)**:
+     · **绝不用"静态PB÷底部ROE"判顶**——股价领先盈利1-2季,底部高PB是在给"未来盈利爆发"定价,不是给当前微利定价;底部PE越高/PB越"虚高"反而越接近布局期。
+     · **判底**:看 PB历史分位是否<10% + 行业普遍亏损/产能出清/库存低位;此时PB是可靠安全垫。
+     · **判顶**:①看**正常化PE(=市值÷周期峰值净利)**,若已跌到个位数且市场一致鼓吹"长期高增长"→大概率顶部;②看**产品价格环比拐点**(周期核心锚,价格见顶回落=顶部信号,哪怕估值还低)。
+     · 记住:高PB是周期反转初期的阶段性现象,业绩兑现后净资产增厚会自然消化PB(利润翻倍→净资产增厚→PB即使股价不动也下降)。
    - 金融重资产 → **PB-ROE / RIM内在价值(V/P)**(ROE 较稳,V/P 可信度高)
    - 未盈利成长 → **PS(TTM)** + 赛道空间
    - 公用高分红 → **股息率 / DDM**
@@ -294,7 +307,7 @@ def _business_prompt(code):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05b"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05c"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
