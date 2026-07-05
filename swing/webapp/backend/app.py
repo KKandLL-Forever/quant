@@ -116,6 +116,22 @@ def _cf(code, date):
     return os.path.join(CACHE_DIR, f"{code.split('.')[0]}_{date}.json")
 
 
+@app.get("/api/analyze/cached_dates")
+def analyze_cached_dates(code: str = ""):
+    """返回某股票已有 LLM 分析缓存的日期列表(供弹窗日期选择器标注)。"""
+    import glob
+    pre = (code or "").split(".")[0]
+    if not pre:
+        return {"ok": True, "dates": []}
+    dates = []
+    for p in glob.glob(os.path.join(CACHE_DIR, f"{pre}_*.json")):
+        base = os.path.basename(p)[:-5]
+        d = base[len(pre) + 1:]
+        if len(d) == 10 and d[4] == "-":
+            dates.append(d)
+    return {"ok": True, "dates": sorted(dates)}
+
+
 @app.post("/api/analyze/start")
 def analyze_start(req: AnalyzeReq):
     """启动分析子进程(只产技术面/消息面报告),立即返回 rid;命中缓存则直接回结果。"""

@@ -203,24 +203,41 @@ function AnaHost({ children }: { children: React.ReactNode }) {
       if (m.t === 'biz') setAna((a: any) => a && a.rid === rid ? { ...a, bizText: (a.bizText || '') + m.d } : a)
       else if (m.t === 'biz_done') up(rid, { business: m.v })
       else if (m.t === 'ver') setAna((a: any) => a && a.rid === rid ? { ...a, verText: (a.verText || '') + m.d } : a)
-      else if (m.t === 'done') { up(rid, { verdict: m.verdict, business: m.business, phase: 'done' }); es.close() }
+      else if (m.t === 'done') { up(rid, { verdict: m.verdict, business: m.business, phase: 'done' }); es.close(); loadDates(code) }
       else if (m.t === 'error') { up(rid, { phase: 'error', stage: m.msg }); es.close() }
     }
     es.onerror = () => { es.close() }
   }
 
-  const analyze = async (code: string, date: string, force = false, name = '') => {
+  const loadDates = async (code: string) => {
+    try {
+      const j = await (await fetch(`/api/analyze/cached_dates?code=${encodeURIComponent(code)}`)).json()
+      setAna((a: any) => a && a.code === code ? { ...a, dates: j.dates || [] } : a)
+    } catch { /* 忽略 */ }
+  }
+
+  // 打开分析弹窗到「选日期」态,拉出已缓存日期高亮,不自动跑;选中日期才分析
+  const analyze = (code: string, _date?: string, _force?: boolean, name = '') => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    esRef.current?.close()
+    timers.current.forEach(clearTimeout); timers.current = []
+    curRid.current = null
+    setAna({ open: true, code, name, phase: 'pick', dates: [] })
+    loadDates(code)
+  }
+
+  const runAnalysis = async (code: string, date: string, force = false, name = '') => {
     const rid = crypto.randomUUID ? crypto.randomUUID() : String(Date.now() + Math.random())
     if (pollRef.current) clearInterval(pollRef.current)
     esRef.current?.close()
     timers.current.forEach(clearTimeout); timers.current = []
     curRid.current = rid
-    setAna({ open: true, rid, code, date, name, phase: 'starting', stage: '启动分析…' })
+    setAna((a: any) => ({ ...(a || {}), open: true, rid, code, date, name, phase: 'starting', stage: '启动分析…', dates: a?.dates || [] }))
     try {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }) })
       const j = await r.json()
-      if (j.cached) { up(rid, { phase: 'done', cached: true, market_report: j.market_report, news_report: j.news_report, shownDlg: j.dialogue || [], business: j.business, verdict: j.verdict }); return }
+      if (j.cached) { up(rid, { phase: 'done', cached: true, market_report: j.market_report, news_report: j.news_report, shownDlg: j.dialogue || [], business: j.business, verdict: j.verdict }); loadDates(code); return }
       if (!j.ok) { up(rid, { phase: 'error', stage: j.error || '启动失败' }); return }
       up(rid, { phase: 'analyzing', stage: '多智能体分析中(约1-3分钟)…' })
       pollRef.current = setInterval(async () => {
@@ -256,7 +273,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
   }
   const submitInp = () => {
     if (!inp?.code) { message.warning('请选择股票'); return }
-    analyze(inp.code, inp.date, false, inp.name || '')
+    runAnalysis(inp.code, inp.date, false, inp.name || '')
     setInp(null)
   }
 
@@ -280,11 +297,28 @@ function AnaHost({ children }: { children: React.ReactNode }) {
     </Modal>
 
     <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
-      title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code} @ {ana?.date}
+      title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code}{ana?.date ? ` @ ${ana.date}` : ''}
         {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
-        {ana?.phase === 'done' && <span className="ana-redo" onClick={() => analyze(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
+        {ana?.phase === 'done' && <span className="ana-redo" onClick={() => runAnalysis(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
       </span>}>
-      {ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
+      {ana && <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+        <DatePicker style={{ width: 200 }} allowClear={false} value={ana.date ? dayjs(ana.date) : null}
+          placeholder="选择分析日期"
+          disabledDate={(d) => d && d > dayjs().endOf('day')}
+          onChange={(d) => d && runAnalysis(ana.code, d.format('YYYY-MM-DD'), false, ana.name)}
+          cellRender={(cur, info) => {
+            if (info.type !== 'date') return info.originNode
+            const ds = (cur as any).format('YYYY-MM-DD')
+            const has = (ana.dates || []).includes(ds)
+            return <div className="ant-picker-cell-inner" style={has ? { background: '#f6efdd', boxShadow: '0 0 0 1px #e6d6a8 inset', borderRadius: 4, fontWeight: 700 } : undefined}>{(cur as any).date()}</div>
+          }} />
+        <span style={{ fontSize: 12, color: '#999' }}>
+          {(ana.dates || []).length ? <>已有 {ana.dates.length} 天缓存(<span style={{ background: '#f6efdd', padding: '0 4px', borderRadius: 3 }}>高亮</span>日秒开)</> : '暂无历史缓存'}
+          {ana.phase === 'pick' && ' · 选择日期开始分析'}
+        </span>
+      </div>}
+      {ana?.phase === 'pick' ? <div style={{ padding: '40px 0', textAlign: 'center', color: '#999' }}>请在上方选择日期开始 LLM 分析(高亮日期已有缓存,秒开)</div>
+        : ana?.phase === 'error' ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{ana.stage}</pre> : ana && <div
         ref={scrollRef} onScroll={(e) => { const el = e.currentTarget; stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60 }}
         style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 6 }}>
         {ana.market_report && <ChatMsg img={AV.market} bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
