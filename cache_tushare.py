@@ -1177,6 +1177,7 @@ _HS300_FIRST_YEAR = 2019
 _THS_HOT_FIRST = "2024-01-01"
 _THS_HOT_TYPES = ("热股", "概念板块", "行业板块")
 _THS_DAILY_FIRST = "2016-01-01"
+_STK_SURV_FIRST = "2016-01-01"
 
 
 def _fetch_index_members(pro, duck_path: str, index_code: str, table: str, first_year: int, tag: str) -> None:
@@ -1317,6 +1318,66 @@ def fetch_ths_hot(pro, duck_path: str) -> None:
     finally:
         con.close()
     print(f"[ths_hot] 人气榜 {n} 个交易日 (本次尝试 {len(days)} 日)")
+
+
+def fetch_stk_surv(pro, duck_path: str) -> None:
+    """增量拉机构调研(stk_surv)写入 DuckDB stk_surv 表,供机构关注度/调研热度因子用。
+
+    每行=某次调研中的一家接待机构。按交易日(取自 daily)逐日增量,表为空则从 _STK_SURV_FIRST 起全拉。
+    主键(ts_code, surv_date, rece_org):同日同机构多次接待会去重,统计调研家数/次数足够。"""
+    cols = ["ts_code", "name", "surv_date", "fund_visitors", "rece_place", "rece_mode", "rece_org", "org_type", "comp_rece"]
+    con = _duckdb.connect(duck_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS stk_surv (ts_code VARCHAR, name VARCHAR, surv_date VARCHAR, "
+                    "fund_visitors VARCHAR, rece_place VARCHAR, rece_mode VARCHAR, rece_org VARCHAR, "
+                    "org_type VARCHAR, comp_rece VARCHAR, PRIMARY KEY (ts_code, surv_date, rece_org))")
+        last = con.execute("SELECT MAX(surv_date) FROM stk_surv").fetchone()[0]
+        if last is None:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE trade_date>=CAST(? AS DATE) ORDER BY d",
+                [_STK_SURV_FIRST]).fetchall()]
+        else:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE strftime(trade_date,'%Y%m%d')>? ORDER BY d",
+                [last]).fetchall()]
+    finally:
+        con.close()
+    if not days:
+        print("[stk_surv] 无新增交易日"); return
+    parts = []
+    for d in days:
+        off = 0
+        while True:
+            df = None
+            for _ in range(2):
+                try:
+                    df = pro.stk_surv(trade_date=d, offset=off, limit=400); break
+                except Exception:
+                    time.sleep(1.0)
+            if df is None or not len(df):
+                break
+            sub = df.reindex(columns=cols).copy()
+            for oc in cols:
+                sub[oc] = sub[oc].fillna("").astype(str)
+            sub["rece_org"] = sub["rece_org"].replace("", "未知")
+            parts.append(sub.drop_duplicates(["ts_code", "surv_date", "rece_org"]))
+            if len(df) < 400:
+                break
+            off += 400
+            time.sleep(0.12)
+        time.sleep(0.12)
+    if not parts:
+        print(f"[stk_surv] {len(days)} 日无调研数据"); return
+    allp = pd.concat(parts, ignore_index=True).drop_duplicates(["ts_code", "surv_date", "rece_org"])
+    con = _duckdb.connect(duck_path)
+    try:
+        con.register("_s", allp)
+        con.execute("INSERT OR REPLACE INTO stk_surv SELECT * FROM _s")
+        con.unregister("_s")
+        n = con.execute("SELECT COUNT(DISTINCT surv_date) FROM stk_surv").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[stk_surv] 机构调研 {n} 个调研日 (本次尝试 {len(days)} 日)")
 
 
 def fetch_ths_daily(pro, duck_path: str) -> None:
@@ -2906,6 +2967,10 @@ def main() -> None:
             fetch_ths_daily(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[ths_daily] 板块指数更新跳过({e})")
+        try:
+            fetch_stk_surv(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[stk_surv] 机构调研更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
         try:
             rebuild_concept_signals(DUCKDB_PATH)
