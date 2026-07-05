@@ -292,7 +292,7 @@ def _business_prompt(code):
     fp = {}
     if fwd_eps and cagr:
         fp["PEG=1(成长)"] = fwd_eps * cagr * 100
-    if fwd_eps and pe_med:
+    if fwd_eps and pe_med and pe_med <= 60:
         fp["历史PE中位"] = fwd_eps * pe_med
     if bps and just_pb:
         fp["PB-ROE(资产/金融)"] = bps * just_pb
@@ -352,7 +352,7 @@ def _business_prompt(code):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05h"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-05i"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
