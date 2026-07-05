@@ -21,6 +21,8 @@ import pandas as pd
 import duckdb
 import cache_tushare as ct
 
+VOL_MIN = 1.5   # 放量门槛:当日量 / 20日均量;信号须站上上轨(thrust>0)且放量>此值
+
 
 def members_1000():
     """取中证1000最新成分代码列表(本地 DuckDB csi1000_members 最新快照)。"""
@@ -99,11 +101,11 @@ def latest_signals(pool="ml", up_mode="mid"):
         widen = bw > bw.shift(1)
         d = g["dif"] - g["dea"]
         crossed = (d > 0) & pd.concat([d.shift(k) <= 0 for k in range(1, 4)], axis=1).any(axis=1)
-        up = g["adjc"] > (g["bu"] if up_mode == "upper" else g["bm"])
-        sig = narrow.shift(1, fill_value=False) & widen & crossed & up
+        thrust = (g["adjc"] - g["bu"].shift(1)) / (g["bu"].shift(1) - g["bm"].shift(1))
+        vr = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
+        sig = narrow.shift(1, fill_value=False) & widen & crossed & (thrust > 0) & (vr > VOL_MIN)
         sd = g["td"][sig]
         days_since = sd.diff().dt.days
-        vr = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
         ma60 = g["adjc"].rolling(60).mean()
         f = pd.DataFrame({"ts_code": ts, "date": g["td"], "close": g["close_raw"],
                           "vol_ratio": vr, "atr_pct": g["atr"] / g["adjc"],
@@ -114,7 +116,7 @@ def latest_signals(pool="ml", up_mode="mid"):
         i = len(g) - 1   # 明日预判:今日已缩口但未触发,且接近临门一脚
         if g["td"].iloc[i] == latest_td and bool(narrow.iloc[i]) and not bool(sig.iloc[i]):
             adjc = float(g["adjc"].iloc[i]); ratio = float(g["close_raw"].iloc[i]) / adjc
-            band = float(g["bu"].iloc[i] if up_mode == "upper" else g["bm"].iloc[i])
+            band = float(g["bu"].iloc[i])
             trig, gap, to_band = band * ratio, float(d.iloc[i]), (band - adjc) / adjc
             gap_prev = float(d.iloc[i - 1])
             macd_ok, band_ok, widen_ok = bool(crossed.iloc[i]), adjc > band, bool(widen.iloc[i])
@@ -122,7 +124,7 @@ def latest_signals(pool="ml", up_mode="mid"):
             if (macd_ok or macd_pending) and to_band <= 0.05:
                 miss = []
                 if not band_ok:
-                    miss.append(f"站上{'上轨' if up_mode == 'upper' else '中轨'}{round(trig, 2)}元(+{round(to_band * 100, 1)}%)")
+                    miss.append(f"站上上轨{round(trig, 2)}元(+{round(to_band * 100, 1)}%)")
                 if macd_pending:
                     miss.append(f"MACD即将金叉(DIF距DEA约{round(gap / adjc * 100, 2)}%)")
                 if not widen_ok:
@@ -182,17 +184,16 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         widen = bw > bw.shift(1)
         bw_jump = bw / bw.shift(1) - 1
         thrust = (g["adjc"] - g["bu"].shift(1)) / (g["bu"].shift(1) - g["bm"].shift(1))
+        vol_ratio = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
         d = g["dif"] - g["dea"]
         crossed = (d > 0) & pd.concat([d.shift(k) <= 0 for k in range(1, cross_win + 1)], axis=1).any(axis=1)
-        up = g["adjc"] > (g["bu"] if up_mode == "upper" else g["bm"])
-        sig = narrow.shift(1, fill_value=False) & widen & crossed & up
+        sig = narrow.shift(1, fill_value=False) & widen & crossed & (thrust > 0) & (vol_ratio > VOL_MIN)
         adjc = g["adjc"]
         f5 = adjc.shift(-5) / adjc - 1
         f7 = adjc.shift(-7) / adjc - 1
         f10 = adjc.shift(-10) / adjc - 1
         f20 = adjc.shift(-20) / adjc - 1
         atr_pct = g["atr"] / adjc
-        vol_ratio = g["vol"] / g["vol"].rolling(20, min_periods=10).mean()
         entry_p, exit_p = adjc.shift(-1), adjc.shift(-(1 + hold))
         ma60 = adjc.rolling(60).mean()
         s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
