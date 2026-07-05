@@ -180,6 +180,8 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         bw = (g["bu"] - g["bl"]) / g["bm"]
         narrow = bw <= bw.rolling(120, min_periods=60).quantile(squeeze_q)
         widen = bw > bw.shift(1)
+        bw_jump = bw / bw.shift(1) - 1
+        thrust = (g["adjc"] - g["bu"].shift(1)) / (g["bu"].shift(1) - g["bm"].shift(1))
         d = g["dif"] - g["dea"]
         crossed = (d > 0) & pd.concat([d.shift(k) <= 0 for k in range(1, cross_win + 1)], axis=1).any(axis=1)
         up = g["adjc"] > (g["bu"] if up_mode == "upper" else g["bm"])
@@ -194,7 +196,7 @@ def build_signals(df, squeeze_q, cross_win, up_mode="mid", hold=10):
         entry_p, exit_p = adjc.shift(-1), adjc.shift(-(1 + hold))
         ma60 = adjc.rolling(60).mean()
         s = pd.DataFrame({"ts_code": ts, "date": g["td"], "f5": f5, "f7": f7, "f10": f10, "f20": f20,
-                          "atr_pct": atr_pct, "vol_ratio": vol_ratio,
+                          "atr_pct": atr_pct, "vol_ratio": vol_ratio, "bw_jump": bw_jump, "thrust": thrust,
                           "above_ma60": adjc > ma60, "ma60_up": ma60 > ma60.shift(5), "macd_above0": g["dif"] > 0,
                           "mf_ratio": g["mf_ratio"], "mom20": adjc / adjc.shift(20) - 1,
                           "winner": g["winner"], "chip_conc": g["chip_conc"],
