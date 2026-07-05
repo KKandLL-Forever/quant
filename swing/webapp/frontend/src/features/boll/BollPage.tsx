@@ -52,7 +52,7 @@ export default function BollPage() {
         <Select value={pool} onChange={setPool} options={POOLS} size="small" style={{ width: 240 }} />
         <Button type="primary" size="small" onClick={load} loading={loading}
           style={{ background: 'linear-gradient(135deg,#c0392b,#e05a3f)', border: 'none' }}>▶ 刷新当日信号</Button>
-        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>信号=BOLL缩口→扩张+MACD近3日金叉+站上中轨;次日入场,建议持有10~15日</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>信号=BOLL缩口→扩张+MACD金叉+站上上轨+放量;综合口径再叠 大盘健康+第二次+MA60上行+RS跑赢(回测年化12.6%/夏普1.29/回撤12.4%);次日入场,持有约15日</span>
       </div>
 
       {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
@@ -68,14 +68,20 @@ export default function BollPage() {
             </div>
           </Card>
 
-          <Card size="small" title={`当日信号 ${data.signals.filter(s => s.ma60_up).length} 条(已过滤MA60下行;重点=大盘健康+第二次+领先区概念,已置顶)`}>
-            <Table rowKey="code" size="small" columns={cols} dataSource={data.signals.filter(s => s.ma60_up)} pagination={false}
-              onRow={(r: Sig) => ({ style: r.is_rep30 && r.ma60_up && r.rs_win && healthy ? { background: '#fff7f5' } : {} })} />
-          </Card>
-          <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
-            量比=当日成交量/20日均量(&gt;1 为放量);ATR%=波动率/价;距上次信号=同股上一次信号到今天的天数(≤30 记为第二次)。
-            本页为研究信号(见 boll_narrow_exit/README),非投资建议。
-          </div>
+          {(() => {
+            const full = healthy ? data.signals.filter(s => s.is_rep30 && s.ma60_up && s.rs_win) : []
+            return <>
+              <Card size="small" title={`综合口径信号 ${full.length} 条(大盘健康+第二次+MA60上行+RS跑赢,全条件回测口径)`}>
+                <Table rowKey="code" size="small" columns={cols} dataSource={full} pagination={false}
+                  locale={{ emptyText: healthy ? '今日无满足全条件的信号' : '今日大盘走坏,按纪律空仓,不出信号' }}
+                  onRow={() => ({ style: { background: '#fff7f5' } })} />
+              </Card>
+              <div style={{ fontSize: 12, color: '#999', marginTop: 8 }}>
+                本页只展示<b>综合回测口径</b>的信号(缩口→扩张+MACD金叉+站上上轨+放量,再叠 大盘健康+第二次+MA60上行+RS跑赢);
+                量比=当日量/20日均量;ATR%=波动率/价;距上次信号≤30记为第二次。研究信号(见 boll_narrow_exit/README),非投资建议。
+              </div>
+            </>
+          })()}
 
           {data.forecast && data.forecast.length > 0 && (
             <Card size="small" style={{ marginTop: 14 }} title={`明日预判 ${data.forecast.length} 只(今日已缩口、只差临门一脚;非实时,盯下方触发条件)`}>
