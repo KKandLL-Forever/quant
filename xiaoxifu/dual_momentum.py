@@ -43,12 +43,7 @@ def load_fund_full(codes, start, end):
         cols[c] = m["close"] * m["adj_factor"] / m["adj_factor"].iloc[-1]
     return pd.DataFrame(cols).sort_index()
 
-POOL = {
-    "510300.SH": "沪深300", "510500.SH": "中证500", "159915.SZ": "创业板",
-    "513100.SH": "纳指", "513500.SH": "标普500", "518880.SH": "黄金",
-    "511260.SH": "十年国债", "162411.SZ": "华宝油气", "513050.SH": "中概互联",
-    "511990.SH": "华宝添益",
-}
+POOL = {"510880.SH": "红利", "159915.SZ": "创业板", "513100.SH": "纳指", "518880.SH": "黄金"}
 BENCH = "510300.SH"
 
 
@@ -146,7 +141,8 @@ def main():
         p = engine.perf(strat)
         p["开平仓次数"] = sw * 2
         rows[name] = p
-    rows["沪深300"] = engine.perf(px[BENCH].pct_change(fill_method=None)) if BENCH in px.columns else {}
+    bpx = px[BENCH] if BENCH in px.columns else load_fund_full([BENCH], args.start, args.end).get(BENCH)
+    rows["沪深300"] = engine.perf(bpx.reindex(px.index).ffill().pct_change(fill_method=None)) if bpx is not None else {}
     rows["等权池"] = engine.perf(px.pct_change(fill_method=None).mean(axis=1))
 
     df = pd.DataFrame(rows).T
