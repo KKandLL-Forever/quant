@@ -1178,6 +1178,7 @@ _THS_HOT_FIRST = "2024-01-01"
 _THS_HOT_TYPES = ("热股", "概念板块", "行业板块")
 _THS_DAILY_FIRST = "2016-01-01"
 _STK_SURV_FIRST = "2016-01-01"
+_FUND_DAILY_FIRST = "2010-01-01"
 
 
 def _fetch_index_members(pro, duck_path: str, index_code: str, table: str, first_year: int, tag: str) -> None:
@@ -1389,6 +1390,92 @@ def fetch_stk_surv(pro, duck_path: str) -> None:
     finally:
         con.close()
     print(f"[stk_surv] 机构调研 {n} 个调研日 (本次尝试 {len(days)} 日)")
+
+
+def _fetch_by_day_paged(fn, d, cols, keys):
+    """按 trade_date 翻页(offset步进2000)取尽某接口一天全部行,规整列/去重,返回 DataFrame 或 None。"""
+    parts = []
+    off = 0
+    while True:
+        df = None
+        for _ in range(2):
+            try:
+                df = fn(trade_date=d, offset=off, limit=2000); break
+            except Exception:
+                time.sleep(1.0)
+        if df is None or not len(df):
+            break
+        parts.append(df.reindex(columns=cols).copy())
+        if len(df) < 2000:
+            break
+        off += 2000
+        time.sleep(0.12)
+    if not parts:
+        return None
+    return pd.concat(parts, ignore_index=True).drop_duplicates(keys)
+
+
+def fetch_fund_daily(pro, duck_path: str) -> None:
+    """增量拉场内基金(ETF/LOF)日线 fund_daily + 复权因子 fund_adj,写 DuckDB fund_daily / fund_adj 两表。
+
+    按交易日(取自 daily)翻页取尽全市场场内基金,表空时自 _FUND_DAILY_FIRST 回补;每100日落库可续跑。
+    前复权在读取端算:close*adj_factor/最新adj_factor。供 ETF 轮动等策略脱离 tushare 直接读本地。"""
+    dcols = ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount", "pct_chg"]
+    acols = ["ts_code", "trade_date", "adj_factor"]
+    con = _duckdb.connect(duck_path)
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS fund_daily (ts_code VARCHAR, trade_date VARCHAR, open DOUBLE, "
+                    "high DOUBLE, low DOUBLE, close DOUBLE, vol DOUBLE, amount DOUBLE, pct_chg DOUBLE, "
+                    "PRIMARY KEY (ts_code, trade_date))")
+        con.execute("CREATE TABLE IF NOT EXISTS fund_adj (ts_code VARCHAR, trade_date VARCHAR, adj_factor DOUBLE, "
+                    "PRIMARY KEY (ts_code, trade_date))")
+        last = con.execute("SELECT MAX(trade_date) FROM fund_daily").fetchone()[0]
+        if last is None:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE trade_date>=CAST(? AS DATE) ORDER BY d",
+                [_FUND_DAILY_FIRST]).fetchall()]
+        else:
+            days = [r[0] for r in con.execute(
+                "SELECT DISTINCT strftime(trade_date,'%Y%m%d') d FROM daily WHERE strftime(trade_date,'%Y%m%d')>? ORDER BY d",
+                [last]).fetchall()]
+    finally:
+        con.close()
+    if not days:
+        print("[fund_daily] 无新增交易日"); return
+    print(f"[fund_daily] 待抓 {len(days)} 个交易日(首次自 {_FUND_DAILY_FIRST} 回补会较久)...")
+    dparts, aparts = [], []
+
+    def _flush():
+        con = _duckdb.connect(duck_path)
+        try:
+            if dparts:
+                allp = pd.concat(dparts, ignore_index=True).drop_duplicates(["ts_code", "trade_date"])
+                con.register("_d", allp); con.execute("INSERT OR REPLACE INTO fund_daily SELECT * FROM _d"); con.unregister("_d")
+            if aparts:
+                alla = pd.concat(aparts, ignore_index=True).drop_duplicates(["ts_code", "trade_date"])
+                con.register("_a", alla); con.execute("INSERT OR REPLACE INTO fund_adj SELECT * FROM _a"); con.unregister("_a")
+        finally:
+            con.close()
+
+    for i, d in enumerate(days, 1):
+        dd = _fetch_by_day_paged(pro.fund_daily, d, dcols, ["ts_code", "trade_date"])
+        if dd is not None:
+            dparts.append(dd)
+        time.sleep(0.12)
+        aa = _fetch_by_day_paged(pro.fund_adj, d, acols, ["ts_code", "trade_date"])
+        if aa is not None:
+            aparts.append(aa)
+        time.sleep(0.12)
+        if i % 100 == 0 or i == len(days):
+            _flush(); dparts, aparts = [], []
+            print(f"[fund_daily] 进度 {i}/{len(days)} (至 {d},已落库)")
+    con = _duckdb.connect(duck_path)
+    try:
+        n = con.execute("SELECT COUNT(DISTINCT trade_date) FROM fund_daily").fetchone()[0]
+        m = con.execute("SELECT COUNT(DISTINCT ts_code) FROM fund_daily").fetchone()[0]
+    finally:
+        con.close()
+    print(f"[fund_daily] 场内基金 {m} 只 / {n} 个交易日 (本次尝试 {len(days)} 日)")
 
 
 def fetch_ths_daily(pro, duck_path: str) -> None:
@@ -2982,6 +3069,10 @@ def main() -> None:
             fetch_stk_surv(pro, DUCKDB_PATH)
         except Exception as e:
             print(f"[stk_surv] 机构调研更新跳过({e})")
+        try:
+            fetch_fund_daily(pro, DUCKDB_PATH)
+        except Exception as e:
+            print(f"[fund_daily] 场内基金日线更新跳过({e})")
         rebuild_market_state(DUCKDB_PATH)
         try:
             rebuild_concept_signals(DUCKDB_PATH)
