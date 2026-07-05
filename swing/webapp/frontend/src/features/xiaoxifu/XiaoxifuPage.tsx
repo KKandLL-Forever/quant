@@ -1,7 +1,8 @@
 // 小西西弗动量轮动策略复现(龙头/全天候/行业):Tab 切换,每策略 = 绩效卡 + 累计收益曲线 + 调仓动作表。数据走 /api/xiaoxifu。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, Modal, Input, message } from 'antd'
+import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, Modal, Input, DatePicker, message } from 'antd'
 import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from 'recharts'
+import dayjs, { Dayjs } from 'dayjs'
 import { Header, PageTitle } from '../../shell'
 
 interface Pick { code: string; name: string; weight: number; price?: number | null }
@@ -35,6 +36,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const [K, setK] = useState(5)
   const [L, setL] = useState(5)
   const [capital, setCapital] = useState(100000)
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs('2026-01-01'), dayjs()])
   const [stockOpts, setStockOpts] = useState<{ label: string; value: string }[]>([])
   const [nameMap, setNameMap] = useState<Record<string, string>>({})
   const [defaultPool, setDefaultPool] = useState<PoolItem[]>([])
@@ -70,7 +72,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
       }
       const r = await fetch('/api/xiaoxifu', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ strategy: cfg.key, N, K, L, start: '2024-01-01', codes: (cfg.showPool || cfg.key === 'regime') && codes.length ? codes : undefined }),
+        body: JSON.stringify({ strategy: cfg.key, N, K, L, start: range[0].format('YYYY-MM-DD'), end: range[1].format('YYYY-MM-DD'), codes: (cfg.showPool || cfg.key === 'regime') && codes.length ? codes : undefined }),
       })
       const j: Payload = await r.json()
       if (!j.ok) throw new Error(j.error || '请求失败')
@@ -118,6 +120,9 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         {cfg.showShares && <><span>资金</span><InputNumber min={10000} step={10000} value={capital}
           onChange={v => setCapital(v || 100000)} size="small" style={{ width: 130 }}
           formatter={v => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => Number((v || '').replace(/[^\d]/g, ''))} /></>}
+        <span>区间</span><DatePicker.RangePicker size="small" value={range} allowClear={false}
+          disabledDate={(d) => d && d > dayjs().endOf('day')}
+          onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         {cfg.showPool && <Button size="small" onClick={() => setPoolOpen(true)}
           style={{ background: 'linear-gradient(135deg,#0b6e4f,#0f8a63)', color: '#fff', border: 'none',
             fontWeight: 500, boxShadow: '0 2px 8px -3px rgba(11,110,79,.6)' }}>
@@ -125,7 +130,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         <Button type="primary" size="small" onClick={load} loading={loading}
           style={{ background: 'linear-gradient(135deg,#c0392b,#e05a3f)', border: 'none', fontWeight: 600,
             letterSpacing: 1, boxShadow: '0 2px 10px -3px rgba(192,57,43,.6)' }}>▶ 运行回测</Button>
-        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 2024-01-01 起 · 权重滞后1天(T+1执行)</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 权重滞后1天(T+1执行)</span>
       </div>
 
       {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}

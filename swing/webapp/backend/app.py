@@ -790,7 +790,7 @@ class XiaoxifuReq(BaseModel):
     N: int = 20
     K: int = 5
     L: int = 5
-    start: str = "2024-01-01"
+    start: str = "2026-01-01"
     end: str | None = None
     codes: list[str] | None = None    # 龙头自定义股票池;None=默认22只
 
