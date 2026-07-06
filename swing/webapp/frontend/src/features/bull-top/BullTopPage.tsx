@@ -33,6 +33,8 @@ const tip = { background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 
 export default function BullTopPage() {
   const [d, setD] = useState<{ valuation: Val[]; turnover: Tov[]; holder: Hld[]; margin: Mgn[] } | null>(null)
   const [loading, setLoading] = useState(false)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const toggle = (name: string) => setHidden(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n })
   useEffect(() => {
     (async () => {
       setLoading(true)
@@ -96,14 +98,14 @@ export default function BullTopPage() {
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
               <YAxis yAxisId="pe" tick={{ fontSize: 10 }} width={36} />
               <YAxis yAxisId="mv" orientation="right" tick={{ fontSize: 10 }} width={52} tickFormatter={(v: any) => `${(v / 1e4).toFixed(0)}万亿`} />
-              <ReferenceLine yAxisId="pe" y={danger} stroke="#c0392b" strokeDasharray="4 3" label={{ value: `危险 ${danger.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#c0392b' }} />
-              <ReferenceLine yAxisId="pe" y={mid} stroke="#b8860b" strokeDasharray="4 3" label={{ value: `中位 ${mid.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#b8860b' }} />
-              <ReferenceLine yAxisId="pe" y={opp} stroke="#1f8e5a" strokeDasharray="4 3" label={{ value: `机会 ${opp.toFixed(1)}`, position: 'right', fontSize: 10, fill: '#1f8e5a' }} />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))}
                 formatter={(v: any, n: any) => n === '总市值' ? [`${(v / 1e4).toFixed(1)}万亿`, n] : [`${v}`, n]} />
-              <Legend />
-              <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} />
-              <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} />
+              <Legend onClick={(e: any) => toggle(String(e.value))} />
+              <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden.has('全A整体法PE-TTM')} />
+              <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} hide={hidden.has('总市值')} />
+              <Line yAxisId="pe" type="linear" dataKey={() => danger} name={`危险 ${danger.toFixed(1)}`} stroke="#c0392b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has(`危险 ${danger.toFixed(1)}`)} legendType="plainline" />
+              <Line yAxisId="pe" type="linear" dataKey={() => mid} name={`中位 ${mid.toFixed(1)}`} stroke="#b8860b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has(`中位 ${mid.toFixed(1)}`)} legendType="plainline" />
+              <Line yAxisId="pe" type="linear" dataKey={() => opp} name={`机会 ${opp.toFixed(1)}`} stroke="#1f8e5a" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has(`机会 ${opp.toFixed(1)}`)} legendType="plainline" />
             </ComposedChart>
           </ResponsiveContainer>
         )}
