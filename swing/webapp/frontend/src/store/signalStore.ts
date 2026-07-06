@@ -1,6 +1,6 @@
 // ML 信号页的共享状态(zustand):训练参数 / 组合份数 / payload / 训练动作。
 import { create } from 'zustand'
-import { message } from 'antd'
+import { message, notification } from 'antd'
 import { TrainPayloadSchema, type TrainPayload } from '../lib/schema'
 
 interface Params { mode: string; tier: number; start: string; train: boolean }
@@ -16,7 +16,7 @@ interface SignalState {
 }
 
 export const useSignalStore = create<SignalState>((set, get) => ({
-  params: { mode: 'long', tier: 20, start: '20260101', train: false },
+  params: { mode: 'long', tier: 20, start: '20260401', train: false },
   setParams: (p) => set(s => ({ params: { ...s.params, ...p } })),
   parts: 4,
   setParts: (n) => set({ parts: n }),
@@ -36,6 +36,17 @@ export const useSignalStore = create<SignalState>((set, get) => ({
       p.signals.forEach((s: Record<string, unknown>) => { s.__latest = p.latest })
       set({ payload: p })
       message.success(`${p.cached ? '已加载缓存' : '完成'},共 ${p.signals.length} 条信号`)
+      const mt = (p as { metrics?: Record<string, unknown> }).metrics
+      if (!p.cached && mt && mt.loaded === false) {
+        const gap = mt.gap as number | null
+        notification.open({
+          type: gap != null && gap > 0.15 ? 'warning' : 'success',
+          message: '模型训练完成',
+          duration: 12, placement: 'topRight',
+          description: `训练AUC ${mt.tr_auc ?? '—'} · valAUC ${mt.va_auc ?? '—'} · 过拟合gap ${gap ?? '—'}${gap != null && gap > 0.15 ? '(偏高⚠️)' : ''}\nbest_iter ${mt.best_iter ?? '—'} · 训练样本 ${mt.n_train ?? '—'} / val ${mt.n_val ?? '—'}`,
+          style: { whiteSpace: 'pre-line' },
+        })
+      }
     } catch (e) {
       message.error('请求失败,后端起了吗? ' + e)
     } finally {

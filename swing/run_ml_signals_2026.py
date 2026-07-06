@@ -672,6 +672,8 @@ def main():
             saved = pickle.load(f)
     if saved is not None:
         m = saved["model"]
+        train_metrics = {"loaded": True, "train_cutoff": saved["train_cutoff"], "n_train": saved["n_train"],
+                         "best_iter": saved.get("best_iter")}
         print(f"[模型] 加载已存盘模型(训练截止 {saved['train_cutoff']}, 训练样本 {saved['n_train']}, "
               f"seed {saved['seed']})")
         if saved["train_cutoff"] != args.start:
@@ -683,6 +685,10 @@ def main():
         if len(trf) < 500:
             trf, vaf = tr, tr.iloc[0:0]
         m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, args.seed)
+        train_metrics = {"loaded": False, "best_iter": bi, "n_train": len(trf), "n_val": len(vaf),
+                         "tr_auc": round(float(tr_auc), 4) if tr_auc is not None else None,
+                         "va_auc": round(float(va_auc), 4) if va_auc is not None else None,
+                         "gap": round(float(tr_auc - va_auc), 4) if (tr_auc is not None and va_auc is not None) else None}
         if va_auc is not None:
             print(f"[模型] val早停:训练{len(trf)}/val{len(vaf)}  best_iter={bi}  "
                   f"训练AUC={tr_auc:.4f} valAUC={va_auc:.4f} gap={tr_auc-va_auc:+.4f}")
@@ -791,7 +797,7 @@ def main():
     if args.json:
         payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",
                    "pivot": args.pivot, "latest": latest_td, "ntrade": ntrade, "cal": cal_js,
-                   "signals": data, "ml_forecast": ml_fc,
+                   "signals": data, "ml_forecast": ml_fc, "metrics": train_metrics,
                    "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
                               "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 3),
                                         "pct": None if cr_pct != cr_pct else round(cr_pct, 2), "label": cr_label}}}
