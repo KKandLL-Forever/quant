@@ -105,12 +105,13 @@ def perf(returns):
     """年化收益(几何)/年化波动/最大回撤/夏普/卡玛,输入日收益 Series,返回 dict。"""
     r = returns.dropna()
     if len(r) < 2:
-        return dict(年化收益=None, 年化波动率=None, 最大回撤=None, 夏普比率=None, 卡玛比率=None)
+        return dict(累计收益=None, 年化收益=None, 年化波动率=None, 最大回撤=None, 夏普比率=None, 卡玛比率=None)
     cum = (1 + r).cumprod()
+    tot = cum.iloc[-1] - 1
     ann = cum.iloc[-1] ** (TRADING_DAYS / len(r)) - 1
     vol = r.std() * np.sqrt(TRADING_DAYS)
     mdd = (cum / cum.cummax() - 1).min()
-    return dict(年化收益=round(ann * 100, 2), 年化波动率=round(vol * 100, 2),
+    return dict(累计收益=round(tot * 100, 2), 年化收益=round(ann * 100, 2), 年化波动率=round(vol * 100, 2),
                 最大回撤=round(abs(mdd) * 100, 2),
                 夏普比率=round(ann / vol, 3) if vol else None,
                 卡玛比率=round(ann / abs(mdd), 3) if mdd else None)

@@ -7,7 +7,7 @@ import { Header, PageTitle } from '../../shell'
 
 interface Pick { code: string; name: string; weight: number; price?: number | null }
 interface Rebalance { date: string; picks: Pick[]; state?: string; next?: boolean }
-interface Perf { 策略: string; 年化收益: number | null; 年化波动率: number | null; 最大回撤: number | null; 夏普比率: number | null; 卡玛比率: number | null }
+interface Perf { 策略: string; 累计收益?: number | null; 年化收益: number | null; 年化波动率: number | null; 最大回撤: number | null; 夏普比率: number | null; 卡玛比率: number | null }
 interface Payload {
   ok: boolean; error?: string
   params: { N: number; K: number; L: number; start: string; end: string }
@@ -142,11 +142,11 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
               <Col key={s.策略} span={8}>
                 <Card size="small" title={s.策略} styles={{ header: { color: colorOf(s.策略), fontWeight: 600 } }}>
                   <Row gutter={8}>
-                    <Col span={12}><Statistic title="年化收益" value={s.年化收益 ?? '—'} suffix="%" valueStyle={{ color: '#c0392b', fontSize: 20 }} /></Col>
-                    <Col span={12}><Statistic title="最大回撤" value={s.最大回撤 ?? '—'} suffix="%" valueStyle={{ fontSize: 20 }} /></Col>
-                    <Col span={8}><Statistic title="年化波动" value={s.年化波动率 ?? '—'} suffix="%" valueStyle={{ fontSize: 14 }} /></Col>
-                    <Col span={8}><Statistic title="夏普" value={s.夏普比率 ?? '—'} valueStyle={{ fontSize: 14 }} /></Col>
-                    <Col span={8}><Statistic title="卡玛" value={s.卡玛比率 ?? '—'} valueStyle={{ fontSize: 14 }} /></Col>
+                    <Col span={12}><Statistic title="累计收益" value={s.累计收益 ?? '—'} suffix="%" valueStyle={{ color: '#c0392b', fontSize: 22 }} /></Col>
+                    <Col span={12}><Statistic title="最大回撤" value={s.最大回撤 ?? '—'} suffix="%" valueStyle={{ fontSize: 22 }} /></Col>
+                    <Col span={8}><Statistic title="年化(区间<1年仅参考)" value={s.年化收益 ?? '—'} suffix="%" valueStyle={{ fontSize: 13 }} /></Col>
+                    <Col span={8}><Statistic title="年化波动" value={s.年化波动率 ?? '—'} suffix="%" valueStyle={{ fontSize: 13 }} /></Col>
+                    <Col span={8}><Statistic title="夏普" value={s.夏普比率 ?? '—'} valueStyle={{ fontSize: 13 }} /></Col>
                   </Row>
                 </Card>
               </Col>
