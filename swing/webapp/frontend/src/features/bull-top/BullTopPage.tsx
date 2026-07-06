@@ -40,7 +40,7 @@ function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; m
     [{ xAxis: fmtDate(b.x1), itemStyle: { color: b.c, opacity: 0.07 }, name: b.label }, { xAxis: fmtDate(b.x2) }])
   const option = {
     animation: false,
-    grid: { left: 46, right: 66, top: 18, bottom: 78 },
+    grid: { left: 46, right: 66, top: 18, bottom: 44 },
     legend: { bottom: 6, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 12 } },
     tooltip: {
       trigger: 'axis',
@@ -52,7 +52,7 @@ function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; m
       { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#eee6d6', type: 'dashed' } } },
       { type: 'value', position: 'right', axisLabel: { fontSize: 10, formatter: (v: number) => `${(v / 1e4).toFixed(0)}万亿` }, splitLine: { show: false } },
     ],
-    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 36 }],
+    dataZoom: [{ type: 'inside' }],
     series: [
       { name: '全A整体法PE-TTM', type: 'line', showSymbol: false, data: data.map(v => v.peTtm), lineStyle: { width: 1.6 }, itemStyle: { color: '#17140f' },
         markArea: area.length ? { silent: true, label: { fontSize: 10, color: '#8a7', position: 'insideTop' }, data: area } : undefined },
@@ -124,7 +124,7 @@ export default function BullTopPage() {
           · 总市值 {(cur.totalMv / 1e4).toFixed(1)}万亿</span>}
       </span>}>
         <EValuation data={d.valuation} danger={danger} mid={mid} opp={opp} />
-        <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>⚡ echarts 试点:全量点不抽稀 · 原生图例点击隐藏 · 底部滑块/滚轮缩放(本图独立缩放,不与下方三图联动)</div>
+        <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>⚡ echarts 试点:全量点不抽稀 · 原生图例点击隐藏 · 滚轮缩放(本图独立缩放,不与下方三图联动)</div>
       </Card>
 
       <Card size="small" style={{ marginBottom: 14 }} title={<span>两融拥挤度(融资+融券,3% 预警)
