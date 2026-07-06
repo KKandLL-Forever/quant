@@ -72,7 +72,7 @@ export default function ConceptPage() {
             value: [c.rs_ratio, c.rs_momentum], c, symbolSize: 8 + c.diffusion * 30,
             itemStyle: { color: QC[c.quadrant], opacity: c.main ? 0.95 : 0.5, borderColor: c.main ? '#17140f' : 'transparent', borderWidth: c.main ? 1.2 : 0 },
             label: { show: c.main, formatter: c.name, position: 'top', fontSize: 10, color: '#333' },
-            emphasis: { itemStyle: { borderColor: '#17140f', borderWidth: 2 }, scale: 1.4 },
+            emphasis: { scale: false, itemStyle: { borderColor: '#17140f', borderWidth: 2 } },
           })),
         },
       ],
@@ -128,7 +128,7 @@ export default function ConceptPage() {
                   const seg = Math.hypot(lx - px, ly - py) || 1
                   const ux = (lx - px) / seg, uy = (ly - py) / seg          // 数据坐标单位方向
                   const rot = -Math.atan2(ux, uy) * 180 / Math.PI
-                  const R = (8 + d.diffusion * 30) / 2 + 10                 // 圆半径+留白(像素)
+                  const R = (8 + d.diffusion * 30) / 2 + 18                 // 圆半径+留白(像素),确保箭头在圆外
                   const tdata: any[] = d.trail.map((t, i) => ({
                     value: [t[0], t[1]], symbol: i === 0 ? 'circle' : 'none', symbolSize: i === 0 ? 8 : 0,
                     itemStyle: i === 0 ? { color: '#fff', borderColor: col, borderWidth: 1.6 } : { color: col },
