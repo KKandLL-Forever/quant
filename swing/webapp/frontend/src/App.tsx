@@ -106,15 +106,23 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
     return {
       coord: [m.date, buy ? b[3] : b[2]], value: m.label,
       symbol: 'triangle', symbolSize: 11, symbolRotate: buy ? 0 : 180,
-      symbolOffset: [0, buy ? 14 : -14 - o * 22],
+      symbolOffset: [0, buy ? 16 : -16 - o * 26],
       itemStyle: { color: buy ? '#c0392b' : '#27ae60' },
-      label: { show: true, formatter: m.label, position: buy ? 'bottom' : 'top', color: buy ? '#c0392b' : '#27ae60', fontWeight: 700, fontSize: 13 },
+      label: { show: true, formatter: m.label, position: buy ? 'bottom' : 'top', color: buy ? '#c0392b' : '#27ae60', fontWeight: 700, fontSize: 18 },
     }
   })
+  const boClose = di[bo] != null ? ohlc[di[bo]][4] : null
   const option = {
     animation: false,
     grid: { left: 52, right: 16, top: 14, bottom: 52 },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      formatter: (ps: any[]) => {
+        const k = ps.find(p => p.seriesName === 'K线'); if (!k) return ''
+        const v = k.data as number[]; const a = v.length === 5 ? v.slice(1) : v
+        return `${k.axisValue}<br/>开 <b>${a[0]}</b>　收 <b>${a[1]}</b><br/>低 <b>${a[2]}</b>　高 <b>${a[3]}</b>`
+      },
+    },
     xAxis: { type: 'category', data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
     yAxis: { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
     dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 22 }],
@@ -123,7 +131,13 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
         name: 'K线', type: 'candlestick', data: candles,
         itemStyle: { color: '#c0392b', color0: '#27ae60', borderColor: '#c0392b', borderColor0: '#27ae60' },
         markArea: areas.length ? { silent: true, data: areas } : undefined,
-        markLine: di[bo] != null ? { symbol: 'none', silent: true, lineStyle: { color: '#999', type: 'dashed' }, label: { show: false }, data: [{ xAxis: bo }] } : undefined,
+        markLine: di[bo] != null ? {
+          symbol: 'none', silent: true,
+          data: [
+            { xAxis: bo, lineStyle: { color: '#999', type: 'dashed' }, label: { show: false } },
+            { yAxis: boClose, lineStyle: { color: '#e07b39', type: 'dashed', width: 1.2 }, label: { show: true, position: 'insideEndTop', formatter: `突破价 ${boClose}`, color: '#e07b39', fontSize: 11 } },
+          ],
+        } : undefined,
         markPoint: mpts.length ? { data: mpts } : undefined,
       },
       { name: '缠论笔', type: 'line', data: biLine, connectNulls: true, showSymbol: false, lineStyle: { color: '#1677ff', width: 1.6 }, itemStyle: { color: '#1677ff' }, z: 3 },
