@@ -2,11 +2,9 @@
 // 数据走后端 /api/bulltop;前四图共用一个缩放窗口(滚轮缩放+拖动平移,联动)。
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Spin, message } from 'antd'
-import { ComposedChart, LineChart, Line, BarChart, Bar, ReferenceLine, ReferenceArea, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
 import ReactECharts from 'echarts-for-react'
+import * as echarts from 'echarts'
 import { Header, PageTitle } from '../../shell'
-import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
-import { ZoomBox } from '../../components/ZoomBox'
 
 interface Val { date: string; peTtm: number; pct: number; circMv: number; totalMv: number; amountFull: number }
 interface Tov { date: string; turnover: number; ma5: number | null }
@@ -28,20 +26,24 @@ const bullAreas = (dates: string[]) => BULLS.map(b => {
   return w.length ? { x1: w[0], x2: w[w.length - 1], label: b.label, c: b.c } : null
 }).filter((x): x is { x1: string; x2: string; label: string; c: string } => !!x)
 
-const grid = <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
-const tip = { background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }
+const GROUP = 'bulltop-zoom'
+const linkReady = (chart: echarts.ECharts) => { chart.group = GROUP; echarts.connect(GROUP) }
+const areaData = (dates: string[]) => bullAreas(dates).map(b =>
+  [{ xAxis: fmtDate(b.x1), itemStyle: { color: b.c, opacity: 0.07 }, name: b.label }, { xAxis: fmtDate(b.x2) }])
+const baseGrid = { left: 46, right: 46, top: 16, bottom: 44 }
+const baseLegend = { bottom: 6, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 12 } }
+const pctLine = (yAxisIndex: number) => ({ label: { formatter: '3%', fontSize: 10, color: '#c0392b' }, yAxis: 3, ...(yAxisIndex ? { yAxisIndex } : {}) })
 
-// echarts 试点:全A估值图(canvas 全量点不抽稀 + 原生 legend/dataZoom)
+// 全A估值图(canvas 全量点不抽稀 + 原生 legend + 滚轮缩放,四图联动)
 function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; mid: number; opp: number }) {
   const dates = data.map(v => fmtDate(v.date))
   const flat = (y: number) => data.map(() => y)
   const nDanger = `危险 ${danger.toFixed(1)}`, nMid = `中位 ${mid.toFixed(1)}`, nOpp = `机会 ${opp.toFixed(1)}`
-  const area = bullAreas(data.map(v => v.date)).map(b =>
-    [{ xAxis: fmtDate(b.x1), itemStyle: { color: b.c, opacity: 0.07 }, name: b.label }, { xAxis: fmtDate(b.x2) }])
+  const area = areaData(data.map(v => v.date))
   const option = {
     animation: false,
-    grid: { left: 46, right: 66, top: 18, bottom: 44 },
-    legend: { bottom: 6, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 12 } },
+    grid: { ...baseGrid, right: 66 },
+    legend: baseLegend,
     tooltip: {
       trigger: 'axis',
       formatter: (ps: any[]) => ps[0].axisValue + '<br/>' + ps.map(p =>
@@ -62,7 +64,58 @@ function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; m
       { name: nOpp, type: 'line', showSymbol: false, data: flat(opp), lineStyle: { width: 1.2, type: 'dashed' }, itemStyle: { color: '#1f8e5a' } },
     ],
   }
-  return <ReactECharts option={option} notMerge style={{ height: 480 }} />
+  return <ReactECharts option={option} notMerge style={{ height: 480 }} onChartReady={linkReady} />
+}
+
+// 两融拥挤度(双轴 % + 3% 预警线 + 牛市阴影)
+function EMargin({ data }: { data: { date: string; ratio: number | null; buyShare: number | null }[] }) {
+  const option = {
+    animation: false, grid: baseGrid, legend: baseLegend,
+    tooltip: { trigger: 'axis', valueFormatter: (v: any) => v == null ? '-' : v + '%' },
+    xAxis: { type: 'category', data: data.map(v => fmtDate(v.date)), boundaryGap: false, axisLabel: { fontSize: 10 } },
+    yAxis: [{ type: 'value', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { lineStyle: { color: '#eee6d6', type: 'dashed' } } },
+      { type: 'value', position: 'right', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { show: false } }],
+    dataZoom: [{ type: 'inside' }],
+    series: [
+      { name: '两融/流通市值', type: 'line', showSymbol: false, connectNulls: true, data: data.map(v => v.ratio), lineStyle: { width: 1.6 }, itemStyle: { color: '#8b5cf6' },
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: '#c0392b', type: 'dashed' }, data: [pctLine(0)] },
+        markArea: { silent: true, data: areaData(data.map(v => v.date)) } },
+      { name: '融资买入占成交', type: 'line', yAxisIndex: 1, showSymbol: false, connectNulls: true, data: data.map(v => v.buyShare), lineStyle: { width: 1.3 }, itemStyle: { color: '#e07b39' } },
+    ],
+  }
+  return <ReactECharts option={option} notMerge style={{ height: 320 }} onChartReady={linkReady} />
+}
+
+// 换手率(单日 / 5日均 + 3% 预警线 + 牛市阴影)
+function ETurnover({ data }: { data: { date: string; turnover: number; ma5: number | null }[] }) {
+  const option = {
+    animation: false, grid: baseGrid, legend: baseLegend,
+    tooltip: { trigger: 'axis', valueFormatter: (v: any) => v == null ? '-' : v + '%' },
+    xAxis: { type: 'category', data: data.map(v => fmtDate(v.date)), boundaryGap: false, axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'value', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { lineStyle: { color: '#eee6d6', type: 'dashed' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: [
+      { name: '单日换手', type: 'line', showSymbol: false, data: data.map(v => v.turnover), lineStyle: { width: 1 }, itemStyle: { color: '#0b6e4f' },
+        markLine: { silent: true, symbol: 'none', lineStyle: { color: '#c0392b', type: 'dashed' }, data: [{ yAxis: 3 }] },
+        markArea: { silent: true, data: areaData(data.map(v => v.date)) } },
+      { name: '5日均换手', type: 'line', showSymbol: false, connectNulls: true, data: data.map(v => v.ma5), lineStyle: { width: 1.6 }, itemStyle: { color: '#c0392b' } },
+    ],
+  }
+  return <ReactECharts option={option} notMerge style={{ height: 320 }} onChartReady={linkReady} />
+}
+
+// 股东月度净减持(柱 + 1000亿 预警线,月频不参与联动)
+function EHolder({ data }: { data: Hld[] }) {
+  const option = {
+    animation: false, grid: { ...baseGrid, right: 16 }, legend: baseLegend,
+    tooltip: { trigger: 'axis', valueFormatter: (v: any) => `${v} 亿` },
+    xAxis: { type: 'category', data: data.map(v => v.month), axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'value', axisLabel: { fontSize: 10 } },
+    dataZoom: [{ type: 'inside' }],
+    series: [{ name: '月度净减持(亿)', type: 'bar', data: data.map(v => v.netReduce), itemStyle: { color: '#c0392b' },
+      markLine: { silent: true, symbol: 'none', lineStyle: { color: '#c0392b', type: 'dashed' }, data: [{ yAxis: 1000, label: { formatter: '1000亿', fontSize: 10, color: '#c0392b' } }] } }],
+  }
+  return <ReactECharts option={option} notMerge style={{ height: 320 }} />
 }
 
 export default function BullTopPage() {
@@ -80,42 +133,30 @@ export default function BullTopPage() {
     })()
   }, [])
 
-  const masterDates = useMemo(() => (d?.valuation || []).map(v => v.date), [d])
-  const { range, onWheel, pointerHandlers, reset, isZoomed } = useDateZoom(masterDates)
-
   const pes = useMemo(() => (d?.valuation || []).map(v => v.peTtm), [d])
   const opp = quantile(pes, 0.2), mid = quantile(pes, 0.5), danger = quantile(pes, 0.8)
   const cur = d?.valuation.at(-1)
   const circByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.circMv])), [d])
   const amtByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.amountFull])), [d])
 
-  const tovData = useMemo(() => decimate(clipByRange(d?.turnover || [], v => v.date, range), 600), [d, range])
   const mkMgn = (m: Mgn) => ({
     date: m.date,
     ratio: circByDate.get(m.date) ? +(m.rzye / circByDate.get(m.date)! * 100).toFixed(2) : null,
     buyShare: amtByDate.get(m.date) ? +(m.rzmre / amtByDate.get(m.date)! * 100).toFixed(2) : null,
   })
-  const mgnData = useMemo(() => decimate(clipByRange(d?.margin || [], v => v.date, range).map(mkMgn), 600), [d, range, circByDate, amtByDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  const mgnData = useMemo(() => (d?.margin || []).map(mkMgn), [d, circByDate, amtByDate]) // eslint-disable-line react-hooks/exhaustive-deps
   const curMgn = d?.margin.length ? mkMgn(d.margin[d.margin.length - 1]) : null
 
   if (loading) return <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}><Header /><div style={{ padding: 60, textAlign: 'center' }}><Spin /></div></div>
   if (!d) return null
 
-  const zb = (node: React.ReactNode) => <ZoomBox onWheel={onWheel} pointer={pointerHandlers}>{node}</ZoomBox>
-  const areas = (dates: string[]) => bullAreas(dates).map(b => (
-    <ReferenceArea key={b.x1} x1={b.x1} x2={b.x2} fill={b.c} fillOpacity={0.07}
-      label={{ value: b.label, position: 'insideTop', fill: b.c, fontSize: 10 }} />
-  ))
   const tone = cur ? (cur.peTtm <= opp ? '#1f8e5a' : cur.peTtm >= danger ? '#c0392b' : '#17140f') : '#17140f'
 
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Bull-market Top Radar · 剔金融石化整体法">牛市逃顶</PageTitle>
-      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>
-        滚轮缩放 · 拖动平移(四图联动) {isZoomed && <a onClick={reset} style={{ color: 'var(--accent)', marginLeft: 8 }}>重置缩放</a>}
-        {range && <span style={{ marginLeft: 8 }}>{range.start} ~ {range.end}</span>}
-      </div>
+      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>⚡ echarts · 滚轮缩放(前三图联动,全量点不抽稀)</div>
 
       <Card size="small" style={{ marginBottom: 14 }} title={<span>全A估值(剔金融石化,整体法 PE-TTM)
         {cur && <span style={{ marginLeft: 12, fontSize: 13 }}>
@@ -124,7 +165,6 @@ export default function BullTopPage() {
           · 总市值 {(cur.totalMv / 1e4).toFixed(1)}万亿</span>}
       </span>}>
         <EValuation data={d.valuation} danger={danger} mid={mid} opp={opp} />
-        <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>⚡ echarts 试点:全量点不抽稀 · 原生图例点击隐藏 · 滚轮缩放(本图独立缩放,不与下方三图联动)</div>
       </Card>
 
       <Card size="small" style={{ marginBottom: 14 }} title={<span>两融拥挤度(融资+融券,3% 预警)
@@ -132,52 +172,15 @@ export default function BullTopPage() {
           当前 两融/流通 <b style={{ color: (curMgn.ratio ?? 0) >= 3 ? '#c0392b' : '#17140f' }}>{curMgn.ratio}%</b>
           · 融资买入占成交 <b>{curMgn.buyShare}%</b></span>}
       </span>}>
-        {zb(
-          <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={mgnData} margin={{ top: 8, right: 44, bottom: 0, left: 8 }}>
-              {grid}{areas(mgnData.map(v => v.date))}
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis yAxisId="r" tick={{ fontSize: 10 }} width={36} tickFormatter={(v: any) => `${v}%`} />
-              <YAxis yAxisId="b" orientation="right" tick={{ fontSize: 10 }} width={40} tickFormatter={(v: any) => `${v}%`} />
-              <ReferenceLine yAxisId="r" y={3} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '3%', fontSize: 10, fill: '#c0392b' }} />
-              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n]} />
-              <Legend />
-              <Line yAxisId="r" type="linear" dataKey="ratio" name="两融/流通市值" stroke="#8b5cf6" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
-              <Line yAxisId="b" type="linear" dataKey="buyShare" name="融资买入占成交" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} connectNulls />
-            </ComposedChart>
-          </ResponsiveContainer>
-        )}
+        <EMargin data={mgnData} />
       </Card>
 
       <Card size="small" style={{ marginBottom: 14 }} title="换手率(单日 / 5日均,3% 预警)">
-        {zb(
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={tovData} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-              {grid}{areas(tovData.map(v => v.date))}
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis tick={{ fontSize: 10 }} width={36} tickFormatter={(v: any) => `${v}%`} />
-              <ReferenceLine y={3} stroke="#c0392b" strokeDasharray="4 3" />
-              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any, n: any) => [`${v}%`, n]} />
-              <Legend />
-              <Line type="linear" dataKey="turnover" name="单日换手" stroke="#0b6e4f" strokeWidth={1} dot={false} isAnimationActive={false} />
-              <Line type="linear" dataKey="ma5" name="5日均换手" stroke="#c0392b" strokeWidth={1.6} dot={false} isAnimationActive={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
-        )}
+        <ETurnover data={d.turnover} />
       </Card>
 
       <Card size="small" title="重要股东月度净减持(亿元,1000亿 预警)">
-        <ResponsiveContainer width="100%" height={320}>
-          <BarChart data={d.holder} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-            {grid}
-            <XAxis dataKey="month" tick={{ fontSize: 10 }} minTickGap={40} />
-            <YAxis tick={{ fontSize: 10 }} width={44} />
-            <ReferenceLine y={1000} stroke="#c0392b" strokeDasharray="4 3" label={{ value: '1000亿', fontSize: 10, fill: '#c0392b' }} />
-            <Tooltip contentStyle={tip} formatter={(v: any) => [`${v} 亿`, '净减持']} />
-            <Legend />
-            <Bar dataKey="netReduce" name="月度净减持(亿)" fill="#c0392b" />
-          </BarChart>
-        </ResponsiveContainer>
+        <EHolder data={d.holder} />
       </Card>
     </div>
   )
