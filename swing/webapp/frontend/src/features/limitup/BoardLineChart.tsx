@@ -29,7 +29,6 @@ export function BoardLineChart({ data, height = 260 }: { data: DayBoard[]; heigh
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => `${v} 板` },
     xAxis: { type: 'category', data: dates, boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
     yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-    dataZoom: [{ type: 'inside' }],
     series: [
       { name: '最高板', type: 'line', data: data.map(d => d.maxBoard), showSymbol: false, lineStyle: { color: '#c0392b', width: 2 }, itemStyle: { color: '#c0392b' },
         markArea: area.length ? { silent: true, data: area } : undefined },
