@@ -1,5 +1,5 @@
-// 连板日历折线:最高板/次高板双线 + 牛市区间底色(recharts)。迁自 trade_dashboard,配色改暖纸主题。
-import { ComposedChart, Line, ReferenceArea, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+// 连板日历折线:最高板/次高板双线 + 牛市区间底色(echarts)。
+import ReactECharts from 'echarts-for-react'
 
 export interface DayBoard { date: string; maxBoard: number; secondBoard: number; dragons: { tsCode: string; name: string; board: number }[] }
 
@@ -16,26 +16,25 @@ const fmtDate = (d: string) => (d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 
 
 export function BoardLineChart({ data, height = 260 }: { data: DayBoard[]; height?: number }) {
   const dates = data.map(d => d.date)
-  const bulls = BULL_MARKETS.map(b => {
+  const area = BULL_MARKETS.map(b => {
     const within = dates.filter(d => d >= b.start && d <= b.end)
-    return within.length ? { x1: within[0], x2: within[within.length - 1], label: b.label, color: b.color } : null
-  }).filter((b): b is { x1: string; x2: string; label: string; color: string } => b !== null)
+    return within.length
+      ? [{ xAxis: within[0], itemStyle: { color: b.color, opacity: 0.08 }, label: { show: true, formatter: b.label, position: 'insideTop', color: b.color, fontSize: 11 } }, { xAxis: within[within.length - 1] }]
+      : null
+  }).filter((x): x is any[] => x !== null)
 
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} margin={CHART_MARGIN}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
-        <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={40} />
-        {bulls.map(b => (
-          <ReferenceArea key={b.x1} x1={b.x1} x2={b.x2} fill={b.color} fillOpacity={0.08}
-            label={{ value: b.label, position: 'insideTop', fill: b.color, fontSize: 11 }} />
-        ))}
-        <YAxis tick={{ fontSize: 10 }} allowDecimals={false} width={Y_AXIS_WIDTH} />
-        <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }}
-          labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => `${v} 板`} />
-        <Line type="linear" dataKey="maxBoard" name="最高板" stroke="#c0392b" strokeWidth={2} dot={false} isAnimationActive={false} />
-        <Line type="linear" dataKey="secondBoard" name="次高板" stroke="#8b5cf6" strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
-      </ComposedChart>
-    </ResponsiveContainer>
-  )
+  const option = {
+    animation: false,
+    grid: { left: PLOT_LEFT, right: CHART_MARGIN.right, top: 12, bottom: 24 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => `${v} 板` },
+    xAxis: { type: 'category', data: dates, boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
+    yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: [
+      { name: '最高板', type: 'line', data: data.map(d => d.maxBoard), showSymbol: false, lineStyle: { color: '#c0392b', width: 2 }, itemStyle: { color: '#c0392b' },
+        markArea: area.length ? { silent: true, data: area } : undefined },
+      { name: '次高板', type: 'line', data: data.map(d => d.secondBoard), showSymbol: false, lineStyle: { color: '#8b5cf6', width: 1.5, type: 'dashed' }, itemStyle: { color: '#8b5cf6' } },
+    ],
+  }
+  return <ReactECharts option={option} notMerge style={{ height }} />
 }
