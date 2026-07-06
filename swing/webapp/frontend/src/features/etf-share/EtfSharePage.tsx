@@ -62,12 +62,20 @@ export default function EtfSharePage() {
     return Object.values(byDate).sort((a, b) => (a.date < b.date ? -1 : 1))
   }, [series])
 
-  // 合计:每个交易日所有 ETF 份额相加
-  const totalData = useMemo(() => chartData.map(row => {
-    let sum = 0
-    for (const e of ETF_LIST) { const v = row[e.ts_code]; if (typeof v === 'number') sum += v }
-    return { date: row.date as string, total: Math.round(sum * 100) / 100 }
-  }), [chartData])
+  // 合计:各 ETF 份额前向填充(某日无更新则沿用上一已知值),仅当全部 ETF 都已有数据才计入,避免早期缺列导致低估
+  const totalData = useMemo(() => {
+    const last: Record<string, number> = {}
+    const out: { date: string; total: number }[] = []
+    for (const row of chartData) {
+      for (const e of ETF_LIST) { const v = row[e.ts_code]; if (typeof v === 'number') last[e.ts_code] = v }
+      if (ETF_LIST.every(e => typeof last[e.ts_code] === 'number')) {
+        let sum = 0
+        for (const e of ETF_LIST) sum += last[e.ts_code]
+        out.push({ date: row.date as string, total: Math.round(sum * 100) / 100 })
+      }
+    }
+    return out
+  }, [chartData])
   const totalSummary = useMemo(() => {
     if (totalData.length === 0) return null
     const last = totalData[totalData.length - 1]
