@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
 dayjs.locale('zh-cn')
 import ReactMarkdown from 'react-markdown'
+import ReactECharts from 'echarts-for-react'
 import { StockName } from './StockInfo'
 import remarkGfm from 'remark-gfm'
 
@@ -87,51 +88,48 @@ import BollPage from './features/boll/BollPage'
 import ConceptPage from './features/concept/ConceptPage'
 import OversoldPage from './features/oversold/OversoldPage'
 
-// 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
+// K线(echarts):蜡烛 + 缠论笔 + 中枢markArea + 突破日markLine + 买卖markPoint;带十字光标/滚轮缩放
 function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
   const { ohlc, bis, zs, bo } = data
   if (!ohlc || ohlc.length < 2) return <div>无数据</div>
-  const W = 1500, H = 580, padL = 52, padR = 14, padT = 14, padB = 26
-  const n = ohlc.length
-  const lo = Math.min(...ohlc.map(b => b[3])), hi = Math.max(...ohlc.map(b => b[2]))
-  const X = (i: number) => padL + i * (W - padL - padR) / (n - 1)
-  const Y = (v: number) => padT + (hi - v) * (H - padT - padB) / (hi - lo)
-  const cw = Math.max(1.5, (W - padL - padR) / n * 0.6)
+  const dates = ohlc.map(b => b[0])
+  const candles = ohlc.map(b => [b[1], b[4], b[3], b[2]])          // echarts: [开,收,低,高]
   const di: Record<string, number> = Object.fromEntries(ohlc.map((b, i) => [b[0], i]))
-  const months: number[] = []
-  for (let i = 0; i < n; i++) if (i === 0 || ohlc[i][0].slice(0, 7) !== ohlc[i - 1][0].slice(0, 7)) months.push(i)
-  const biPts = (bis || []).filter(p => di[p[0]] != null).map(p => `${X(di[p[0]]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ')
-  return (
-    <svg width={W} height={H} style={{ maxWidth: '100%', background: '#fffdf8' }}>
-      <text x={4} y={Y(hi) + 4} fontSize={11} fill="#999">{hi.toFixed(2)}</text>
-      <text x={4} y={Y(lo) + 4} fontSize={11} fill="#999">{lo.toFixed(2)}</text>
-      {(zs || []).map((z: ZsBox, k: number) => di[z.sdt] != null && di[z.edt] != null && (
-        <rect key={k} x={X(di[z.sdt])} y={Y(z.zg)} width={X(di[z.edt]) - X(di[z.sdt])} height={Y(z.zd) - Y(z.zg)}
-          fill="rgba(255,165,0,0.12)" stroke="rgba(230,126,34,0.6)" strokeWidth={1} />
-      ))}
-      {ohlc.map((b: OHLC, i: number) => {
-        const up = b[4] >= b[1], col = up ? '#c0392b' : '#27ae60'
-        return <g key={i}>
-          <line x1={X(i)} y1={Y(b[2])} x2={X(i)} y2={Y(b[3])} stroke={col} strokeWidth={1} />
-          <rect x={X(i) - cw / 2} y={Y(Math.max(b[1], b[4]))} width={cw} height={Math.max(1, Math.abs(Y(b[1]) - Y(b[4])))} fill={col} />
-        </g>
-      })}
-      {biPts && <polyline points={biPts} fill="none" stroke="#1677ff" strokeWidth={1.6} />}
-      {di[bo] != null && <line x1={X(di[bo])} y1={padT} x2={X(di[bo])} y2={H - padB} stroke="#999" strokeDasharray="3 3" />}
-      {(() => { const seen: Record<string, number> = {}; return (marks || []).map((m: Mark, k: number) => {
-        const i = di[m.date]; if (i == null) return null
-        if (m.kind === 'buy') {
-          const y = Y(ohlc[i][3]) + 10
-          return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 9},${y + 16} ${X(i) + 9},${y + 16}`} fill="#c0392b" />
-            <text x={X(i)} y={y + 32} fontSize={15} fontWeight={700} fill="#c0392b" textAnchor="middle">买</text></g>
-        }
-        const o = seen[m.date] || 0; seen[m.date] = o + 1; const y = Y(ohlc[i][2]) - 10 - o * 22
-        return <g key={k}><polygon points={`${X(i)},${y} ${X(i) - 9},${y - 16} ${X(i) + 9},${y - 16}`} fill="#27ae60" />
-          <text x={X(i)} y={y - 20} fontSize={15} fontWeight={700} fill="#27ae60" textAnchor="middle">{m.label}</text></g>
-      }) })()}
-      {months.map((gi: number) => <text key={gi} x={X(gi)} y={H - 6} fontSize={9} fill="#aaa" textAnchor="middle">{ohlc[gi][0].slice(2, 7)}</text>)}
-    </svg>
-  )
+  const biMap: Record<string, number> = Object.fromEntries((bis || []).map(p => [p[0], p[1]]))
+  const biLine = dates.map(d => (d in biMap ? biMap[d] : null))
+  const areas = (zs || []).filter(z => di[z.sdt] != null && di[z.edt] != null)
+    .map(z => [{ xAxis: z.sdt, yAxis: z.zg, itemStyle: { color: 'rgba(255,165,0,0.12)', borderColor: 'rgba(230,126,34,0.55)', borderWidth: 1 } }, { xAxis: z.edt, yAxis: z.zd }])
+  const seen: Record<string, number> = {}
+  const mpts = (marks || []).filter(m => di[m.date] != null).map(m => {
+    const b = ohlc[di[m.date]]; const buy = m.kind === 'buy'
+    const o = buy ? 0 : (seen[m.date] = (seen[m.date] || 0) + 1) - 1
+    return {
+      coord: [m.date, buy ? b[3] : b[2]], value: m.label,
+      symbol: 'triangle', symbolSize: 11, symbolRotate: buy ? 0 : 180,
+      symbolOffset: [0, buy ? 14 : -14 - o * 22],
+      itemStyle: { color: buy ? '#c0392b' : '#27ae60' },
+      label: { show: true, formatter: m.label, position: buy ? 'bottom' : 'top', color: buy ? '#c0392b' : '#27ae60', fontWeight: 700, fontSize: 13 },
+    }
+  })
+  const option = {
+    animation: false,
+    grid: { left: 52, right: 16, top: 14, bottom: 52 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    xAxis: { type: 'category', data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
+    yAxis: { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 22 }],
+    series: [
+      {
+        name: 'K线', type: 'candlestick', data: candles,
+        itemStyle: { color: '#c0392b', color0: '#27ae60', borderColor: '#c0392b', borderColor0: '#27ae60' },
+        markArea: areas.length ? { silent: true, data: areas } : undefined,
+        markLine: di[bo] != null ? { symbol: 'none', silent: true, lineStyle: { color: '#999', type: 'dashed' }, label: { show: false }, data: [{ xAxis: bo }] } : undefined,
+        markPoint: mpts.length ? { data: mpts } : undefined,
+      },
+      { name: '缠论笔', type: 'line', data: biLine, connectNulls: true, showSymbol: false, lineStyle: { color: '#1677ff', width: 1.6 }, itemStyle: { color: '#1677ff' }, z: 3 },
+    ],
+  }
+  return <ReactECharts option={option} notMerge style={{ height: 560 }} />
 }
 
 function Chart({ title, series }: { title: string; series: Series }) {
