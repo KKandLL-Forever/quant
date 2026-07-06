@@ -67,7 +67,7 @@ export const useSignalStore = create<SignalState>((set, get) => ({
         notification.open({
           type: gap != null && gap > 0.15 ? 'warning' : 'success',
           message: h('span', { style: { fontWeight: 700 } }, '🧬 模型训练完成'),
-          duration: 15, placement: 'topRight', style: { width: 420 },
+          duration: null, placement: 'topRight', style: { width: 420 },
           description: _trainDesc(mt),
         })
       }
