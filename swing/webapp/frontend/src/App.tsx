@@ -114,7 +114,7 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
   const boClose = di[bo] != null ? ohlc[di[bo]][4] : null
   const option = {
     animation: false,
-    grid: { left: 52, right: 16, top: 14, bottom: 52 },
+    grid: { left: 52, right: 16, top: 14, bottom: 28 },
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'cross' },
       formatter: (ps: any[]) => {
@@ -125,7 +125,7 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
     },
     xAxis: { type: 'category', data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
     yAxis: { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 16, bottom: 22 }],
+    dataZoom: [{ type: 'inside' }],
     series: [
       {
         name: 'K线', type: 'candlestick', data: candles,
