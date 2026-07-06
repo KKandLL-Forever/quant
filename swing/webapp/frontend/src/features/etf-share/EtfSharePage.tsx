@@ -1,7 +1,7 @@
-// ETF份额:多只ETF总份额时序对比(recharts多线)。数据走后端 /api/etfshare(tushare etf_share_size)。
+// ETF份额:多只ETF总份额时序对比(echarts多线,原生图例/十字光标/滚轮缩放)。数据走后端 /api/etfshare(tushare etf_share_size)。
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Spin, message } from 'antd'
-import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from 'recharts'
+import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle } from '../../shell'
 
 interface EtfMeta { ts_code: string; name: string; color: string }
@@ -35,7 +35,6 @@ export default function EtfSharePage() {
   const [preset, setPreset] = useState<Preset>('1Y')
   const [series, setSeries] = useState<Record<string, { trade_date: string; fdShare: number }[]>>({})
   const [loading, setLoading] = useState(false)
-  const [hidden, setHidden] = useState<Record<string, boolean>>({})
 
   const load = async (p: Preset) => {
     setLoading(true)
@@ -51,7 +50,7 @@ export default function EtfSharePage() {
   }
   useEffect(() => { load(preset) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 合并成 recharts 数据集:每个日期一行,各 ETF 一列
+  // 每个日期一行,各 ETF 一列
   const chartData = useMemo(() => {
     const byDate: Record<string, Record<string, number | string>> = {}
     for (const e of ETF_LIST) {
@@ -83,6 +82,30 @@ export default function EtfSharePage() {
     return { date: last.date, total: last.total, delta: prev ? last.total - prev.total : null }
   }, [totalData])
 
+  const mainOpt = useMemo(() => ({
+    animation: false,
+    grid: { left: 52, right: 20, top: 14, bottom: 64 },
+    legend: { bottom: 4, type: 'scroll', textStyle: { fontSize: 11 } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => v == null ? '-' : `${v} 亿份` },
+    xAxis: { type: 'category', data: chartData.map(r => r.date as string), boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: ETF_LIST.map(e => ({
+      name: `${e.name} ${e.ts_code}`, type: 'line', showSymbol: false, connectNulls: true,
+      data: chartData.map(r => (r[e.ts_code] as number) ?? null), lineStyle: { color: e.color, width: 1.6 }, itemStyle: { color: e.color },
+    })),
+  }), [chartData])
+
+  const totalOpt = useMemo(() => ({
+    animation: false,
+    grid: { left: 52, right: 20, top: 14, bottom: 28 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => `${v} 亿份` },
+    xAxis: { type: 'category', data: totalData.map(t => t.date), boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: [{ name: '合计', type: 'line', showSymbol: false, data: totalData.map(t => t.total), lineStyle: { color: '#17140f', width: 2 }, itemStyle: { color: '#17140f' } }],
+  }), [totalData])
+
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
       <Header />
@@ -93,26 +116,13 @@ export default function EtfSharePage() {
           <Button key={k} type={preset === k ? 'primary' : 'default'} size="small"
             onClick={() => { setPreset(k); load(k) }}>{lbl}</Button>
         ))}
-        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>单位:亿份 · 点图例可隐藏/显示 · 份额增=资金净申购</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>单位:亿份 · 点图例可隐藏/显示 · 滚轮缩放 · 份额增=资金净申购</span>
       </div>
 
       {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
       {!loading && (
         <Card size="small">
-          <ResponsiveContainer width="100%" height={480}>
-            <LineChart data={chartData} margin={{ top: 8, right: 20, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis tick={{ fontSize: 10 }} width={48} />
-              <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }}
-                labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => `${v} 亿份`} />
-              <Legend onClick={(o: any) => setHidden(h => ({ ...h, [o.dataKey]: !h[o.dataKey] }))} />
-              {ETF_LIST.map(e => (
-                <Line key={e.ts_code} type="linear" dataKey={e.ts_code} name={`${e.name} ${e.ts_code}`}
-                  stroke={e.color} strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden[e.ts_code]} connectNulls />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <ReactECharts option={mainOpt} notMerge style={{ height: 480 }} />
         </Card>
       )}
 
@@ -127,16 +137,7 @@ export default function EtfSharePage() {
               </span>
             )}
           </span>}>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={totalData} margin={{ top: 8, right: 20, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis tick={{ fontSize: 10 }} width={48} />
-              <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }}
-                labelFormatter={(l: any) => fmtDate(String(l))} formatter={(v: any) => [`${v} 亿份`, '合计']} />
-              <Line type="linear" dataKey="total" name="合计" stroke="#17140f" strokeWidth={2} dot={false} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          <ReactECharts option={totalOpt} notMerge style={{ height: 220 }} />
         </Card>
       )}
     </div>
