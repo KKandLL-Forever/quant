@@ -1,5 +1,5 @@
 // 概念轮动:扩散指标 + RRG 四象限(复现「做量化的西蒙」框架)。RRG散点(X=RS强度,Y=RS动量,气泡=扩散度,色=象限)+主线候选表。数据走 /api/concept。
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle } from '../../shell'
@@ -29,12 +29,11 @@ export default function ConceptPage() {
   }
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [hov, setHov] = useState<string | null>(null)
+  const chartRef = useRef<any>(null)
   const cs = data?.concepts || []
   const mains = cs.filter(c => c.main)
   // 散点只画扩散榜 top60,避免 400 个点糊成一团
   const scatter = [...cs].sort((a, b) => b.diffusion - a.diffusion).slice(0, 60)
-  const hovC = scatter.find(c => c.code === hov) || null
   // domain 把所有点+轨迹都算进去→固定不抖,且轨迹永远落在框内
   const allPts = scatter.flatMap(c => [[c.rs_ratio, c.rs_momentum] as number[], ...c.trail])
   const xsv = allPts.map(p => p[0]), ysv = allPts.map(p => p[1])
@@ -57,11 +56,7 @@ export default function ConceptPage() {
       xAxis: { type: 'value', min: xmin, max: xmax, name: 'RS强度 →', nameLocation: 'middle', nameGap: 24, axisLabel: { formatter: (v: number) => v.toFixed(1), fontSize: 10 }, splitLine: { show: false } },
       yAxis: { type: 'value', min: ymin, max: ymax, name: 'RS动量 ↑', nameLocation: 'middle', nameGap: 32, axisLabel: { formatter: (v: number) => v.toFixed(1), fontSize: 10 }, splitLine: { show: false } },
       series: [
-        {
-          id: 'trail', type: 'line', z: 1, silent: true, showSymbol: false,
-          data: hovC ? hovC.trail.map(t => [t[0], t[1]]) : [],
-          lineStyle: hovC ? { color: QC[hovC.quadrant], width: 2.4, type: 'dashed' } : { opacity: 0 },
-        },
+        { id: 'trail', type: 'line', z: 1, silent: true, showSymbol: false, data: [], lineStyle: { width: 2.4, type: 'dashed' } },
         {
           id: 'pts', type: 'scatter', z: 2,
           markArea: {
@@ -75,13 +70,14 @@ export default function ConceptPage() {
           markLine: { silent: true, symbol: 'none', lineStyle: { color: '#999' }, label: { show: false }, data: [{ xAxis: 100 }, { yAxis: 100 }] },
           data: scatter.map(c => ({
             value: [c.rs_ratio, c.rs_momentum], c, symbolSize: 8 + c.diffusion * 30,
-            itemStyle: { color: QC[c.quadrant], opacity: c.main ? 0.95 : 0.5, borderColor: c.code === hov ? '#17140f' : c.main ? '#17140f' : 'transparent', borderWidth: c.code === hov ? 2 : c.main ? 1.2 : 0 },
+            itemStyle: { color: QC[c.quadrant], opacity: c.main ? 0.95 : 0.5, borderColor: c.main ? '#17140f' : 'transparent', borderWidth: c.main ? 1.2 : 0 },
             label: { show: c.main, formatter: c.name, position: 'top', fontSize: 10, color: '#333' },
+            emphasis: { itemStyle: { borderColor: '#17140f', borderWidth: 2 }, scale: 1.4 },
           })),
         },
       ],
     }
-  }, [scatter, hov, hovC, xdom, ydom])
+  }, [scatter, xdom, ydom])
 
   const cols = [
     { title: '', dataIndex: 'main', width: 56, render: (v: boolean) => v ? <Tag color="red">主线</Tag> : null },
@@ -122,10 +118,14 @@ export default function ConceptPage() {
           </Card>
 
           <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周轨迹,渐粗+流动方向=往哪转)" style={{ marginBottom: 14 }}>
-            <ReactECharts option={rrgOpt} notMerge={false} style={{ height: 480 }}
+            <ReactECharts option={rrgOpt} notMerge style={{ height: 480 }}
+              onChartReady={(c: any) => { chartRef.current = c }}
               onEvents={{
-                mouseover: (p: any) => { if (p.seriesId === 'pts' && p.data?.c) setHov(p.data.c.code) },
-                mouseout: (p: any) => { if (p.seriesId === 'pts') setHov(null) },
+                mouseover: (p: any) => {
+                  const d: Cpt = p.data?.c; if (!d || !chartRef.current) return
+                  chartRef.current.setOption({ series: [{ id: 'trail', data: d.trail.map(t => [t[0], t[1]]), lineStyle: { color: QC[d.quadrant], width: 2.4, type: 'dashed' } }] })
+                },
+                mouseout: () => chartRef.current?.setOption({ series: [{ id: 'trail', data: [] }] }),
               }} />
           </Card>
 
