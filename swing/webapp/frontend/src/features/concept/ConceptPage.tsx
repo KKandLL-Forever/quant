@@ -123,17 +123,11 @@ export default function ConceptPage() {
               onEvents={{
                 mouseover: (p: any) => {
                   const d: Cpt = p.data?.c; if (!d || !chartRef.current || d.trail.length < 2) return
-                  const col = QC[d.quadrant]; const n = d.trail.length
-                  const [px, py] = d.trail[n - 2], [lx, ly] = d.trail[n - 1]
-                  const seg = Math.hypot(lx - px, ly - py) || 1
-                  const ux = (lx - px) / seg, uy = (ly - py) / seg          // 数据坐标单位方向
-                  const rot = -Math.atan2(ux, uy) * 180 / Math.PI
-                  const R = (8 + d.diffusion * 30) / 2 + 18                 // 圆半径+留白(像素),确保箭头在圆外
-                  const tdata: any[] = d.trail.map((t, i) => ({
-                    value: [t[0], t[1]], symbol: i === 0 ? 'circle' : 'none', symbolSize: i === 0 ? 8 : 0,
-                    itemStyle: i === 0 ? { color: '#fff', borderColor: col, borderWidth: 1.6 } : { color: col },
+                  const col = QC[d.quadrant]
+                  const tdata = d.trail.map((t, i) => ({
+                    value: [t[0], t[1]], symbol: i === 0 ? 'circle' : 'none', symbolSize: i === 0 ? 9 : 0,
+                    itemStyle: i === 0 ? { color: '#fff', borderColor: col, borderWidth: 1.8 } : { color: col },
                   }))
-                  tdata.push({ value: [lx, ly], symbol: 'arrow', symbolSize: 13, symbolRotate: rot, symbolOffset: [ux * R, -uy * R], itemStyle: { color: col } })
                   chartRef.current.setOption({ series: [{ id: 'trail', data: tdata, lineStyle: { color: col, width: 2.4, type: 'dashed' } }] })
                 },
                 mouseout: () => chartRef.current?.setOption({ series: [{ id: 'trail', data: [] }] }),
