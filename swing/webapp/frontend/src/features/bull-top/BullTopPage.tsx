@@ -35,6 +35,18 @@ export default function BullTopPage() {
   const [loading, setLoading] = useState(false)
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const toggle = (name: string) => setHidden(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n })
+  const clickLegend = (props: any) => (
+    <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', paddingTop: 6 }}>
+      {(props.payload || []).map((e: any) => {
+        const key = String(e.dataKey ?? e.value); const off = hidden.has(key)
+        return <span key={key} onClick={() => toggle(key)}
+          style={{ cursor: 'pointer', fontSize: 12, userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, color: off ? '#bbb' : '#333' }}>
+          <span style={{ width: 14, height: 3, borderRadius: 2, background: off ? '#ccc' : e.color, display: 'inline-block' }} />
+          {off ? <s>{e.value}</s> : e.value}
+        </span>
+      })}
+    </div>
+  )
   useEffect(() => {
     (async () => {
       setLoading(true)
@@ -101,7 +113,7 @@ export default function BullTopPage() {
               <YAxis yAxisId="mv" orientation="right" tick={{ fontSize: 10 }} width={52} tickFormatter={(v: any) => `${(v / 1e4).toFixed(0)}万亿`} />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))}
                 formatter={(v: any, n: any) => n === '总市值' ? [`${(v / 1e4).toFixed(1)}万亿`, n] : [`${v}`, n]} />
-              <Legend onClick={(o: any) => toggle(String(o.dataKey))} />
+              <Legend content={clickLegend} />
               <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden.has('peTtm')} />
               <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} hide={hidden.has('totalMv')} />
               <Line yAxisId="pe" type="linear" dataKey="_danger" name={`危险 ${danger.toFixed(1)}`} stroke="#c0392b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_danger')} legendType="plainline" />
