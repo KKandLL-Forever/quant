@@ -42,7 +42,7 @@ export function portfolio(rows: SignalRow[], exk: string, retk: string, cal: str
 // 建仓/加仓/回补各占1份,满仓取消,缠卖/止释放整仓全部份,未平仓按最新后复权价盯市,扣双边费。
 const CZ_COST = 0.0006
 type CzLeg = [string, string, number]   // [日期, 买/补/缠/止, 后复权价]
-interface CzRec { ts: string; name?: string; date: string; type: string; status: string; exit: string | null; ret: number | null; hold: number | null; open: boolean; key?: string }
+interface CzRec { ts: string; name?: string; date: string; type: string; status: string; exit: string | null; ret: number | null; hold: number | null; open: boolean; key?: string; fundedBy?: string }
 
 function busdays(a: string, b: string): number {
   let n = 0; const d = new Date(a), e = new Date(b)
@@ -106,16 +106,25 @@ export function czPortfolio(rows: SignalRow[], cal: string[], parts: number): { 
         }
         op = keep
       } else {
-        let status = op.length >= parts ? '满仓取消' : (price ? '已买入' : '无价跳过')
         let rec: CzRec | null = null
-        if (status === '已买入') {
-          const unit = (cash + op.reduce((s, l) => s + l.amt, 0)) / parts
-          if (cash + 1e-6 >= unit && unit > 0) {
-            rec = { ts, name: nameOf[ts], date: d, type: tag, status: '已买入', exit: null, ret: null, hold: null, open: false }
-            op.push({ ts, pid, amt: unit, entry: price, rec }); cash -= unit
+        let status: string, fundedBy: string | undefined
+        const unit = (cash + op.reduce((s, l) => s + l.amt, 0)) / parts
+        if (!price) {
+          status = '无价跳过'
+        } else if (op.length < parts && cash + 1e-6 >= unit && unit > 0) {   // 有空仓正常买
+          rec = { ts, name: nameOf[ts], date: d, type: tag, status: '已买入', exit: null, ret: null, hold: null, open: false }
+          op.push({ ts, pid, amt: unit, entry: price, rec }); cash -= unit; status = '已买入'
+        } else {                                                             // 满仓:卖一只浮盈≥50%持仓的一半腾钱挪仓
+          const gainOf = (l: typeof op[number]) => (curc[l.pid] || l.entry) / l.entry * (1 - 2 * CZ_COST) - 1
+          const win = op.filter(l => l.pid !== pid && gainOf(l) >= 0.5).sort((a, b) => gainOf(b) - gainOf(a))[0]
+          if (win) {
+            const proceeds = (win.amt / 2) * ((curc[win.pid] || win.entry) / win.entry) * (1 - 2 * CZ_COST)
+            win.amt /= 2; cash += proceeds
+            rec = { ts, name: nameOf[ts], date: d, type: tag, status: '挪仓买入', exit: null, ret: null, hold: null, open: false, fundedBy: win.ts }
+            op.push({ ts, pid, amt: proceeds, entry: price, rec }); cash -= proceeds; status = '挪仓买入'; fundedBy = win.ts
           } else status = '满仓取消'
         }
-        if (tag !== '回补') log.push(rec || { ts, name: nameOf[ts], date: d, type: tag, status, exit: null, ret: null, hold: null, open: false })
+        if (tag !== '回补') log.push(rec || { ts, name: nameOf[ts], date: d, type: tag, status, exit: null, ret: null, hold: null, open: false, fundedBy })
       }
     }
     let eq = cash

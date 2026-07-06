@@ -603,7 +603,7 @@ function MainPage() {
         const donLog = tradeLog(rows, 'donexit', 'donret', 'hold', 'donopen', payload.cal ?? [], parts)
           .map(r => ({ ...r, done: r.status !== '满仓放弃' }))
         const czLog = czPortfolio(rows, payload.cal ?? [], parts).log.map((r: any, i: number) =>
-          ({ ...r, key: r.ts + r.date + i, done: r.status === '已买入' }))
+          ({ ...r, key: r.ts + r.date + i, done: r.status === '已买入' || r.status === '挪仓买入' }))
         const renderTab = (log: any[], isCz: boolean) => {
           const done = log.filter(r => r.done), missed = log.filter(r => !r.done)
           const cl = done.map(r => r.ret).filter((v: any): v is number => v != null)
