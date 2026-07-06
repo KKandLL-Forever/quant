@@ -753,7 +753,21 @@ function MainPage() {
           kl?.data?.error ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{kl.data.error}</pre> :
             kl?.data?.ok ? <div>
               <KLineChart data={kl.data} marks={kl.marks} />
-              <div style={{ fontSize: 12, color: '#888', marginTop: 6 }}>蓝线=缠论笔;橙框=中枢;灰虚线=突破日;红▲=买(突破买入)/补(缠论买点回补);绿▼=缠(缠论卖点止盈)/止(跌破60日线·止损终止)/唐(唐奇安下轨清仓);缠论M3全历史口径,与表格一致;红涨绿跌(前复权)</div>
+              <div style={{ fontSize: 12, color: '#888', marginTop: 8, lineHeight: 2 }}>
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                  <span style={{ color: '#1677ff' }}>▬ 蓝线=缠论笔</span>
+                  <span style={{ color: '#e07b39' }}>▭ 橙框=中枢</span>
+                  <span style={{ color: '#e07b39' }}>┄ 橙虚线=突破价</span>
+                  <span style={{ color: '#999' }}>┆ 灰虚线=突破日</span>
+                </div>
+                <div>
+                  <b style={{ color: '#c0392b' }}>红▲ 买入</b>:<span style={{ color: '#c0392b' }}>买</span>=突破买入 / <span style={{ color: '#c0392b' }}>补</span>=缠论买点回补
+                </div>
+                <div>
+                  <b style={{ color: '#27ae60' }}>绿▼ 卖出</b>:<span style={{ color: '#27ae60' }}>缠</span>=缠论卖点止盈 / <span style={{ color: '#27ae60' }}>止</span>=跌破60日线止损 / <span style={{ color: '#27ae60' }}>唐</span>=唐奇安下轨清仓
+                </div>
+                <div style={{ color: '#aaa' }}>缠论M3 全历史口径,与表格一致;红涨绿跌(前复权)</div>
+              </div>
             </div> : <div>无数据</div>}
       </Modal>
 
