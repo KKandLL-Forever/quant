@@ -212,16 +212,16 @@ const hlNums = (t: string) => t.split(/(\d+(?:\.\d+)?\s*(?:元|%|亿))/g)
 
 // 从"合理股价区间"文本抽结论头:区间 X~Y元 + 高估/低估 Z%(只认真正的结论词,避开"合理价"这种名词)
 const parseFair = (t: string) => {
-  const rng = t.match(/(\d+(?:\.\d+)?)\s*[~～\-–至]\s*(\d+(?:\.\d+)?)\s*元/)
+  const rng = t.match(/(\d+(?:\.\d+)?)\s*元?\s*[~～\-–至到]\s*(\d+(?:\.\d+)?)\s*元/)   // 支持 X~Y元 / X元至Y元
   const single = !rng && (t.match(/合理价[约为]?\s*(\d+(?:\.\d+)?)\s*元/) || t.match(/目标价[约为]?\s*(\d+(?:\.\d+)?)\s*元/))
   const side = /高估/.test(t) ? '高估' : /低估/.test(t) ? '低估'
-    : /高于区间/.test(t) ? '偏高' : /低于区间/.test(t) ? '偏低' : ''
+    : /高于区间|区间上方/.test(t) ? '偏高' : /低于区间|区间下方/.test(t) ? '偏低' : ''
   let pct: string | null = null
-  if (side) {                                          // 取"结论词所在那句"里的百分比,别抓到别处的%
-    const kw = side.replace('偏高', '高于区间').replace('偏低', '低于区间')
-    const sent = t.split(/[。;;\n]/).find(s => s.includes(kw)) || t
-    const m = sent.match(/([+-]?\d+(?:\.\d+)?)\s*%/)
-    if (m) pct = m[1].replace(/\s/g, '')
+  if (side) {                                          // 取"结论词所在那句"里的百分比(支持 X%-Y% 区间),别抓到别处的%
+    const kw = side.replace('偏高', '区间上方').replace('偏低', '区间下方')
+    const sent = t.split(/[。;;\n]/).find(s => s.includes(kw) || s.includes(side)) || t
+    const m = sent.match(/[+-]?\d+(?:\.\d+)?\s*%(?:\s*[-~～至到]\s*\d+(?:\.\d+)?\s*%)?/)
+    if (m) pct = m[0].replace(/\s/g, '')
   }
   return { range: rng ? `${rng[1]}~${rng[2]}元` : single ? `合理价 ${single[1]}元` : null, side, pct }
 }
@@ -409,7 +409,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
               return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}>
                 <b>合理股价区间</b><HelpDot content={HELP.fair} />:
                 {f.range && <b style={{ color: '#1f6fb2', fontSize: 15, marginLeft: 4 }}>{f.range}</b>}
-                {f.side && <Tag color={sc} style={{ marginLeft: 6 }}>{f.side}{f.pct ? ` ${f.pct}%` : ''}</Tag>}
+                {f.side && <Tag color={sc} style={{ marginLeft: 6 }}>{f.side}{f.pct ? ` ${f.pct}` : ''}</Tag>}
                 <div style={{ marginTop: 2, color: '#333' }}>{hlNums(b.fair_value)}</div>
               </div> })()}
             {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
