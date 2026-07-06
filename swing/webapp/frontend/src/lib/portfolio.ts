@@ -131,25 +131,36 @@ export function czPortfolio(rows: SignalRow[], cal: string[], parts: number): { 
 
 export interface TradeRec {
   key: string; ts: string; name?: string; date: string; status: string
-  exit: unknown; ret: Num; hold: unknown; open: unknown
+  exit: unknown; ret: Num; hold: unknown; open: unknown; size?: number; fundedBy?: string
 }
 
-// 按组合规则重放,产出交易记录;满仓/已持有的信号标"满仓错过"。
+// 按组合规则重放,产出交易记录。资金 parts 份:有空仓正常买;满仓时卖掉一只盈利≥50%持仓的一半腾钱买新信号(挪仓),都没到50%则放弃。
+// ponytail: 前端无逐日价,"盈利≥50%"用该笔最终收益(终值)近似——含前视,与组合净值曲线同一简化口径。
 export function tradeLog(rows: SignalRow[], exk: string, retk: string, holdk: string, openk: string,
                         cal: string[], parts: number): TradeRec[] {
   const byDate: Record<string, SignalRow[]> = {}
   rows.forEach(r => { if ((r[retk] as Num) == null) return; (byDate[r.date] = byDate[r.date] || []).push(r) })
   const last = cal[cal.length - 1]
-  let op: { ts: string; ex: string }[] = []
+  let op: { ts: string; ex: string; ret: number; size: number }[] = []
   const log: TradeRec[] = []
   for (const d of cal) {
     op = op.filter(p => p.ex > d)
     const bs = (byDate[d] || []).slice().sort((a, b) => b.score - a.score)
     for (const r of bs) {
       if (op.some(p => p.ts === r.ts)) continue
-      const status = op.length >= parts ? '满仓错过' : '已交易'
-      if (status === '已交易') op.push({ ts: r.ts, ex: (r[exk] as string) || last })
-      log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status,
+      const ex = (r[exk] as string) || last, ret = r[retk] as number
+      const free = parts - op.reduce((s, p) => s + p.size, 0)
+      let status: string, size = 0, fundedBy: string | undefined
+      if (free > 0.05) {                                   // 还有资金:正常买(不足1份则买剩余部分)
+        size = Math.min(1, free)
+        status = size >= 0.999 ? '已交易' : '已交易(部分)'
+        op.push({ ts: r.ts, ex, ret, size })
+      } else {                                             // 满仓:卖一只盈利≥50%整仓持仓的一半来腾钱
+        const win = op.filter(p => p.ret != null && p.ret >= 0.5 && p.size >= 0.999).sort((a, b) => b.ret - a.ret)[0]
+        if (win) { win.size = 0.5; size = 0.5; status = '挪仓买入'; fundedBy = win.ts; op.push({ ts: r.ts, ex, ret, size }) }
+        else status = '满仓放弃'
+      }
+      log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status, size, fundedBy,
                  exit: r[exk], ret: r[retk] as Num, hold: r[holdk], open: r[openk] })
     }
   }

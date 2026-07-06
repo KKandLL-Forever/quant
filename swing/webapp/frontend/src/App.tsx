@@ -599,8 +599,9 @@ function MainPage() {
       </div>}
 
       {payload && (() => {
+        const nameOf: Record<string, string> = {}; rows.forEach(r => { nameOf[r.ts] = r.name || r.ts })
         const donLog = tradeLog(rows, 'donexit', 'donret', 'hold', 'donopen', payload.cal ?? [], parts)
-          .map(r => ({ ...r, done: r.status === '已交易' }))
+          .map(r => ({ ...r, done: r.status !== '满仓放弃' }))
         const czLog = czPortfolio(rows, payload.cal ?? [], parts).log.map((r: any, i: number) =>
           ({ ...r, key: r.ts + r.date + i, done: r.status === '已买入' }))
         const renderTab = (log: any[], isCz: boolean) => {
@@ -611,7 +612,9 @@ function MainPage() {
             { title: '股票', render: (_: any, r: any) => `${r.name}(${r.ts})` },
             ...(isCz ? [{ title: '类型', dataIndex: 'type', width: 70, filters: ['建仓', '加仓'].map(v => ({ text: v, value: v })), onFilter: (v: any, r: any) => r.type === v, render: (v: string) => <Tag color={v === '加仓' ? 'gold' : 'blue'}>{v}</Tag> }] : []),
             { title: '日期', dataIndex: 'date', sorter: (a: any, b: any) => a.date < b.date ? -1 : 1, defaultSortOrder: 'descend' as const },
-            { title: '状态', dataIndex: 'status', render: (v: string, r: any) => r.done ? <Tag color="blue">{v}</Tag> : <Tag color="orange">{v}</Tag> },
+            { title: '状态', dataIndex: 'status', render: (v: string, r: any) => v === '挪仓买入'
+              ? <span><Tag color="green">{v}</Tag>{r.fundedBy && <span style={{ fontSize: 11, color: '#999' }}>卖半{nameOf[r.fundedBy] || r.fundedBy}</span>}</span>
+              : r.done ? <Tag color="blue">{v}{r.size != null && r.size < 0.999 ? '(半仓)' : ''}</Tag> : <Tag color="orange">{v}</Tag> },
             { title: '离场日', dataIndex: 'exit', render: (v: any, r: any) => r.done ? (v || '持仓中') + (r.hold != null ? `(${r.hold}天)` : '') : '—' },
             { title: '盈亏', dataIndex: 'ret', sorter: (a: any, b: any) => (a.ret ?? -999) - (b.ret ?? -999), render: (v: any, r: any) => r.done ? <span>{pct(v, true)}{r.open ? '(持仓)' : ''}</span> : <span style={{ color: '#bbb' }}>未参与</span> },
           ]
