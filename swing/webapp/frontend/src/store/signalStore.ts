@@ -1,7 +1,32 @@
 // ML 信号页的共享状态(zustand):训练参数 / 组合份数 / payload / 训练动作。
+import { createElement as h } from 'react'
 import { create } from 'zustand'
 import { message, notification } from 'antd'
 import { TrainPayloadSchema, type TrainPayload } from '../lib/schema'
+
+const _stat = (label: string, value: unknown, color = '#1f2733') =>
+  h('div', { key: label, style: { background: '#f6f8fa', borderRadius: 8, padding: '6px 10px' } },
+    h('div', { style: { fontSize: 11, color: '#8a94a6', marginBottom: 2 } }, label),
+    h('div', { style: { fontSize: 17, fontWeight: 700, color, lineHeight: 1.1 } }, value == null ? '—' : String(value)))
+
+function _trainDesc(mt: Record<string, unknown>) {
+  const auc = mt.va_auc as number | null
+  const gap = mt.gap as number | null
+  const aucColor = auc == null ? '#1f2733' : auc >= 0.62 ? '#0b8a4b' : auc >= 0.56 ? '#d48806' : '#c0392b'
+  const gapColor = gap == null ? '#1f2733' : gap <= 0.1 ? '#0b8a4b' : gap <= 0.15 ? '#d48806' : '#c0392b'
+  return h('div', {},
+    h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 6 } },
+      _stat('训练 AUC', mt.tr_auc),
+      _stat('验证 AUC', mt.va_auc, aucColor),
+      _stat('过拟合 gap', gap == null ? null : (gap > 0 ? '+' : '') + gap, gapColor)),
+    h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 } },
+      _stat('best_iter', mt.best_iter),
+      _stat('训练样本', typeof mt.n_train === 'number' ? mt.n_train.toLocaleString() : mt.n_train),
+      _stat('val 样本', typeof mt.n_val === 'number' ? mt.n_val.toLocaleString() : mt.n_val)),
+    gap != null && gap > 0.15
+      ? h('div', { style: { marginTop: 8, fontSize: 12, color: '#c0392b' } }, '⚠️ 过拟合 gap 偏高,验证集泛化打折,建议复核特征/样本')
+      : h('div', { style: { marginTop: 8, fontSize: 12, color: '#0b8a4b' } }, '✓ 训练-验证差距健康'))
+}
 
 interface Params { mode: string; tier: number; start: string; train: boolean }
 
@@ -41,10 +66,9 @@ export const useSignalStore = create<SignalState>((set, get) => ({
         const gap = mt.gap as number | null
         notification.open({
           type: gap != null && gap > 0.15 ? 'warning' : 'success',
-          message: '模型训练完成',
-          duration: 12, placement: 'topRight',
-          description: `训练AUC ${mt.tr_auc ?? '—'} · valAUC ${mt.va_auc ?? '—'} · 过拟合gap ${gap ?? '—'}${gap != null && gap > 0.15 ? '(偏高⚠️)' : ''}\nbest_iter ${mt.best_iter ?? '—'} · 训练样本 ${mt.n_train ?? '—'} / val ${mt.n_val ?? '—'}`,
-          style: { whiteSpace: 'pre-line' },
+          message: h('span', { style: { fontWeight: 700 } }, '🧬 模型训练完成'),
+          duration: 15, placement: 'topRight', style: { width: 420 },
+          description: _trainDesc(mt),
         })
       }
     } catch (e) {
