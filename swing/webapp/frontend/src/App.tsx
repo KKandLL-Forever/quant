@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider, FloatButton, AutoComplete } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider, FloatButton, AutoComplete, Popover } from 'antd'
 import type { TableColumnsType } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
@@ -166,6 +166,45 @@ const pct = (v: number | null | undefined, sign?: boolean) => v == null ? '—' 
 // 按板块给代码上色:科创=紫、创业=橙、主板=蓝
 const boardColor = (c: string) => c.startsWith('688') || c.startsWith('689') ? '#7c3aed'
   : (c.slice(0, 3) === '300' || c.slice(0, 3) === '301') ? '#c2410c' : '#3b6ea5'
+
+// 术语解释小圆点(鼠标悬浮弹出说明,支持表格/公式)
+const HelpDot = ({ content }: { content: React.ReactNode }) => (
+  <Popover placement="right" content={<div style={{ maxWidth: 460, fontSize: 12, lineHeight: 1.7 }}>{content}</div>}>
+    <span style={{ display: 'inline-flex', width: 14, height: 14, borderRadius: '50%', border: '1px solid #b0a898',
+      color: '#8a8378', fontSize: 10, lineHeight: 1, alignItems: 'center', justifyContent: 'center', cursor: 'help', marginLeft: 4, verticalAlign: 'middle' }}>?</span>
+  </Popover>
+)
+const HTAB: React.CSSProperties = { borderCollapse: 'collapse', marginTop: 4, width: '100%' }
+const HTD: React.CSSProperties = { border: '1px solid #e3ddd0', padding: '2px 6px', verticalAlign: 'top' }
+const HELP = {
+  valtype: <div><b>价值驱动原型</b>(按"钱从哪来"分,不按行业名):
+    <table style={HTAB}><tbody>
+      <tr><td style={HTD}><b>资产型</b></td><td style={HTD}>重资产、盈利均值回归、靠资产本身<br />(钢铁煤炭航运化工、银行地产)</td><td style={HTD}>主锚:PB历史分位+正常化PE</td></tr>
+      <tr><td style={HTD}><b>成长型</b></td><td style={HTD}>轻资产、盈利趋势向上、靠技术/客户/品牌<br />(半导体设计、创新药、消费白马、软件)</td><td style={HTD}>主锚:PE分位+前瞻PEG</td></tr>
+      <tr><td style={HTD}><b>现金流型</b></td><td style={HTD}>需求稳、高分红<br />(水电高速、运营商)</td><td style={HTD}>主锚:股息率/DDM</td></tr>
+      <tr><td style={HTD}><b>周期成长型</b></td><td style={HTD}>有周期波动但需求被长期主线(AI/国产替代)抬升<br />(存储、半导体材料、面板)</td><td style={HTD}>主锚:正常化PE+产品价格拐点</td></tr>
+    </tbody></table></div>,
+  peg: <div><b>前瞻PEG(彼得·林奇口径)</b>
+    <div style={{ marginTop: 3 }}>用"前瞻"增长(券商预测净利)而非历史增长衡量估值贵贱。</div>
+    <div style={{ marginTop: 3 }}><b>公式:</b>前瞻PEG = 前瞻PE ÷ (预测净利增速% × 100)</div>
+    <div>· 前瞻PE = 总市值 ÷ 券商全年预测净利</div>
+    <div>· 增速 = 券商预测净利的复合增速(前瞻,优先);无覆盖时退历史CAGR</div>
+    <div style={{ marginTop: 3 }}><b>判读:</b>&lt;0.5 极度低估 / 0.5–1 低估 / 1–1.5 合理 / 1.5–2 偏贵 / &gt;2 高估</div>
+    <div style={{ color: '#999', marginTop: 3 }}>PEG=1 意味"估值与增速匹配";利润为负或无券商覆盖时不适用。</div></div>,
+  match: <div><b>股价·业绩·估值匹配</b>
+    <div style={{ marginTop: 3 }}>对比【年初至今涨幅】与【最近季报净利同比】,判断股价上涨是否被业绩兑现支撑。</div>
+    <div style={{ marginTop: 3 }}><b>逻辑:</b>若维持 PE 不变,股价涨 X% 就需要利润同比 +X%;据此反推下一报告期需要的利润额与单季增速,对照已披露季度看现不现实。</div>
+    <div style={{ marginTop: 3 }}>结论区分:<b>业绩已兑现</b>(涨幅有利润支撑) vs <b>预期透支</b>(靠估值抬升)。</div></div>,
+  fair: <div><b>合理股价区间(多方法交叉 / football field)</b>
+    <div style={{ marginTop: 3 }}>行业标准的估值三角:用几种<b>适配企业原型</b>的估值法各算一个目标价,汇成区间,再对比现价看高/低估。</div>
+    <table style={HTAB}><tbody>
+      <tr><td style={HTD}>成长型</td><td style={HTD}>PEG=1 目标价、历史PE中位</td></tr>
+      <tr><td style={HTD}>资产/金融</td><td style={HTD}>PB-ROE(合理PB×每股净资产)</td></tr>
+      <tr><td style={HTD}>现金流型</td><td style={HTD}>股息率倒推(如股息率回到4%)</td></tr>
+      <tr><td style={HTD}>周期</td><td style={HTD}>正常化PE(峰值/中枢净利)+PB分位</td></tr>
+    </tbody></table>
+    <div style={{ color: '#999', marginTop: 3 }}>各法分歧&gt;3倍(资源/主题/困境反转股)则不硬凑窄区间,只取最适用的单锚。</div></div>,
+}
 
 // 统计卡:大数字 + 标签 + 计算方式小字(还原 py 版的 .calc)
 const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: string }) => (
@@ -335,21 +374,21 @@ function AnaHost({ children }: { children: React.ReactNode }) {
             {b.pricing && <div><b>议价能力:</b> {b.pricing}</div>}
             {b.bottleneck && <div><b>卡脖子:</b> <Tag color={b.bottleneck === '被卡' ? 'red' : b.bottleneck === '卡别人' ? 'green' : b.bottleneck === '部分' ? 'orange' : 'default'}>{b.bottleneck}</Tag>{b.reason}</div>}
             {(b.val_type || b.val_method) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f1f6f2', border: '1px solid #d3e4da', borderRadius: 6 }}>
-              {b.val_type && <div><b>企业类型:</b> <Tag color="green">{b.val_type}</Tag></div>}
+              {b.val_type && <div><b>企业类型</b><HelpDot content={HELP.valtype} />: <Tag color="green">{b.val_type}</Tag></div>}
               {b.val_method && <div style={{ marginTop: 2 }}><b>估值方法:</b> {b.val_method}</div>}
             </div>}
             {b.peg_data && (() => { const p = b.peg_data; const col = p.peg < 1 ? '#c0392b' : p.peg < 1.5 ? '#7a5d18' : '#1f8e5a'
               return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef3f8', border: '1px solid #cfe0ef', borderRadius: 6 }}>
-                <b>前瞻PEG(林奇):</b> <b style={{ color: col, fontSize: 15 }}>{p.peg}</b> <Tag color={p.peg < 1 ? 'red' : p.peg < 1.5 ? 'gold' : 'green'}>{p.tier}</Tag>
+                <b>前瞻PEG(林奇)</b><HelpDot content={HELP.peg} />: <b style={{ color: col, fontSize: 15 }}>{p.peg}</b> <Tag color={p.peg < 1 ? 'red' : p.peg < 1.5 ? 'gold' : 'green'}>{p.tier}</Tag>
                 <span style={{ color: '#5b554a' }}>= 前瞻PE {p.fwd_pe} ÷ ({p.gsrc || ''}增速 {p.cagr}%×100);券商全年预测净利 {p.fwd_np}亿{p.digest ? `;当前PE需 ${p.digest} 年增长消化到30x` : ''}</span>
                 {b.peg && <div style={{ marginTop: 2 }}>{b.peg}</div>}
               </div> })()}
             {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}
-            {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配:</b> {b.valuation}</div>}
-            {b.fair_value && <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}><b>合理股价区间(多方法交叉):</b> {b.fair_value}</div>}
+            {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配</b><HelpDot content={HELP.match} />: {b.valuation}</div>}
+            {b.fair_value && <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}><b>合理股价区间(多方法交叉)</b><HelpDot content={HELP.fair} />: {b.fair_value}</div>}
             {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
             {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
-          </> })() : <span style={{ color: '#666', whiteSpace: 'pre-wrap' }}>{ana.bizText}<span className="cursor">▍</span></span>}
+          </> })() : <span style={{ color: '#8a8378' }}>基本面分析生成中(结构化结果一次性排版展示)… <Typing /></span>}
         </ChatMsg>}
         {ana.phase === 'streaming' && !ana.business && !ana.bizText &&
           <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师"><Typing /></ChatMsg>}
