@@ -1,7 +1,7 @@
 // 小西西弗动量轮动策略复现(龙头/全天候/行业):Tab 切换,每策略 = 绩效卡 + 累计收益曲线 + 调仓动作表。数据走 /api/xiaoxifu。
 import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, Modal, Input, DatePicker, message } from 'antd'
-import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, ResponsiveContainer } from 'recharts'
+import ReactECharts from 'echarts-for-react'
 import dayjs, { Dayjs } from 'dayjs'
 import { Header, PageTitle } from '../../shell'
 
@@ -87,6 +87,19 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
     return o
   }), [data])
   const colorOf = (name: string) => data ? PALETTE[data.cols.indexOf(name) % PALETTE.length] || '#888' : '#888'
+  const equityOpt = useMemo(() => ({
+    animation: false,
+    grid: { left: 48, right: 20, top: 14, bottom: 56 },
+    legend: { bottom: 4, textStyle: { fontSize: 12 } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => v == null ? '-' : pct(Number(v)) },
+    xAxis: { type: 'category', data: equityData.map(r => r.date as string), boundaryGap: false, axisLabel: { fontSize: 10 } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: (v: number) => pct(v) }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: (data?.cols || []).map(c => ({
+      name: c, type: 'line', showSymbol: false, connectNulls: true,
+      data: equityData.map(r => r[c] as number), lineStyle: { color: colorOf(c), width: data!.cols.indexOf(c) === 0 ? 2.2 : 1.5 }, itemStyle: { color: colorOf(c) },
+    })),
+  }), [equityData, data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rebColumns = [
     { title: cfg.actionTitle ? '切换日' : '调仓日', dataIndex: 'date', width: 190,
@@ -154,19 +167,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
           </Row>
 
           <Card size="small" title="累计收益曲线" style={{ marginBottom: 16 }}>
-            <ResponsiveContainer width="100%" height={420}>
-              <LineChart data={equityData} margin={{ top: 8, right: 20, bottom: 0, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} minTickGap={50} />
-                <YAxis tick={{ fontSize: 10 }} width={48} tickFormatter={(v: number) => pct(v)} />
-                <Tooltip contentStyle={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }} formatter={(v: any) => pct(Number(v))} />
-                <Legend />
-                {data.cols.map(c => (
-                  <Line key={c} type="linear" dataKey={c} name={c} stroke={colorOf(c)}
-                    strokeWidth={data.cols.indexOf(c) === 0 ? 2 : 1.4} dot={false} isAnimationActive={false} connectNulls />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <ReactECharts option={equityOpt} notMerge style={{ height: 420 }} />
           </Card>
 
           <Card size="small" title={cfg.actionTitle

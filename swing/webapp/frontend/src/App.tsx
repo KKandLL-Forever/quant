@@ -148,29 +148,25 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
 
 function Chart({ title, series }: { title: string; series: Series }) {
   if (!series || series.length < 2) return null
-  const W = 1600, H = 240, pad = 50
-  const vals = series.map(p => p[1])
-  let mn = Math.min(...vals), mx = Math.max(...vals); if (mn === mx) { mn *= 0.99; mx *= 1.01 }
-  const n = series.length
-  const X = (i: number) => pad + i * (W - 2 * pad) / (n - 1)
-  const Y = (v: number) => H - pad - (v - mn) * (H - 2 * pad) / (mx - mn)
-  let d = ''; for (let i = 0; i < n; i++) d += (i ? 'L' : 'M') + X(i).toFixed(1) + ',' + Y(series[i][1]).toFixed(1)
-  const last = series[n - 1][1], ret = ((last / INIT - 1) * 100).toFixed(1), up = last >= INIT
-  const months: number[] = []
-  for (let i = 0; i < n; i++) if (i === 0 || series[i][0].slice(0, 7) !== series[i - 1][0].slice(0, 7)) months.push(i)
-  const step = Math.ceil(months.length / 12)
+  const last = series[series.length - 1][1], ret = ((last / INIT - 1) * 100).toFixed(1), up = last >= INIT
+  const col = up ? '#c0392b' : '#27ae60'
+  const option = {
+    animation: false,
+    grid: { left: 58, right: 16, top: 14, bottom: 24 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => Math.round(v).toLocaleString() },
+    xAxis: { type: 'category', data: series.map(p => p[0]), boundaryGap: false, axisLabel: { fontSize: 10, formatter: (v: string) => v.slice(0, 7) } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: (v: number) => `${(v / 10000).toFixed(0)}万` }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: [{
+      type: 'line', data: series.map(p => p[1]), showSymbol: false, lineStyle: { color: col, width: 1.8 }, itemStyle: { color: col },
+      markLine: { silent: true, symbol: 'none', lineStyle: { color: '#bbb', type: 'dashed' }, label: { show: false }, data: [{ yAxis: INIT }] },
+    }],
+  }
   return (
-    <svg width={W} height={H} style={{ maxWidth: '100%', border: '1px solid #e6e0d3', borderRadius: 8, background: '#fffdf8' }}>
-      <text x={pad} y={20} fontSize={14} fontWeight={700}>{title}  期末 {Math.round(last).toLocaleString()} ({up ? '+' : ''}{ret}%)</text>
-      <line x1={pad} y1={Y(INIT)} x2={W - pad} y2={Y(INIT)} stroke="#bbb" strokeDasharray="4 4" />
-      <text x={6} y={Y(mx) + 4} fontSize={11} fill="#999">{Math.round(mx).toLocaleString()}</text>
-      <text x={6} y={Y(mn) + 4} fontSize={11} fill="#999">{Math.round(mn).toLocaleString()}</text>
-      {months.filter((_: number, k: number) => k % step === 0).map((gi: number) => (
-        <g key={gi}><line x1={X(gi)} y1={H - pad} x2={X(gi)} y2={H - pad + 4} stroke="#ccc" />
-          <text x={X(gi)} y={H - 8} fontSize={10} fill="#999" textAnchor="middle">{series[gi][0].slice(0, 7)}</text></g>
-      ))}
-      <path d={d} fill="none" stroke={up ? '#c0392b' : '#27ae60'} strokeWidth={1.8} />
-    </svg>
+    <div style={{ border: '1px solid #e6e0d3', borderRadius: 8, background: '#fffdf8', padding: '6px 8px' }}>
+      <div style={{ fontSize: 14, fontWeight: 700 }}>{title}　期末 {Math.round(last).toLocaleString()} (<span style={{ color: col }}>{up ? '+' : ''}{ret}%</span>)</div>
+      <ReactECharts option={option} notMerge style={{ height: 240 }} />
+    </div>
   )
 }
 
