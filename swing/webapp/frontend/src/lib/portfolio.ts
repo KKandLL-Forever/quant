@@ -90,6 +90,7 @@ export function czPortfolio(rows: SignalRow[], cal: string[], parts: number): { 
   const r1 = (x: number) => Math.round(x * 10) / 10
   let cash = INIT
   let op: { ts: string; pid: number; amt: number; entry: number; rec: CzRec | null }[] = []
+  const halvedTs = new Set<string>()                       // 已被挪过(卖过半)的股票,不再重复卖同一只
   const log: CzRec[] = []
   const curve: [string, number][] = []
   const last = cal[cal.length - 1]
@@ -116,10 +117,10 @@ export function czPortfolio(rows: SignalRow[], cal: string[], parts: number): { 
           op.push({ ts, pid, amt: unit, entry: price, rec }); cash -= unit; status = '已买入'
         } else {                                                             // 满仓:卖一只浮盈≥50%持仓的一半腾钱挪仓
           const gainOf = (l: typeof op[number]) => (curc[l.pid] || l.entry) / l.entry * (1 - 2 * CZ_COST) - 1
-          const win = op.filter(l => l.pid !== pid && gainOf(l) >= 0.5).sort((a, b) => gainOf(b) - gainOf(a))[0]
+          const win = op.filter(l => l.pid !== pid && !halvedTs.has(l.ts) && gainOf(l) >= 0.5).sort((a, b) => gainOf(b) - gainOf(a))[0]
           if (win) {
             const proceeds = (win.amt / 2) * ((curc[win.pid] || win.entry) / win.entry) * (1 - 2 * CZ_COST)
-            win.amt /= 2; cash += proceeds
+            win.amt /= 2; halvedTs.add(win.ts); cash += proceeds
             rec = { ts, name: nameOf[ts], date: d, type: tag, status: '挪仓买入', exit: null, ret: null, hold: null, open: false, fundedBy: win.ts }
             op.push({ ts, pid, amt: proceeds, entry: price, rec }); cash -= proceeds; status = '挪仓买入'; fundedBy = win.ts
           } else status = '满仓取消'
@@ -151,6 +152,7 @@ export function tradeLog(rows: SignalRow[], exk: string, retk: string, holdk: st
   rows.forEach(r => { if ((r[retk] as Num) == null) return; (byDate[r.date] = byDate[r.date] || []).push(r) })
   const last = cal[cal.length - 1]
   let op: { ts: string; ex: string; ret: number; size: number }[] = []
+  const halved = new Set<string>()                         // 已被挪过(卖过半)的股票,不再重复卖同一只
   const log: TradeRec[] = []
   for (const d of cal) {
     op = op.filter(p => p.ex > d)
@@ -164,9 +166,9 @@ export function tradeLog(rows: SignalRow[], exk: string, retk: string, holdk: st
         size = Math.min(1, free)
         status = size >= 0.999 ? '已交易' : '已交易(部分)'
         op.push({ ts: r.ts, ex, ret, size })
-      } else {                                             // 满仓:卖一只盈利≥50%整仓持仓的一半来腾钱
-        const win = op.filter(p => p.ret != null && p.ret >= 0.5 && p.size >= 0.999).sort((a, b) => b.ret - a.ret)[0]
-        if (win) { win.size = 0.5; size = 0.5; status = '挪仓买入'; fundedBy = win.ts; op.push({ ts: r.ts, ex, ret, size }) }
+      } else {                                             // 满仓:卖一只盈利≥50%、且未被挪过的整仓持仓的一半来腾钱
+        const win = op.filter(p => p.ret != null && p.ret >= 0.5 && p.size >= 0.999 && !halved.has(p.ts)).sort((a, b) => b.ret - a.ret)[0]
+        if (win) { win.size = 0.5; halved.add(win.ts); size = 0.5; status = '挪仓买入'; fundedBy = win.ts; op.push({ ts: r.ts, ex, ret, size }) }
         else status = '满仓放弃'
       }
       log.push({ key: r.ts + r.date, ts: r.ts, name: r.name, date: r.date, status, size, fundedBy,
