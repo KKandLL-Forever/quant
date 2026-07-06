@@ -57,6 +57,7 @@ export default function BullTopPage() {
   const amtByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.amountFull])), [d])
 
   const valData = useMemo(() => decimate(clipByRange(d?.valuation || [], v => v.date, range), 600), [d, range])
+  const valDataX = useMemo(() => valData.map(v => ({ ...v, _danger: danger, _mid: mid, _opp: opp })), [valData, danger, mid, opp])
   const tovData = useMemo(() => decimate(clipByRange(d?.turnover || [], v => v.date, range), 600), [d, range])
   const mkMgn = (m: Mgn) => ({
     date: m.date,
@@ -93,19 +94,19 @@ export default function BullTopPage() {
       </span>}>
         {zb(
           <ResponsiveContainer width="100%" height={480}>
-            <ComposedChart data={valData} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
+            <ComposedChart data={valDataX} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
               {grid}{areas(valData.map(v => v.date))}
               <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
               <YAxis yAxisId="pe" tick={{ fontSize: 10 }} width={36} />
               <YAxis yAxisId="mv" orientation="right" tick={{ fontSize: 10 }} width={52} tickFormatter={(v: any) => `${(v / 1e4).toFixed(0)}万亿`} />
               <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))}
                 formatter={(v: any, n: any) => n === '总市值' ? [`${(v / 1e4).toFixed(1)}万亿`, n] : [`${v}`, n]} />
-              <Legend onClick={(e: any) => toggle(String(e.value))} />
-              <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden.has('全A整体法PE-TTM')} />
-              <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} hide={hidden.has('总市值')} />
-              <Line yAxisId="pe" type="linear" dataKey={() => danger} name={`危险 ${danger.toFixed(1)}`} stroke="#c0392b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has(`危险 ${danger.toFixed(1)}`)} legendType="plainline" />
-              <Line yAxisId="pe" type="linear" dataKey={() => mid} name={`中位 ${mid.toFixed(1)}`} stroke="#b8860b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has(`中位 ${mid.toFixed(1)}`)} legendType="plainline" />
-              <Line yAxisId="pe" type="linear" dataKey={() => opp} name={`机会 ${opp.toFixed(1)}`} stroke="#1f8e5a" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has(`机会 ${opp.toFixed(1)}`)} legendType="plainline" />
+              <Legend onClick={(o: any) => toggle(String(o.dataKey))} />
+              <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden.has('peTtm')} />
+              <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} hide={hidden.has('totalMv')} />
+              <Line yAxisId="pe" type="linear" dataKey="_danger" name={`危险 ${danger.toFixed(1)}`} stroke="#c0392b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_danger')} legendType="plainline" />
+              <Line yAxisId="pe" type="linear" dataKey="_mid" name={`中位 ${mid.toFixed(1)}`} stroke="#b8860b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_mid')} legendType="plainline" />
+              <Line yAxisId="pe" type="linear" dataKey="_opp" name={`机会 ${opp.toFixed(1)}`} stroke="#1f8e5a" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_opp')} legendType="plainline" />
             </ComposedChart>
           </ResponsiveContainer>
         )}
