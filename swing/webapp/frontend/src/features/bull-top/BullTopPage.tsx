@@ -102,13 +102,6 @@ export default function BullTopPage() {
           · <span style={{ color: '#c0392b' }}>危险 {danger.toFixed(1)}</span> / 中位 {mid.toFixed(1)} / <span style={{ color: '#1f8e5a' }}>机会 {opp.toFixed(1)}</span>
           · 总市值 {(cur.totalMv / 1e4).toFixed(1)}万亿</span>}
       </span>}>
-        {valLegend([
-          { key: 'peTtm', name: '全A整体法PE-TTM', color: '#17140f' },
-          { key: 'totalMv', name: '总市值', color: '#e07b39' },
-          { key: '_danger', name: `危险 ${danger.toFixed(1)}`, color: '#c0392b' },
-          { key: '_mid', name: `中位 ${mid.toFixed(1)}`, color: '#b8860b' },
-          { key: '_opp', name: `机会 ${opp.toFixed(1)}`, color: '#1f8e5a' },
-        ])}
         {zb(
           <ResponsiveContainer width="100%" height={480}>
             <ComposedChart data={valDataX} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
@@ -126,6 +119,13 @@ export default function BullTopPage() {
             </ComposedChart>
           </ResponsiveContainer>
         )}
+        {valLegend([
+          { key: 'peTtm', name: '全A整体法PE-TTM', color: '#17140f' },
+          { key: 'totalMv', name: '总市值', color: '#e07b39' },
+          { key: '_danger', name: `危险 ${danger.toFixed(1)}`, color: '#c0392b' },
+          { key: '_mid', name: `中位 ${mid.toFixed(1)}`, color: '#b8860b' },
+          { key: '_opp', name: `机会 ${opp.toFixed(1)}`, color: '#1f8e5a' },
+        ])}
       </Card>
 
       <Card size="small" style={{ marginBottom: 14 }} title={<span>两融拥挤度(融资+融券,3% 预警)
