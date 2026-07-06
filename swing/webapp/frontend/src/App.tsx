@@ -210,12 +210,19 @@ const HELP = {
 const hlNums = (t: string) => t.split(/(\d+(?:\.\d+)?\s*(?:元|%|亿))/g)
   .map((p, i) => /\d/.test(p) && /(元|%|亿)/.test(p) ? <b key={i} style={{ color: '#c0392b' }}>{p}</b> : <span key={i}>{p}</span>)
 
-// 从"合理股价区间"文本抽结论头:区间 X~Y元 + 高估/低估 Z%
+// 从"合理股价区间"文本抽结论头:区间 X~Y元 + 高估/低估 Z%(只认真正的结论词,避开"合理价"这种名词)
 const parseFair = (t: string) => {
   const rng = t.match(/(\d+(?:\.\d+)?)\s*[~～\-–至]\s*(\d+(?:\.\d+)?)\s*元/)
-  const side = (t.match(/低估|高估|区间下方|区间上方|区间内|合理/) || [])[0] || ''
-  const pm = t.match(/[约±]?\s*([+-]?\d+(?:\.\d+)?)\s*%/)
-  return { range: rng ? `${rng[1]}~${rng[2]}元` : null, side, pct: pm ? pm[1].replace(/\s/g, '') : null }
+  const side = /高估/.test(t) ? '高估' : /低估/.test(t) ? '低估'
+    : /高于区间/.test(t) ? '偏高' : /低于区间/.test(t) ? '偏低' : ''
+  let pct: string | null = null
+  if (side) {                                          // 取"结论词所在那句"里的百分比,别抓到别处的%
+    const kw = side.replace('偏高', '高于区间').replace('偏低', '低于区间')
+    const sent = t.split(/[。;;\n]/).find(s => s.includes(kw)) || t
+    const m = sent.match(/([+-]?\d+(?:\.\d+)?)\s*%/)
+    if (m) pct = m[1].replace(/\s/g, '')
+  }
+  return { range: rng ? `${rng[1]}~${rng[2]}元` : null, side, pct }
 }
 
 // 统计卡:大数字 + 标签 + 计算方式小字(还原 py 版的 .calc)
@@ -397,7 +404,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
               </div> })()}
             {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}
             {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配</b><HelpDot content={HELP.match} />: {b.valuation}</div>}
-            {b.fair_value && (() => { const f = parseFair(b.fair_value); const sc = f.side === '高估' ? 'red' : f.side === '低估' ? 'green' : 'gold'
+            {b.fair_value && (() => { const f = parseFair(b.fair_value); const sc = /高/.test(f.side) ? 'red' : /低/.test(f.side) ? 'green' : 'gold'
               return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}>
                 <b>合理股价区间</b><HelpDot content={HELP.fair} />:
                 {f.range && <b style={{ color: '#1f6fb2', fontSize: 15, marginLeft: 4 }}>{f.range}</b>}
