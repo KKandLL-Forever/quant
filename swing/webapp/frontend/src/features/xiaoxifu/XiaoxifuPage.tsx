@@ -94,7 +94,6 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => v == null ? '-' : pct(Number(v)) },
     xAxis: { type: 'category', data: equityData.map(r => r.date as string), boundaryGap: false, axisLabel: { fontSize: 10 } },
     yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: (v: number) => pct(v) }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-    dataZoom: [{ type: 'inside' }],
     series: (data?.cols || []).map(c => ({
       name: c, type: 'line', showSymbol: false, connectNulls: true,
       data: equityData.map(r => r[c] as number), lineStyle: { color: colorOf(c), width: data!.cols.indexOf(c) === 0 ? 2.2 : 1.5 }, itemStyle: { color: colorOf(c) },

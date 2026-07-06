@@ -156,7 +156,6 @@ function Chart({ title, series }: { title: string; series: Series }) {
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => Math.round(v).toLocaleString() },
     xAxis: { type: 'category', data: series.map(p => p[0]), boundaryGap: false, axisLabel: { fontSize: 10, formatter: (v: string) => v.slice(0, 7) } },
     yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: (v: number) => `${(v / 10000).toFixed(0)}万` }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-    dataZoom: [{ type: 'inside' }],
     series: [{
       type: 'line', data: series.map(p => p[1]), showSymbol: false, lineStyle: { color: col, width: 1.8 }, itemStyle: { color: col },
       markLine: { silent: true, symbol: 'none', lineStyle: { color: '#bbb', type: 'dashed' }, label: { show: false }, data: [{ yAxis: INIT }] },
