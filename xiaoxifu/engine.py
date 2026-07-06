@@ -146,10 +146,14 @@ def _next_reb(universe, mom, adj, px, n, k, l):
     return {"date": label, "picks": picks, "next": True}
 
 
+WARM_START = "2022-01-01"   # 统一预热起点:动量/调仓相位从此锚定,保证各策略与牛熊组合的龙头腿持仓/调仓日一致
+
+
 def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, end,
         commission=COMM_STOCK, stamp=STAMP_STOCK):
-    """跑回测(扣手续费),返回 (summary DataFrame, cum, dd, actions, px, next_reb 下次调仓预测)。"""
-    px = loader(universe.keys(), start, end)
+    """跑回测(扣手续费):自 WARM_START 预热(对齐调仓相位),展示区间切到 start。返回 (summary, cum, dd, actions, px, next_reb)。"""
+    warm = min(start, WARM_START)
+    px = loader(universe.keys(), warm, end)
     rets = px.pct_change(fill_method=None)
     mom, adj = calc_momentum(rets, n)
     w, actions = build_weights(mom, adj, n, k, l)
@@ -161,11 +165,13 @@ def run(universe, loader, bench_code, bench_name, strat_name, n, k, l, start, en
         series[bench_name] = px[bench_code].pct_change(fill_method=None).rename(bench_name)
     else:
         try:
-            b = load_fund_qfq([bench_code], start, end)
+            b = load_fund_qfq([bench_code], warm, end)
             series[bench_name] = b[bench_code].reindex(px.index).ffill().pct_change(fill_method=None).rename(bench_name)
         except Exception as ex:
             print(f"基准 {bench_code} 拉取失败,跳过: {ex}")
     rdf = pd.DataFrame(series).loc[strat.index]
+    rdf = rdf[rdf.index >= pd.Timestamp(start)]                    # 预热段不进展示/绩效
+    actions = [a for a in actions if a["date"] >= start]
     growth = (1 + rdf.fillna(0)).cumprod()
     cum, dd = growth - 1, growth.div(growth.cummax()) - 1
     summary = pd.DataFrame({name: perf(rdf[name]) for name in rdf.columns}).T
