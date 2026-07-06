@@ -1,7 +1,7 @@
 // 概念轮动:扩散指标 + RRG 四象限(复现「做量化的西蒙」框架)。RRG散点(X=RS强度,Y=RS动量,气泡=扩散度,色=象限)+主线候选表。数据走 /api/concept。
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
-import { ScatterChart, Scatter, XAxis, YAxis, ZAxis, ReferenceLine, ReferenceArea, Tooltip, CartesianGrid, ResponsiveContainer, Cell, useXAxisScale, useYAxisScale } from 'recharts'
+import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle } from '../../shell'
 
 interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean; trail: number[][] }
@@ -11,23 +11,6 @@ const BENCH = [{ value: '000852.SH', label: '中证1000' }, { value: '000001.SH'
 const UP = [{ value: 'ma20', label: '站上MA20' }, { value: 'pctup', label: '当日上涨' }]
 const QC: Record<string, string> = { 领先: '#c0392b', 改善: '#e08e0b', 转弱: '#8a7f6a', 落后: '#1f8e5a' }
 const pct = (x: number | null) => x == null ? '—' : `${(x * 100).toFixed(1)}%`
-
-function TrailLayer({ c }: { c: Cpt | null }) {
-  const xs = useXAxisScale() as any
-  const ys = useYAxisScale() as any
-  if (!c || c.trail.length < 2 || !xs || !ys) return null
-  const col = QC[c.quadrant]
-  const p = c.trail.map(([x, y]) => [xs(x), ys(y)] as [number, number])
-  const n = p.length
-  return <g className="rrg-flow">
-    {p.slice(1).map((pt, i) => {
-      const t = (i + 1) / (n - 1)   // 0→1 越新越粗越实
-      return <line key={i} x1={p[i][0]} y1={p[i][1]} x2={pt[0]} y2={pt[1]} stroke={col}
-        strokeWidth={1 + 2.4 * t} strokeOpacity={0.28 + 0.62 * t} strokeLinecap="round" strokeDasharray="6 5" />
-    })}
-    <circle cx={p[n - 1][0]} cy={p[n - 1][1]} r={3.5} fill={col} />
-  </g>
-}
 
 export default function ConceptPage() {
   const [bench, setBench] = useState('000852.SH')
@@ -58,6 +41,47 @@ export default function ConceptPage() {
   const xdom: [number, number] = allPts.length ? [Math.min(...xsv) - 0.3, Math.max(...xsv) + 0.3] : [98, 102]
   const ydom: [number, number] = allPts.length ? [Math.min(...ysv) - 0.3, Math.max(...ysv) + 0.3] : [98, 102]
   const dist = cs.reduce((m, c) => { m[c.quadrant] = (m[c.quadrant] || 0) + 1; return m }, {} as Record<string, number>)
+
+  const rrgOpt = useMemo(() => {
+    const [xmin, xmax] = xdom, [ymin, ymax] = ydom
+    return {
+      animation: false,
+      grid: { left: 44, right: 24, top: 14, bottom: 42 },
+      tooltip: {
+        trigger: 'item', formatter: (p: any) => {
+          const d: Cpt = p.data?.c; if (!d) return ''
+          return `<b>${d.name}</b> ${d.quadrant}<br/>当日 ${d.chg == null ? '—' : (d.chg > 0 ? '+' : '') + d.chg + '%'} · 超额 ${d.excess == null ? '—' : (d.excess > 0 ? '+' : '') + d.excess + '%'}`
+            + `<br/>扩散 ${pct(d.diffusion)} · 20日动量 ${d.mom20 == null ? '—' : pct(d.mom20)}<br/>RS强度 ${d.rs_ratio.toFixed(1)} · RS动量 ${d.rs_momentum.toFixed(1)}`
+        },
+      },
+      xAxis: { type: 'value', min: xmin, max: xmax, name: 'RS强度 →', nameLocation: 'middle', nameGap: 24, axisLabel: { formatter: (v: number) => v.toFixed(1), fontSize: 10 }, splitLine: { show: false } },
+      yAxis: { type: 'value', min: ymin, max: ymax, name: 'RS动量 ↑', nameLocation: 'middle', nameGap: 32, axisLabel: { formatter: (v: number) => v.toFixed(1), fontSize: 10 }, splitLine: { show: false } },
+      series: [
+        {
+          id: 'trail', type: 'line', z: 1, silent: true, showSymbol: false,
+          data: hovC ? hovC.trail.map(t => [t[0], t[1]]) : [],
+          lineStyle: hovC ? { color: QC[hovC.quadrant], width: 2.4, type: 'dashed' } : { opacity: 0 },
+        },
+        {
+          id: 'pts', type: 'scatter', z: 2,
+          markArea: {
+            silent: true, data: [
+              [{ coord: [100, 100], itemStyle: { color: '#c0392b', opacity: 0.045 } }, { coord: [xmax, ymax] }],
+              [{ coord: [100, ymin], itemStyle: { color: '#8a7f6a', opacity: 0.045 } }, { coord: [xmax, 100] }],
+              [{ coord: [xmin, 100], itemStyle: { color: '#e08e0b', opacity: 0.05 } }, { coord: [100, ymax] }],
+              [{ coord: [xmin, ymin], itemStyle: { color: '#1f8e5a', opacity: 0.045 } }, { coord: [100, 100] }],
+            ],
+          },
+          markLine: { silent: true, symbol: 'none', lineStyle: { color: '#999' }, label: { show: false }, data: [{ xAxis: 100 }, { yAxis: 100 }] },
+          data: scatter.map(c => ({
+            value: [c.rs_ratio, c.rs_momentum], c, symbolSize: 8 + c.diffusion * 30,
+            itemStyle: { color: QC[c.quadrant], opacity: c.main ? 0.95 : 0.5, borderColor: c.code === hov ? '#17140f' : c.main ? '#17140f' : 'transparent', borderWidth: c.code === hov ? 2 : c.main ? 1.2 : 0 },
+            label: { show: c.main, formatter: c.name, position: 'top', fontSize: 10, color: '#333' },
+          })),
+        },
+      ],
+    }
+  }, [scatter, hov, hovC, xdom, ydom])
 
   const cols = [
     { title: '', dataIndex: 'main', width: 56, render: (v: boolean) => v ? <Tag color="red">主线</Tag> : null },
@@ -98,35 +122,11 @@ export default function ConceptPage() {
           </Card>
 
           <Card size="small" title="RRG 相对轮动图(扩散榜前60;右上=领先、左上=改善、右下=转弱、左下=落后;气泡越大扩散越高;鼠标悬停圆圈→显示近4周轨迹,渐粗+流动方向=往哪转)" style={{ marginBottom: 14 }}>
-            <ResponsiveContainer width="100%" height={480}>
-              <ScatterChart margin={{ top: 10, right: 30, bottom: 24, left: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                <ReferenceArea x1={100} y1={100} fill="#c0392b" fillOpacity={0.04} />
-                <ReferenceArea x1={100} y2={100} fill="#8a7f6a" fillOpacity={0.04} />
-                <ReferenceArea x2={100} y1={100} fill="#e08e0b" fillOpacity={0.05} />
-                <ReferenceArea x2={100} y2={100} fill="#1f8e5a" fillOpacity={0.04} />
-                <ReferenceLine x={100} stroke="#999" /><ReferenceLine y={100} stroke="#999" />
-                <XAxis type="number" dataKey="rs_ratio" name="RS强度" domain={xdom} allowDataOverflow tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS强度 (相对强度) →', position: 'insideBottom', offset: -12, fontSize: 12 }} />
-                <YAxis type="number" dataKey="rs_momentum" name="RS动量" domain={ydom} allowDataOverflow tickFormatter={(v: number) => v.toFixed(1)} label={{ value: 'RS动量 ↑', angle: -90, position: 'insideLeft', fontSize: 12 }} />
-                <ZAxis type="number" dataKey="diffusion" range={[40, 600]} />
-                <TrailLayer c={hovC} />
-                <Tooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }: any) => {
-                  if (!active || !payload?.length) return null
-                  const d: Cpt = payload[0].payload
-                  return <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, padding: '6px 10px', fontSize: 12 }}>
-                    <b>{d.name}</b> <Tag color={QC[d.quadrant]} style={{ color: '#fff', border: 'none', marginLeft: 4 }}>{d.quadrant}</Tag>
-                    <div>当日 {d.chg == null ? '—' : (d.chg > 0 ? '+' : '') + d.chg + '%'} · 超额 {d.excess == null ? '—' : (d.excess > 0 ? '+' : '') + d.excess + '%'}</div>
-                    <div>扩散 {pct(d.diffusion)} · 20日动量 {d.mom20 == null ? '—' : pct(d.mom20)}</div>
-                    <div>RS强度 {d.rs_ratio.toFixed(1)} · RS动量 {d.rs_momentum.toFixed(1)}</div>
-                  </div>
-                }} />
-                <Scatter data={scatter} isAnimationActive={false}
-                  onMouseEnter={(d: any) => setHov(d?.code ?? d?.payload?.code ?? null)}
-                  onMouseLeave={() => setHov(null)}>
-                  {scatter.map((c, i) => <Cell key={i} fill={QC[c.quadrant]} fillOpacity={c.main ? 0.95 : 0.5} stroke={c.code === hov ? '#17140f' : c.main ? '#17140f' : 'none'} strokeWidth={c.code === hov ? 2 : c.main ? 1.2 : 0} />)}
-                </Scatter>
-              </ScatterChart>
-            </ResponsiveContainer>
+            <ReactECharts option={rrgOpt} notMerge={false} style={{ height: 480 }}
+              onEvents={{
+                mouseover: (p: any) => { if (p.seriesId === 'pts' && p.data?.c) setHov(p.data.c.code) },
+                mouseout: (p: any) => { if (p.seriesId === 'pts') setHov(null) },
+              }} />
           </Card>
 
           <Card size="small" title={`全概念榜(${cs.length};点表头可排序/按象限筛选,主线候选置顶标红)`}>
