@@ -56,7 +56,7 @@ export default function ConceptPage() {
       xAxis: { type: 'value', min: xmin, max: xmax, name: 'RS强度 →', nameLocation: 'middle', nameGap: 24, axisLabel: { formatter: (v: number) => v.toFixed(1), fontSize: 10 }, splitLine: { show: false } },
       yAxis: { type: 'value', min: ymin, max: ymax, name: 'RS动量 ↑', nameLocation: 'middle', nameGap: 32, axisLabel: { formatter: (v: number) => v.toFixed(1), fontSize: 10 }, splitLine: { show: false } },
       series: [
-        { id: 'trail', type: 'line', z: 1, silent: true, showSymbol: false, data: [], lineStyle: { width: 2.4, type: 'dashed' } },
+        { id: 'trail', type: 'line', z: 1, silent: true, showSymbol: true, data: [], lineStyle: { width: 2.4, type: 'dashed' } },
         {
           id: 'pts', type: 'scatter', z: 2,
           markArea: {
@@ -122,8 +122,18 @@ export default function ConceptPage() {
               onChartReady={(c: any) => { chartRef.current = c }}
               onEvents={{
                 mouseover: (p: any) => {
-                  const d: Cpt = p.data?.c; if (!d || !chartRef.current) return
-                  chartRef.current.setOption({ series: [{ id: 'trail', data: d.trail.map(t => [t[0], t[1]]), lineStyle: { color: QC[d.quadrant], width: 2.4, type: 'dashed' } }] })
+                  const d: Cpt = p.data?.c; if (!d || !chartRef.current || d.trail.length < 2) return
+                  const col = QC[d.quadrant]; const n = d.trail.length
+                  const [px, py] = d.trail[n - 2], [lx, ly] = d.trail[n - 1]
+                  const rot = Math.atan2(lx - px, ly - py) * 180 / Math.PI     // 从"上"顺时针转到最后一段方向
+                  const tdata = d.trail.map((t, i) => ({
+                    value: [t[0], t[1]],
+                    symbol: i === 0 ? 'circle' : i === n - 1 ? 'arrow' : 'none',
+                    symbolSize: i === 0 ? 8 : i === n - 1 ? 12 : 0,
+                    symbolRotate: i === n - 1 ? rot : 0,
+                    itemStyle: i === 0 ? { color: '#fff', borderColor: col, borderWidth: 1.6 } : { color: col },
+                  }))
+                  chartRef.current.setOption({ series: [{ id: 'trail', data: tdata, lineStyle: { color: col, width: 2.4, type: 'dashed' } }] })
                 },
                 mouseout: () => chartRef.current?.setOption({ series: [{ id: 'trail', data: [] }] }),
               }} />
