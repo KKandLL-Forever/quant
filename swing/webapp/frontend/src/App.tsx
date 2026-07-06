@@ -213,6 +213,7 @@ const hlNums = (t: string) => t.split(/(\d+(?:\.\d+)?\s*(?:元|%|亿))/g)
 // 从"合理股价区间"文本抽结论头:区间 X~Y元 + 高估/低估 Z%(只认真正的结论词,避开"合理价"这种名词)
 const parseFair = (t: string) => {
   const rng = t.match(/(\d+(?:\.\d+)?)\s*[~～\-–至]\s*(\d+(?:\.\d+)?)\s*元/)
+  const single = !rng && (t.match(/合理价[约为]?\s*(\d+(?:\.\d+)?)\s*元/) || t.match(/目标价[约为]?\s*(\d+(?:\.\d+)?)\s*元/))
   const side = /高估/.test(t) ? '高估' : /低估/.test(t) ? '低估'
     : /高于区间/.test(t) ? '偏高' : /低于区间/.test(t) ? '偏低' : ''
   let pct: string | null = null
@@ -222,7 +223,7 @@ const parseFair = (t: string) => {
     const m = sent.match(/([+-]?\d+(?:\.\d+)?)\s*%/)
     if (m) pct = m[1].replace(/\s/g, '')
   }
-  return { range: rng ? `${rng[1]}~${rng[2]}元` : null, side, pct }
+  return { range: rng ? `${rng[1]}~${rng[2]}元` : single ? `合理价 ${single[1]}元` : null, side, pct }
 }
 
 // 统计卡:大数字 + 标签 + 计算方式小字(还原 py 版的 .calc)
