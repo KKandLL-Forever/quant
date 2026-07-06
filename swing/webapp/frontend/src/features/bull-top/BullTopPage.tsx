@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Card, Spin, message } from 'antd'
 import { ComposedChart, LineChart, Line, BarChart, Bar, ReferenceLine, ReferenceArea, XAxis, YAxis, Tooltip, CartesianGrid, Legend, ResponsiveContainer } from 'recharts'
+import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle } from '../../shell'
 import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
 import { ZoomBox } from '../../components/ZoomBox'
@@ -30,21 +31,43 @@ const bullAreas = (dates: string[]) => BULLS.map(b => {
 const grid = <CartesianGrid strokeDasharray="3 3" stroke="#e6e0d3" />
 const tip = { background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 6, fontSize: 12 }
 
+// echarts 试点:全A估值图(canvas 全量点不抽稀 + 原生 legend/dataZoom)
+function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; mid: number; opp: number }) {
+  const dates = data.map(v => fmtDate(v.date))
+  const flat = (y: number) => data.map(() => y)
+  const nDanger = `危险 ${danger.toFixed(1)}`, nMid = `中位 ${mid.toFixed(1)}`, nOpp = `机会 ${opp.toFixed(1)}`
+  const area = bullAreas(data.map(v => v.date)).map(b =>
+    [{ xAxis: fmtDate(b.x1), itemStyle: { color: b.c, opacity: 0.07 }, name: b.label }, { xAxis: fmtDate(b.x2) }])
+  const option = {
+    animation: false,
+    grid: { left: 46, right: 66, top: 18, bottom: 78 },
+    legend: { bottom: 6, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 12 } },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (ps: any[]) => ps[0].axisValue + '<br/>' + ps.map(p =>
+        `${p.marker}${p.seriesName}: <b>${p.seriesName === '总市值' ? (p.value / 1e4).toFixed(1) + '万亿' : (+p.value).toFixed(2)}</b>`).join('<br/>'),
+    },
+    xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 10 }, boundaryGap: false },
+    yAxis: [
+      { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#eee6d6', type: 'dashed' } } },
+      { type: 'value', position: 'right', axisLabel: { fontSize: 10, formatter: (v: number) => `${(v / 1e4).toFixed(0)}万亿` }, splitLine: { show: false } },
+    ],
+    dataZoom: [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 36 }],
+    series: [
+      { name: '全A整体法PE-TTM', type: 'line', showSymbol: false, data: data.map(v => v.peTtm), lineStyle: { width: 1.6 }, itemStyle: { color: '#17140f' },
+        markArea: area.length ? { silent: true, label: { fontSize: 10, color: '#8a7', position: 'insideTop' }, data: area } : undefined },
+      { name: '总市值', type: 'line', yAxisIndex: 1, showSymbol: false, data: data.map(v => v.totalMv), lineStyle: { width: 1.3 }, itemStyle: { color: '#e07b39' } },
+      { name: nDanger, type: 'line', showSymbol: false, data: flat(danger), lineStyle: { width: 1.2, type: 'dashed' }, itemStyle: { color: '#c0392b' } },
+      { name: nMid, type: 'line', showSymbol: false, data: flat(mid), lineStyle: { width: 1.2, type: 'dashed' }, itemStyle: { color: '#b8860b' } },
+      { name: nOpp, type: 'line', showSymbol: false, data: flat(opp), lineStyle: { width: 1.2, type: 'dashed' }, itemStyle: { color: '#1f8e5a' } },
+    ],
+  }
+  return <ReactECharts option={option} notMerge style={{ height: 480 }} />
+}
+
 export default function BullTopPage() {
   const [d, setD] = useState<{ valuation: Val[]; turnover: Tov[]; holder: Hld[]; margin: Mgn[] } | null>(null)
   const [loading, setLoading] = useState(false)
-  const [hidden, setHidden] = useState<Set<string>>(new Set())
-  const toggle = (name: string) => setHidden(s => { const n = new Set(s); n.has(name) ? n.delete(name) : n.add(name); return n })
-  const valLegend = (items: { key: string; name: string; color: string }[]) => (
-    <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', padding: '4px 0 8px' }}>
-      {items.map(e => { const off = hidden.has(e.key)
-        return <span key={e.key} onClick={() => toggle(e.key)}
-          style={{ cursor: 'pointer', fontSize: 12, userSelect: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, color: off ? '#bbb' : '#333' }}>
-          <span style={{ width: 14, height: 3, borderRadius: 2, background: off ? '#ccc' : e.color, display: 'inline-block' }} />
-          {off ? <s>{e.name}</s> : e.name}
-        </span> })}
-    </div>
-  )
   useEffect(() => {
     (async () => {
       setLoading(true)
@@ -66,8 +89,6 @@ export default function BullTopPage() {
   const circByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.circMv])), [d])
   const amtByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.amountFull])), [d])
 
-  const valData = useMemo(() => decimate(clipByRange(d?.valuation || [], v => v.date, range), 600), [d, range])
-  const valDataX = useMemo(() => valData.map(v => ({ ...v, _danger: danger, _mid: mid, _opp: opp })), [valData, danger, mid, opp])
   const tovData = useMemo(() => decimate(clipByRange(d?.turnover || [], v => v.date, range), 600), [d, range])
   const mkMgn = (m: Mgn) => ({
     date: m.date,
@@ -102,30 +123,8 @@ export default function BullTopPage() {
           · <span style={{ color: '#c0392b' }}>危险 {danger.toFixed(1)}</span> / 中位 {mid.toFixed(1)} / <span style={{ color: '#1f8e5a' }}>机会 {opp.toFixed(1)}</span>
           · 总市值 {(cur.totalMv / 1e4).toFixed(1)}万亿</span>}
       </span>}>
-        {zb(
-          <ResponsiveContainer width="100%" height={480}>
-            <ComposedChart data={valDataX} margin={{ top: 8, right: 60, bottom: 0, left: 8 }}>
-              {grid}{areas(valData.map(v => v.date))}
-              <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={fmtDate} minTickGap={50} />
-              <YAxis yAxisId="pe" tick={{ fontSize: 10 }} width={36} />
-              <YAxis yAxisId="mv" orientation="right" tick={{ fontSize: 10 }} width={52} tickFormatter={(v: any) => `${(v / 1e4).toFixed(0)}万亿`} />
-              <Tooltip contentStyle={tip} labelFormatter={(l: any) => fmtDate(String(l))}
-                formatter={(v: any, n: any) => n === '总市值' ? [`${(v / 1e4).toFixed(1)}万亿`, n] : [`${v}`, n]} />
-              <Line yAxisId="pe" type="linear" dataKey="peTtm" name="全A整体法PE-TTM" stroke="#17140f" strokeWidth={1.6} dot={false} isAnimationActive={false} hide={hidden.has('peTtm')} />
-              <Line yAxisId="mv" type="linear" dataKey="totalMv" name="总市值" stroke="#e07b39" strokeWidth={1.3} dot={false} isAnimationActive={false} hide={hidden.has('totalMv')} />
-              <Line yAxisId="pe" type="linear" dataKey="_danger" name={`危险 ${danger.toFixed(1)}`} stroke="#c0392b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_danger')} legendType="plainline" />
-              <Line yAxisId="pe" type="linear" dataKey="_mid" name={`中位 ${mid.toFixed(1)}`} stroke="#b8860b" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_mid')} legendType="plainline" />
-              <Line yAxisId="pe" type="linear" dataKey="_opp" name={`机会 ${opp.toFixed(1)}`} stroke="#1f8e5a" strokeWidth={1.2} strokeDasharray="4 3" dot={false} isAnimationActive={false} hide={hidden.has('_opp')} legendType="plainline" />
-            </ComposedChart>
-          </ResponsiveContainer>
-        )}
-        {valLegend([
-          { key: 'peTtm', name: '全A整体法PE-TTM', color: '#17140f' },
-          { key: 'totalMv', name: '总市值', color: '#e07b39' },
-          { key: '_danger', name: `危险 ${danger.toFixed(1)}`, color: '#c0392b' },
-          { key: '_mid', name: `中位 ${mid.toFixed(1)}`, color: '#b8860b' },
-          { key: '_opp', name: `机会 ${opp.toFixed(1)}`, color: '#1f8e5a' },
-        ])}
+        <EValuation data={d.valuation} danger={danger} mid={mid} opp={opp} />
+        <div style={{ fontSize: 12, color: '#999', marginTop: 2 }}>⚡ echarts 试点:全量点不抽稀 · 原生图例点击隐藏 · 底部滑块/滚轮缩放(本图独立缩放,不与下方三图联动)</div>
       </Card>
 
       <Card size="small" style={{ marginBottom: 14 }} title={<span>两融拥挤度(融资+融券,3% 预警)
