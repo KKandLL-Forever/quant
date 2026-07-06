@@ -206,6 +206,18 @@ const HELP = {
     <div style={{ color: '#999', marginTop: 3 }}>各法分歧&gt;3倍(资源/主题/困境反转股)则不硬凑窄区间,只取最适用的单锚。</div></div>,
 }
 
+// 把文本里的金额/百分比/亿加粗高亮(便于扫读关键数字)
+const hlNums = (t: string) => t.split(/(\d+(?:\.\d+)?\s*(?:元|%|亿))/g)
+  .map((p, i) => /\d/.test(p) && /(元|%|亿)/.test(p) ? <b key={i} style={{ color: '#c0392b' }}>{p}</b> : <span key={i}>{p}</span>)
+
+// 从"合理股价区间"文本抽结论头:区间 X~Y元 + 高估/低估 Z%
+const parseFair = (t: string) => {
+  const rng = t.match(/(\d+(?:\.\d+)?)\s*[~～\-–至]\s*(\d+(?:\.\d+)?)\s*元/)
+  const side = (t.match(/低估|高估|区间下方|区间上方|区间内|合理/) || [])[0] || ''
+  const pm = t.match(/[约±]?\s*([+-]?\d+(?:\.\d+)?)\s*%/)
+  return { range: rng ? `${rng[1]}~${rng[2]}元` : null, side, pct: pm ? pm[1].replace(/\s/g, '') : null }
+}
+
 // 统计卡:大数字 + 标签 + 计算方式小字(还原 py 版的 .calc)
 const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: string }) => (
   <Card size="small" style={{ minWidth: 150, maxWidth: 230 }}>
@@ -385,7 +397,13 @@ function AnaHost({ children }: { children: React.ReactNode }) {
               </div> })()}
             {!b.peg_data && b.peg && <div style={{ marginTop: 4, color: '#666' }}><b>PEG:</b> {b.peg}</div>}
             {b.valuation && <div style={{ marginTop: 4, padding: '6px 8px', background: '#f6efdd', border: '1px solid #e6d6a8', borderRadius: 6 }}><b>股价·业绩·估值匹配</b><HelpDot content={HELP.match} />: {b.valuation}</div>}
-            {b.fair_value && <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}><b>合理股价区间(多方法交叉)</b><HelpDot content={HELP.fair} />: {b.fair_value}</div>}
+            {b.fair_value && (() => { const f = parseFair(b.fair_value); const sc = f.side === '高估' ? 'red' : f.side === '低估' ? 'green' : 'gold'
+              return <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}>
+                <b>合理股价区间</b><HelpDot content={HELP.fair} />:
+                {f.range && <b style={{ color: '#1f6fb2', fontSize: 15, marginLeft: 4 }}>{f.range}</b>}
+                {f.side && <Tag color={sc} style={{ marginLeft: 6 }}>{f.side}{f.pct ? ` ${f.pct}%` : ''}</Tag>}
+                <div style={{ marginTop: 2, color: '#333' }}>{hlNums(b.fair_value)}</div>
+              </div> })()}
             {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
             {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
           </> })() : <span style={{ color: '#8a8378' }}>基本面分析生成中(结构化结果一次性排版展示)… <Typing /></span>}
