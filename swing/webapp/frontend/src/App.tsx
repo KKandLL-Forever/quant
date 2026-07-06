@@ -85,6 +85,7 @@ import BullTopPage from './features/bull-top/BullTopPage'
 import XiaoxifuPage from './features/xiaoxifu/XiaoxifuPage'
 import BollPage from './features/boll/BollPage'
 import ConceptPage from './features/concept/ConceptPage'
+import OversoldPage from './features/oversold/OversoldPage'
 
 // 简易蜡烛图 + 缠论 笔折线 + 中枢方框 + 突破日竖线 + 买卖标记
 function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
@@ -773,6 +774,7 @@ export default function App() {
           if (r === '/xiaoxifu') return <XiaoxifuPage />
           if (r === '/boll') return <BollPage />
           if (r === '/concept') return <ConceptPage />
+          if (r === '/oversold') return <OversoldPage />
           return <MainPage />
         })()}
       </AnaHost>
