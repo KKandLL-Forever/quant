@@ -382,7 +382,8 @@ def fetch_anns(session, throttle, code6, orgid, start_dash, end_dash):
             row = _cn_row(a, now)
             if row:
                 out.append(row)
-        if not j.get("hasMore") or not anns:
+        total = int(j.get("totalpages") or 1)  # WHY: cninfo 超末页不置 hasMore=False 反而无限重复最后一页,必须用 totalpages 封顶
+        if page >= total or not j.get("hasMore") or not anns:
             break
         page += 1
     return out
@@ -413,7 +414,8 @@ def fetch_anns_all(session, throttle, start_dash, end_dash, code_map):
             if row:
                 row["ts_code"] = ts
                 out.append(row)
-        if not j.get("hasMore") or not anns:
+        total = int(j.get("totalpages") or 1)  # WHY: cninfo 超末页不置 hasMore=False 反而无限重复最后一页,必须用 totalpages 封顶
+        if page >= total or not j.get("hasMore") or not anns:
             break
         page += 1
     return out
