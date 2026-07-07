@@ -304,7 +304,7 @@ def kline(req: KlineReq):
             zs.append({"sdt": str(z.sdt.date()), "edt": str(z.edt.date()),
                        "zg": round(float(z.zg), 2), "zd": round(float(z.zd), 2)})
             i = j
-        ohlc = [[str(r.td.date()), round(r.o, 2), round(r.h, 2), round(r.l, 2), round(r.c, 2)] for r in g.itertuples()]
+        ohlc = [[str(r.td.date()), round(r.o, 2), round(r.h, 2), round(r.l, 2), round(r.c, 2), round(float(r.v), 1)] for r in g.itertuples()]
         return {"ok": True, "code": ts, "bo": str(bo.date()), "ohlc": ohlc, "bis": bis, "zs": zs, "marks": marks}
     except Exception:
         import traceback
@@ -582,7 +582,7 @@ def advise(req: AdviseReq):
             zs.append({"sdt": str(z.sdt.date()), "edt": str(z.edt.date()),
                        "zg": round(float(z.zg), 2), "zd": round(float(z.zd), 2)})
             i = j
-        ohlc = [[str(r.td.date()), round(r.o, 2), round(r.h, 2), round(r.l, 2), round(r.c, 2)] for r in w.itertuples()]
+        ohlc = [[str(r.td.date()), round(r.o, 2), round(r.h, 2), round(r.l, 2), round(r.c, 2), round(float(r.v), 1)] for r in w.itertuples()]
         buy_td = str(g["td"].iloc[bi_global].date())
         marks = [{"date": d(b), "kind": "buy", "label": "买" if b == bi_global else "补"} for b in legs_buy]
         for sidx in legs_sell:

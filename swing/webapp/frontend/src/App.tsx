@@ -63,7 +63,7 @@ function DebatePanel({ turns, live }: { turns: any[]; live: boolean }) {
 import { portfolio, tradeLog, czPortfolio, INIT } from './lib/portfolio'
 import type { SignalRow } from './lib/portfolio'
 
-type OHLC = [string, number, number, number, number]
+type OHLC = [string, number, number, number, number, number?]
 type BiPt = [string, number]
 interface ZsBox { sdt: string; edt: string; zg: number; zd: number }
 interface KData { ohlc: OHLC[]; bis: BiPt[]; zs: ZsBox[]; bo: string }
@@ -112,23 +112,49 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
     }
   })
   const boClose = di[bo] != null ? ohlc[di[bo]][4] : null
+  const closes = ohlc.map(b => b[4])
+  const volBars = ohlc.map(b => ({ value: (b[5] as number) ?? 0, itemStyle: { color: b[4] >= b[1] ? '#c0392b' : '#27ae60' } }))
+  const ema = (arr: number[], n: number) => { const k = 2 / (n + 1); const out: number[] = []; arr.forEach((v, i) => out.push(i ? v * k + out[i - 1] * (1 - k) : v)); return out }
+  const e12 = ema(closes, 12), e26 = ema(closes, 26)
+  const dif = closes.map((_, i) => e12[i] - e26[i])
+  const dea = ema(dif, 9)
+  const macdBars = dif.map((v, i) => { const h = 2 * (v - dea[i]); return { value: +h.toFixed(3), itemStyle: { color: h >= 0 ? '#c0392b' : '#27ae60' } } })
+  const r2 = (x: number) => Math.round(x * 100) / 100
   const option = {
     animation: false,
-    grid: { left: 52, right: 16, top: 14, bottom: 28 },
+    axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
+    grid: [
+      { left: 52, right: 16, top: 12, height: '54%' },
+      { left: 52, right: 16, top: '62%', height: '13%' },
+      { left: 52, right: 16, top: '79%', height: '15%' },
+    ],
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'cross' },
       formatter: (ps: any[]) => {
-        const k = ps.find(p => p.seriesName === 'K线'); if (!k) return ''
-        const v = k.data as number[]; const a = v.length === 5 ? v.slice(1) : v
-        return `${k.axisValue}<br/>开 <b>${a[0]}</b>　收 <b>${a[1]}</b><br/>低 <b>${a[2]}</b>　高 <b>${a[3]}</b>`
+        const k = ps.find(p => p.seriesName === 'K线')
+        const vp = ps.find(p => p.seriesName === '成交量')
+        const dp = ps.find(p => p.seriesName === 'DIF'), ep = ps.find(p => p.seriesName === 'DEA')
+        let s = ps[0] ? `${ps[0].axisValue}` : ''
+        if (k) { const v = k.data as number[]; const a = v.length === 5 ? v.slice(1) : v; s += `<br/>开 <b>${a[0]}</b>　收 <b>${a[1]}</b><br/>低 <b>${a[2]}</b>　高 <b>${a[3]}</b>` }
+        if (vp) s += `<br/>量 <b>${(Number(vp.value) / 100).toFixed(0)}</b>手`
+        if (dp && ep) s += `<br/>DIF <b>${r2(Number(dp.value))}</b>　DEA <b>${r2(Number(ep.value))}</b>`
+        return s
       },
     },
-    xAxis: { type: 'category', data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
-    yAxis: { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-    dataZoom: [{ type: 'inside' }],
+    xAxis: [
+      { type: 'category', data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
+      { type: 'category', gridIndex: 1, data: dates, boundaryGap: true, axisLabel: { show: false }, axisTick: { show: false } },
+      { type: 'category', gridIndex: 2, data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
+    ],
+    yAxis: [
+      { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+      { gridIndex: 1, scale: true, splitNumber: 2, axisLabel: { fontSize: 8 }, splitLine: { show: false }, name: '量', nameTextStyle: { fontSize: 9, color: '#999' } },
+      { gridIndex: 2, scale: true, splitNumber: 2, axisLabel: { fontSize: 8 }, splitLine: { show: false }, name: 'MACD', nameTextStyle: { fontSize: 9, color: '#999' } },
+    ],
+    dataZoom: [{ type: 'inside', xAxisIndex: [0, 1, 2] }],
     series: [
       {
-        name: 'K线', type: 'candlestick', data: candles,
+        name: 'K线', type: 'candlestick', data: candles, xAxisIndex: 0, yAxisIndex: 0,
         itemStyle: { color: '#c0392b', color0: '#27ae60', borderColor: '#c0392b', borderColor0: '#27ae60' },
         markArea: areas.length ? { silent: true, data: areas } : undefined,
         markLine: di[bo] != null ? {
@@ -140,10 +166,14 @@ function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
         } : undefined,
         markPoint: mpts.length ? { data: mpts } : undefined,
       },
-      { name: '缠论笔', type: 'line', data: biLine, connectNulls: true, showSymbol: false, lineStyle: { color: '#1677ff', width: 1.6 }, itemStyle: { color: '#1677ff' }, z: 3 },
+      { name: '缠论笔', type: 'line', data: biLine, xAxisIndex: 0, yAxisIndex: 0, connectNulls: true, showSymbol: false, lineStyle: { color: '#1677ff', width: 1.6 }, itemStyle: { color: '#1677ff' }, z: 3 },
+      { name: '成交量', type: 'bar', data: volBars, xAxisIndex: 1, yAxisIndex: 1 },
+      { name: 'MACD', type: 'bar', data: macdBars, xAxisIndex: 2, yAxisIndex: 2 },
+      { name: 'DIF', type: 'line', data: dif.map(r2), xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { color: '#e08a2f', width: 1 } },
+      { name: 'DEA', type: 'line', data: dea.map(r2), xAxisIndex: 2, yAxisIndex: 2, showSymbol: false, lineStyle: { color: '#1677ff', width: 1 } },
     ],
   }
-  return <ReactECharts option={option} notMerge style={{ height: 560 }} />
+  return <ReactECharts option={option} notMerge style={{ height: 640 }} />
 }
 
 function Chart({ title, series }: { title: string; series: Series }) {
