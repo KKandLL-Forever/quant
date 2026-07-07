@@ -324,8 +324,22 @@ def _business_prompt(code, date=None):
                          for p in reversed(prof)) or "无"
     sw = "/".join(x for x in (swr or []) if x) if swr else ""
     rpttxt = " / ".join(x[0] for x in rpt) if rpt else "无"
+    fcsttxt = "无"   # 最新业绩预告(公司自报前瞻指引,比实际财报领先一个报告期)
+    try:
+        fc = pro.forecast(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr+1}1231")
+        if fc is not None and len(fc):
+            fc = fc[fc["ann_date"] <= d8].sort_values("ann_date")
+            if len(fc):
+                f0 = fc.iloc[-1]
+                nmin, nmax = f0.get("net_profit_min"), f0.get("net_profit_max")
+                npt = (f",预告净利 {nmin/1e4:.1f}~{nmax/1e4:.1f}亿" if (pd.notna(nmin) and pd.notna(nmax)) else "")
+                fcsttxt = (f"{f0['ann_date']}公告(报告期{f0['end_date']}):{f0.get('type','')} "
+                           f"净利同比 {f0.get('p_change_min')}%~{f0.get('p_change_max')}%{npt}")
+    except Exception:
+        pass
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
             f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}\n"
+            f"最新业绩预告(公司自报,比实际财报领先一期,最新鲜):{fcsttxt}\n"
             f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}\n多方法目标价:{fairtxt}\n"
             f"近期券商研报标题(反映市场当期关注的逻辑/新业务,财报常滞后于此):{rpttxt}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
@@ -364,7 +378,7 @@ def _business_prompt(code, date=None):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-05j"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-07k"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
