@@ -393,7 +393,8 @@ function AnaHost({ children }: { children: React.ReactNode }) {
         style={{ maxHeight: '68vh', overflowY: 'auto', paddingRight: 6 }}>
         {ana.market_report && <ChatMsg img={AV.market} bg="#3b82f6" role="技术面分析师"><MD>{ana.market_report}</MD></ChatMsg>}
         {ana.news_report && <ChatMsg img={AV.news} bg="#f97316" role="消息面分析师"><MD>{ana.news_report}</MD></ChatMsg>}
-        <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} />
+        {/* 暂时隐藏研究员内部讨论(只看基本面):如需恢复取消注释
+        <DebatePanel turns={ana.shownDlg || []} live={ana.phase === 'analyzing' || ana.phase === 'starting'} /> */}
         {(ana.phase === 'starting' || ana.phase === 'analyzing') &&
           <ChatMsg av="🤖" bg="#8a8378" role="进行中"><span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span></ChatMsg>}
         {(ana.business || ana.bizText) && <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师">
