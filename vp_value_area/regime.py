@@ -91,6 +91,11 @@ def _despeckle(lab, min_run):
     return out
 
 
+def to_weekly(price):
+    """日线收盘 → 周线(周五)收盘。"""
+    return price.resample("W-FRI").last().dropna()
+
+
 def segments(dates, lab, price):
     """连续同态区间 → [(label, 起, 止, 天数, 区间涨幅%)]。"""
     segs = []
@@ -173,6 +178,22 @@ def main():
         out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "regime_map.png")
         plt.savefig(out, dpi=130, bbox_inches="tight")
         print(f"\n区间图已存 {out}")
+
+        wk = to_weekly(pool)
+        lab_w = classify(wk, max(args.w // 5, 10), args.rw, args.dd, max(args.min_run // 5, 3))
+        lab_w_d = pd.Series(lab_w, index=wk.index).reindex(pool.index, method="ffill").fillna(0).astype(int).values
+        lab_d = classify(pool, args.w, args.rw, args.dd, args.min_run)
+        flips_d = int((np.diff(lab_d) != 0).sum())
+        flips_w = int((np.diff(lab_w_d) != 0).sum())
+        fig2, ax2 = plt.subplots(2, 1, figsize=(14, 9), sharex=True)
+        plot_panel(ax2[0], list(pool.index), pool, lab_d, f"日线识别(W{args.w}日) · 切换 {flips_d} 次")
+        plot_panel(ax2[1], list(pool.index), pool, lab_w_d, f"周线识别(W{max(args.w//5,10)}周) · 切换 {flips_w} 次")
+        ax2[0].legend(handles=[Patch(color=COLORS[k], alpha=0.35, label=LABELS[k]) for k in (1, -1, 0)],
+                      loc="upper left", ncol=3, fontsize=10)
+        fig2.suptitle("同一 ML主升池指数 · 日线 vs 周线识别:周线更平滑少切换,日线更跟手但碎", fontsize=13.5, weight="bold")
+        out2 = os.path.join(os.path.dirname(os.path.abspath(__file__)), "regime_freq.png")
+        plt.savefig(out2, dpi=130, bbox_inches="tight")
+        print(f"日线vs周线对比图已存 {out2}  (日线切换{flips_d}次 / 周线切换{flips_w}次)")
     except Exception as e:
         print(f"[warn] 画图失败 {e}")
 
