@@ -299,7 +299,8 @@ function AnaHost({ children }: { children: React.ReactNode }) {
     esRef.current?.close()
     timers.current.forEach(clearTimeout); timers.current = []
     curRid.current = rid
-    setAna((a: any) => ({ ...(a || {}), open: true, rid, code, date, name, phase: 'starting', stage: '启动分析…', dates: a?.dates || [] }))
+    setAna((a: any) => ({ ...(a || {}), open: true, rid, code, date, name, phase: 'starting', stage: '启动分析…', dates: a?.dates || [],
+      market_report: '', news_report: '', shownDlg: [], business: undefined, verdict: undefined, cached: false }))
     try {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }) })
