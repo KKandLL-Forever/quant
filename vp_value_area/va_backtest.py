@@ -14,6 +14,9 @@ va_backtest.py — 锚定VP + 接受确认 的「真·可交易」回测(ML主�
   2) 配置网格(方法×是否接受确认)的逐笔月度收益矩阵 → 复用 swing/model_robustness 的 PBO(CSCV)+ Deflated Sharpe,
      判「在这些配置里挑出最优」是否过拟合。
 
+牛熊门 PK(均只门控入场、不强平已有持仓):ML池宽度(站上MA20占比) / 麦克莱伦振荡器 osc<0(涨跌家数快慢EMA之差=宽度动量) /
+麦克莱伦背离(价格创20日新高但 osc 已在零轴下→参与度不确认→latch防御到 osc 回正)。
+
 用法:python vp_value_area/va_backtest.py [--start 20240101] [--hold 10] [--cost 0.0015]
 """
 
@@ -32,27 +35,8 @@ import duckdb
 from cache_tushare import DUCKDB_PATH
 from va_breakout_study import load_bench, vah_series_fixed, vah_series_anchored, anchors
 from model_robustness import pbo_cscv, deflated_sharpe
-from rsrs import load_index, rsrs_signal
 
 ACCEPT_LAG = 2
-
-
-def hs300_defensive(start):
-    """沪深300「MA30 且 MA60 同时走坏」→ 防御(空仓)布尔序列(复用 xiaoxifu/regime_combo 口径,走 tushare)。"""
-    import tushare as ts
-    from db_loader import _ENV
-    pro = ts.pro_api(_ENV["TUSHARE_TOKEN"])
-    parts = []
-    for y in range(int(start[:4]) - 1, 2027):
-        d = pro.index_daily(ts_code="000300.SH", start_date=f"{y}0101", end_date=f"{y}1231", fields="trade_date,close")
-        if d is not None and len(d):
-            parts.append(d)
-    ix = pd.concat(parts)
-    ix = ix.set_index(pd.to_datetime(ix["trade_date"]))["close"].sort_index()
-    ma30, ma60 = ix.rolling(30).mean(), ix.rolling(60).mean()
-    healthy30 = (ix > ma30) & (ma30 > ma30.shift(5))
-    healthy60 = (ix > ma60) & (ma60 > ma60.shift(5))
-    return ((~healthy30) & (~healthy60)).fillna(False)
 
 
 def ml_pool(con):
@@ -160,13 +144,13 @@ def main():
 
     grid = {"锚定VP+接受": ("anch", True), "锚定VP裸": ("anch", False),
             "固定30+接受": (30, True), "固定20+接受": (20, True), "固定30裸": (30, False)}
-    defser = hs300_defensive(args.start).reindex(cal, method="ffill").fillna(False)
-    defensive_g = defser.values.astype(bool)
 
     trades = {k: [] for k in grid}
     head_trades = []
     br_above = np.zeros(ndays)
     br_tot = np.zeros(ndays)
+    adv_cnt = np.zeros(ndays)
+    dec_cnt = np.zeros(ndays)
 
     print(f"ML池 {len(codes)} 只 | 起 {start} | 持有 {args.hold}日 | 费 {args.cost*100:.2f}% | 基准 中证800", flush=True)
     for i, code in enumerate(codes, 1):
@@ -188,6 +172,12 @@ def main():
                 br_tot[g] += 1
                 if cl[loc] > ma20[loc]:
                     br_above[g] += 1
+            if loc >= 1:
+                g = gidx[loc]
+                if cl[loc] > cl[loc - 1]:
+                    adv_cnt[g] += 1
+                elif cl[loc] < cl[loc - 1]:
+                    dec_cnt[g] += 1
         for name, (method, acc) in grid.items():
             tr = gen_trades(op, hi, lo, cl, vo, anch, gidx, method, acc, args.hold, args.cost, bench_g)
             for r in tr:
@@ -200,14 +190,28 @@ def main():
         if i % 100 == 0:
             print(f"  [{i}/{len(codes)}]", flush=True)
 
-    # 三个牛熊门:MA30&MA60(沪深300)/ RSRS(中证800)/ ML池宽度(站上MA20占比)
+    # 牛熊门:ML池宽度(站上MA20占比,前轮赢家) + 麦克莱伦振荡器(涨跌家数快慢EMA之差,宽度动量) + 麦克莱伦背离(价格新高但宽度动量已负→领先急跌)
     breadth = np.where(br_tot > 0, br_above / np.maximum(br_tot, 1), np.nan)
     breadth_s = pd.Series(breadth).ffill().rolling(3, min_periods=1).mean().values
     def_breadth = breadth_s < args.breadth_thr
-    ix800 = load_index("000906.SH", str(int(args.start[:4]) - 3) + "0101", str(cal[-1].date()).replace("-", ""))
-    rsrs_hold = rsrs_signal(ix800).reindex(cal, method="ffill").fillna(0).values
-    def_rsrs = rsrs_hold < 0.5
-    gates = {"裸VP(不门控)": None, "MA30&MA60门控": defensive_g, "RSRS门控": def_rsrs, "ML池宽度门控": def_breadth}
+
+    nr = np.where(adv_cnt + dec_cnt > 0, (adv_cnt - dec_cnt) / np.maximum(adv_cnt + dec_cnt, 1), np.nan)
+    nrs = pd.Series(nr).ffill().fillna(0)
+    osc = (nrs.ewm(span=19).mean() - nrs.ewm(span=39).mean()).values
+    def_mcc = osc < 0
+
+    bench_high = pd.Series(bench_g).rolling(20).max().shift(1).values
+    def_div = np.zeros(ndays, dtype=bool)
+    latched = False
+    for g in range(ndays):
+        if not np.isnan(bench_high[g]) and bench_g[g] > bench_high[g] and osc[g] < 0:
+            latched = True
+        if osc[g] > 0:
+            latched = False
+        def_div[g] = latched
+
+    gates = {"裸VP(不门控)": None, "ML池宽度门控": def_breadth,
+             "麦克莱伦osc<0": def_mcc, "麦克莱伦背离": def_div}
 
     bench_ret = np.zeros(ndays)
     bench_ret[1:] = bench_g[1:] / bench_g[:-1] - 1
@@ -221,7 +225,7 @@ def main():
 
     print("\n=== 头牌 锚定VP+接受 · 三种牛熊门 PK (t+3开盘进/持有%d日/扣%.2f%%) ===" % (args.hold, args.cost * 100))
     print(f"  笔数 {len(head_trades)} | 逐笔净超额均值 {np.mean([t['net_ex'] for t in head_trades])*100:.2f}% | 胜率 {np.mean([t['net_ex']>0 for t in head_trades])*100:.1f}%")
-    print(f"  防御天数占比: MA {defensive_g.mean()*100:.0f}%  RSRS {def_rsrs.mean()*100:.0f}%  宽度 {np.nanmean(def_breadth)*100:.0f}%")
+    print(f"  防御天数占比: 宽度 {def_breadth.mean()*100:.0f}%  麦克莱伦osc {def_mcc.mean()*100:.0f}%  麦克莱伦背离 {def_div.mean()*100:.0f}%")
     print(f"  {'口径':<14}{'累计%':>8}{'年化%':>8}{'夏普':>7}{'回撤%':>8}{'信息比':>8}")
     for gname in gates:
         tot, ann, sr, mdd, _ = S[gname]
@@ -258,10 +262,10 @@ def main():
         plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS"]
         plt.rcParams["axes.unicode_minus"] = False
         fig, ax = plt.subplots(figsize=(13, 6))
-        colmap = {"裸VP(不门控)": "#e0a458", "MA30&MA60门控": "#7a6f5d", "RSRS门控": "#2077b4", "ML池宽度门控": "#c0392b"}
+        colmap = {"裸VP(不门控)": "#e0a458", "ML池宽度门控": "#7a6f5d", "麦克莱伦osc<0": "#2077b4", "麦克莱伦背离": "#c0392b"}
         for gname in gates:
             tot, ann, sr, mdd, eqc = S[gname]
-            ax.plot(cal, eqc, color=colmap[gname], lw=1.9 if "宽度" in gname else 1.4,
+            ax.plot(cal, eqc, color=colmap[gname], lw=1.9 if "背离" in gname else 1.4,
                     label=f"{gname}(年化{ann*100:.1f}% 夏普{sr:.2f} 回撤{mdd*100:.1f}%)")
         ax.plot(cal, beq, color="#aaa", lw=1.2, ls="--", label=f"中证800(年化{ba*100:.1f}%)")
         ax.axhline(1, color="#ccc", lw=0.8)
