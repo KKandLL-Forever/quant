@@ -9,8 +9,10 @@ cache_skill.py — 用「a-stock-data skill」的非官方源(东财/cninfo)增�
   anns     公告元数据  ← cninfo 巨潮      → 表 skill_anns_cninfo
   all      两者都更新
 
-口径：仅元数据(不抓 PDF 全文)。默认 2020-01-01 起。按股票循环、翻页取尽。
-增量幂等：对每只股票按 [start,end] 窗口「先删后插」，重复跑不产生重复行。
+口径：仅元数据(不抓 PDF 全文)。默认 2020-01-01 起。
+  --full 大回填：按股票循环、翻页取尽，每只按 [start,end] 窗口「先删后插」幂等。
+  --update 增量(不带 --codes)：走快路径——不带 code「按日期抓全市场」翻页取尽，按窗口整段先删后插。
+    成本随窗口页数走(几天增量分钟级)，不再随 5000+ 股票数走(旧法逐股扫全宇宙，几天也要小时级)。
 
 限速：每次 HTTP 请求间隔 ≥ --sleep 秒(默认 1.2)，session 复用，失败指数退避重试，
       防东财/cninfo 封 IP。全量(5000+股×翻页)首跑耗时以小时计，之后 --days 增量分钟级。
@@ -218,6 +220,40 @@ def _upsert(con, table, df, ts_code, start_dash, end_dash):
         con.unregister("_buf")
 
 
+def _upsert_window(con, table, df, start_dash, end_dash):
+    """全市场快路径:按 [start,end] 窗口整段先删后插(跨全部 ts_code),保证幂等。"""
+    con.execute(f"DELETE FROM {table} WHERE ann_date >= ? AND ann_date <= ?", [start_dash, end_dash])
+    if len(df):
+        con.register("_buf", df)
+        con.execute(f"INSERT INTO {table} SELECT * FROM _buf")
+        con.unregister("_buf")
+
+
+def _code_map(con):
+    """{6位代码: ts_code}，用于全市场抓取后把 stockCode/secCode 回填成带后缀的 ts_code。"""
+    return {r[0].split(".")[0]: r[0] for r in con.execute("SELECT ts_code FROM stock_meta").fetchall()}
+
+
+def _em_row(d, now):
+    """东财研报单条 → 行 dict(ts_code 留空由调用方回填)；无发布日返回 None。"""
+    pub = (d.get("publishDate") or "")[:10]
+    if not pub:
+        return None
+    info = d.get("infoCode") or ""
+    rating = d.get("emRatingName")
+    return {
+        "ts_code": None, "ann_date": pub,
+        "org": d.get("orgSName"), "title": d.get("title"),
+        "rating": rating, "rating_std": _norm_rating(rating),
+        "eps_y0": _f(d.get("predictThisYearEps")),
+        "eps_y1": _f(d.get("predictNextYearEps")),
+        "eps_y2": _f(d.get("predictNextTwoYearEps")),
+        "industry": d.get("indvInduName"), "info_code": info,
+        "pdf_url": EM_PDF_TPL.format(info_code=info) if info else None,
+        "src": "eastmoney", "fetched_at": now,
+    }
+
+
 def fetch_reports(session, throttle, code6, start_dash, end_dash):
     """拉单只股票 [start,end] 的东财研报列表，翻页取尽，返回行 dict 列表。"""
     out = []
@@ -233,22 +269,38 @@ def fetch_reports(session, throttle, code6, start_dash, end_dash):
         j = r.json()
         data = j.get("data") or []
         for d in data:
-            pub = (d.get("publishDate") or "")[:10]
-            if not pub:
+            row = _em_row(d, now)
+            if row:
+                out.append(row)
+        total = int(j.get("TotalPage") or 1)
+        if page >= total or not data:
+            break
+        page += 1
+    return out
+
+
+def fetch_reports_all(session, throttle, start_dash, end_dash, code_map):
+    """按日期抓全市场东财研报(不带 code)，翻页取尽，用 code_map 回填 ts_code(不在池内的跳过)。"""
+    out = []
+    page = 1
+    now = datetime.now()
+    while True:
+        params = {
+            "pageNo": page, "pageSize": 100,
+            "industryCode": "*", "rating": "*", "ratingChange": "*",
+            "beginTime": start_dash, "endTime": end_dash, "qType": "0",
+        }
+        r = _req(session, throttle, "GET", EM_REPORT_URL, params=params)
+        j = r.json()
+        data = j.get("data") or []
+        for d in data:
+            ts = code_map.get(d.get("stockCode"))
+            if not ts:
                 continue
-            info = d.get("infoCode") or ""
-            rating = d.get("emRatingName")
-            out.append({
-                "ts_code": None, "ann_date": pub,
-                "org": d.get("orgSName"), "title": d.get("title"),
-                "rating": rating, "rating_std": _norm_rating(rating),
-                "eps_y0": _f(d.get("predictThisYearEps")),
-                "eps_y1": _f(d.get("predictNextYearEps")),
-                "eps_y2": _f(d.get("predictNextTwoYearEps")),
-                "industry": d.get("indvInduName"), "info_code": info,
-                "pdf_url": EM_PDF_TPL.format(info_code=info) if info else None,
-                "src": "eastmoney", "fetched_at": now,
-            })
+            row = _em_row(d, now)
+            if row:
+                row["ts_code"] = ts
+                out.append(row)
         total = int(j.get("TotalPage") or 1)
         if page >= total or not data:
             break
@@ -266,6 +318,25 @@ def _load_orgmap(session, throttle):
     except Exception as e:
         print(f"  [warn] cninfo orgId 映射拉取失败({e})，回退 gssx0 格式", flush=True)
         return {}
+
+
+def _cn_row(a, now):
+    """cninfo 公告单条 → 行 dict(ts_code 留空由调用方回填)；无公告时间返回 None。"""
+    if not a:
+        return None
+    ts = a.get("announcementTime")
+    if ts is None:
+        return None
+    d = datetime.fromtimestamp(int(ts) / 1000).strftime("%Y-%m-%d")
+    adj = a.get("adjunctUrl")
+    return {
+        "ts_code": None, "ann_date": d,
+        "title": a.get("announcementTitle"),
+        "ann_type": a.get("announcementType"),  # WHY: announcementTypeName 官方恒为 null，真分类在 announcementType(编码串)
+        "anno_id": str(a.get("announcementId") or ""),
+        "pdf_url": (CNINFO_PDF_BASE + adj) if adj else None,
+        "src": "cninfo", "fetched_at": now,
+    }
 
 
 def fetch_anns(session, throttle, code6, orgid, start_dash, end_dash):
@@ -286,19 +357,40 @@ def fetch_anns(session, throttle, code6, orgid, start_dash, end_dash):
         j = r.json()
         anns = j.get("announcements") or []
         for a in anns:
-            ts = a.get("announcementTime")
-            if ts is None:
+            row = _cn_row(a, now)
+            if row:
+                out.append(row)
+        if not j.get("hasMore") or not anns:
+            break
+        page += 1
+    return out
+
+
+def fetch_anns_all(session, throttle, start_dash, end_dash, code_map):
+    """按日期抓全市场 cninfo 公告(不带 stock，column=szse 实测含沪深全市场)，翻页取尽，回填 ts_code。"""
+    out = []
+    page = 1
+    now = datetime.now()
+    se = f"{start_dash}~{end_dash}"
+    while True:
+        data = {
+            "stock": "", "tabName": "fulltext",
+            "pageSize": 30, "pageNum": page, "column": "szse",
+            "category": "", "plate": "", "seDate": se,
+            "searchkey": "", "secid": "", "sortName": "", "sortType": "",
+            "isHLtitle": "true",
+        }
+        r = _req(session, throttle, "POST", CNINFO_QUERY_URL, data=data)
+        j = r.json()
+        anns = j.get("announcements") or []
+        for a in anns:
+            ts = code_map.get(str((a or {}).get("secCode") or ""))
+            if not ts:
                 continue
-            d = datetime.fromtimestamp(int(ts) / 1000).strftime("%Y-%m-%d")
-            adj = a.get("adjunctUrl")
-            out.append({
-                "ts_code": None, "ann_date": d,
-                "title": a.get("announcementTitle"),
-                "ann_type": a.get("announcementType"),  # WHY: announcementTypeName 官方恒为 null，真分类在 announcementType(编码串)
-                "anno_id": str(a.get("announcementId") or ""),
-                "pdf_url": (CNINFO_PDF_BASE + adj) if adj else None,
-                "src": "cninfo", "fetched_at": now,
-            })
+            row = _cn_row(a, now)
+            if row:
+                row["ts_code"] = ts
+                out.append(row)
         if not j.get("hasMore") or not anns:
             break
         page += 1
@@ -312,11 +404,38 @@ ANN_COLS = ["ts_code", "ann_date", "title", "ann_type", "anno_id", "pdf_url",
             "src", "fetched_at"]
 
 
+def run_update_fast(args, con, start_dash, end_dash):
+    """--update 快路径:按日期抓全市场,一次翻页取尽,按窗口整段先删后插(成本 O(窗口页数),不随股票数增长)。"""
+    do_reports = args.what in ("reports", "all")
+    do_anns = args.what in ("anns", "all")
+    code_map = _code_map(con)
+    print(f"=== cache_skill：{args.what}/update(快路径·按日期抓全市场) | 窗口 {start_dash}~{end_dash} "
+          f"| 池内 {len(code_map)} 只 | 限速 {args.sleep}s ===", flush=True)
+    n_rep = n_ann = 0
+    if do_reports:
+        rows = fetch_reports_all(_session(EM_HEADERS), Throttle(args.sleep), start_dash, end_dash, code_map)
+        df = pd.DataFrame(rows, columns=REPORT_COLS)
+        _upsert_window(con, "skill_research_em", df, start_dash, end_dash)
+        n_rep = len(df)
+        print(f"  研报:全市场 {n_rep} 行入库", flush=True)
+    if do_anns:
+        rows = fetch_anns_all(_session(CNINFO_HEADERS), Throttle(args.sleep), start_dash, end_dash, code_map)
+        df = pd.DataFrame(rows, columns=ANN_COLS)
+        _upsert_window(con, "skill_anns_cninfo", df, start_dash, end_dash)
+        n_ann = len(df)
+        print(f"  公告:全市场 {n_ann} 行入库", flush=True)
+    print(f"\n完成(快路径)：研报 {n_rep} 行，公告 {n_ann} 行。", flush=True)
+
+
 def run(args):
-    """主流程：建表 → 按股票循环抓取 → 幂等入库 → 打印进度/失败。"""
+    """主流程：建表 → 按股票循环抓取 → 幂等入库 → 打印进度/失败。--update(不带 --codes)走全市场快路径。"""
     con = _duckdb.connect(DUCK_PATH)
     _ensure_tables(con)
     start_dash, end_dash = _date_range(args, con)
+    if args.update and not args.codes:
+        run_update_fast(args, con, start_dash, end_dash)
+        con.close()
+        return
     universe = _universe(con, args.codes)
     mode = "update" if args.update else "full"
     print(f"=== cache_skill：{args.what}/{mode} | 窗口 {start_dash}~{end_dash} | 股票 {len(universe)} 只 "
