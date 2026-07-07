@@ -567,7 +567,7 @@ function MainPage() {
       {banner && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
         {Object.entries(banner.indices).map(([nm, st]: [string, any]) => <span key={nm} style={{ marginRight: 16 }}><b>{nm}</b> <span style={{ color: st === '健康' ? '#c0392b' : '#27ae60' }}>{st}</span></span>)}
         {(() => { const p = banner.crowd.pct; const col = p == null ? 'inherit' : p >= 0.8 ? '#c0392b' : p >= 0.6 ? '#e08a2f' : '#27ae60'
-          return <span style={{ color: col, fontWeight: p != null && p >= 0.8 ? 700 : 400 }}>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{p != null ? (p * 100).toFixed(0) + '%' : '—'},{banner.crowd.label}{p != null && p >= 0.8 ? ' ⚠️高风险' : ''})</span> })()}
+          return <span style={{ color: col, fontWeight: p != null && p >= 0.8 ? 700 : 400 }}>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{p != null ? (p * 100).toFixed(0) + '%' : '—'},{banner.crowd.label}){p != null && p >= 0.8 ? ' ⚠️' : ''}</span> })()}
       </div>}
       {payload && <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
         健康/走坏=同小西西弗牛熊开关:走坏=MA30与MA60同时走坏(收盘&lt;均线且均线下行),至少一条多头即健康(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。
