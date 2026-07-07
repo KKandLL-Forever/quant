@@ -151,8 +151,9 @@ def analyze_live(code, date, on_event, analysts=("market", "news")):
                    "trader": upd.get("trader_investment_plan")}.get(kind)
             if txt and str(txt).strip():
                 on_event(role, av, kind, str(txt).strip())
-            if node == "Trader":   # 交易员之后是风控团队(前端不展示、verdict另算),提前结束省 DeepSeek(~4次调用)
-                return final
+        need = [k for a, k in (("market", "market_report"), ("news", "news_report")) if a in analysts]
+        if need and all(final.get(k) for k in need):   # 分析师报告一齐,即停:辩论/研究经理/交易员的输出没人用,不跑省 DeepSeek(~6次调用)
+            return final
     return final
 
 
