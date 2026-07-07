@@ -174,12 +174,12 @@ def analyze_stream(rid: str, code: str, date: str):
         import ta_analyze
         ta_analyze._load_keys()
         state = {"market_report": prog.get("market_report", ""), "news_report": prog.get("news_report", "")}
-        bf = os.path.join(CACHE_DIR, f"biz_{code.split('.')[0]}.json")
+        bf = os.path.join(CACHE_DIR, f"biz_{code.split('.')[0]}_{date}.json")
         business = _read_cache(bf)
         if not isinstance(business, dict) or business.get("_ver") != ta_analyze.BIZ_VER:  # 旧版本口径→重算
             business = None
         if business is None:
-            for ev in ta_analyze.business_stream(code):
+            for ev in ta_analyze.business_stream(code, date):
                 if "delta" in ev:
                     yield f"data: {json.dumps({'t': 'biz', 'd': ev['delta']}, ensure_ascii=False)}\n\n"
                 else:

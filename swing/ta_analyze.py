@@ -183,14 +183,16 @@ def analyst_verdict(state):
         return {"action": "?", "raw": txt[:200]}
 
 
-def _business_prompt(code):
-    """构造公司产业链分析 prompt,返回 (prompt, fintxt);无资料返回 (None, None)。"""
+def _business_prompt(code, date=None):
+    """构造公司产业链分析 prompt,返回 (prompt, fintxt);date=分析基准日(截断所有价格/财报/研报到该日,避免历史分析用到未来数据);无资料返回 (None, None)。"""
     import duckdb
     import pandas as pd
     import tushare as ts
     import ta_bridge
     from cache_tushare import DUCKDB_PATH
     tscode = ta_bridge._norm(code)
+    d1 = (date or __import__("datetime").date.today().isoformat())[:10]   # YYYY-MM-DD:daily_basic/daily/研报(DATE列)
+    d8 = d1.replace("-", "")                                              # YYYYMMDD:income/fina_indicator(ann_date字符串列)
     pro = ts.pro_api(os.environ["TUSHARE_TOKEN"])
     df = pro.stock_company(ts_code=tscode, fields="main_business,business_scope,introduction")
     if df is None or df.empty:
@@ -198,32 +200,32 @@ def _business_prompt(code):
     r = df.iloc[0]
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
-        FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
-    mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,close,trade_date FROM daily_basic WHERE ts_code=?
-        ORDER BY trade_date DESC LIMIT 1""", [tscode]).fetchone()
+        FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL AND ann_date<=? ORDER BY end_date DESC LIMIT 1""", [tscode, d8]).fetchone()
+    mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,close,trade_date FROM daily_basic WHERE ts_code=? AND trade_date<=?
+        ORDER BY trade_date DESC LIMIT 1""", [tscode, d1]).fetchone()
     swr = con.execute("SELECT l1_name,l2_name,l3_name FROM sw_member WHERE ts_code=?", [tscode]).fetchone()
     yr = (mv[6].year if mv else __import__("datetime").date.today().year)
     ytd = con.execute("""SELECT d.close*a.adj_factor FROM daily d JOIN adj_factor a
         ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
-        WHERE d.ts_code=? AND d.trade_date>=? ORDER BY d.trade_date""", [tscode, f"{yr}-01-01"]).fetchall()
+        WHERE d.ts_code=? AND d.trade_date>=? AND d.trade_date<=? ORDER BY d.trade_date""", [tscode, f"{yr}-01-01", d1]).fetchall()
     ytd_pct = (ytd[-1][0] / ytd[0][0] - 1) * 100 if len(ytd) >= 2 else None
     prof = con.execute("""SELECT i.end_date, i.n_income_attr_p/1e8, f.netprofit_yoy FROM income i
         LEFT JOIN fina_indicator f ON f.ts_code=i.ts_code AND f.end_date=i.end_date
-        WHERE i.ts_code=? ORDER BY i.end_date DESC LIMIT 6""", [tscode]).fetchall()
+        WHERE i.ts_code=? AND i.ann_date<=? ORDER BY i.end_date DESC LIMIT 6""", [tscode, d8]).fetchall()
     ann = con.execute("""SELECT end_date, n_income_attr_p/1e8 FROM income
-        WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL
-        ORDER BY end_date DESC LIMIT 4""", [tscode]).fetchall()
-    roey = con.execute("""SELECT roe_yearly FROM fina_indicator WHERE ts_code=? AND roe_yearly IS NOT NULL
-        ORDER BY end_date DESC LIMIT 1""", [tscode]).fetchone()
+        WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL AND ann_date<=?
+        ORDER BY end_date DESC LIMIT 4""", [tscode, d8]).fetchall()
+    roey = con.execute("""SELECT roe_yearly FROM fina_indicator WHERE ts_code=? AND roe_yearly IS NOT NULL AND ann_date<=?
+        ORDER BY end_date DESC LIMIT 1""", [tscode, d8]).fetchone()
     try:
-        rpt = con.execute("""SELECT DISTINCT title FROM skill_research_em WHERE ts_code=?
-            ORDER BY ann_date DESC LIMIT 10""", [tscode]).fetchall()
+        rpt = con.execute("""SELECT DISTINCT title FROM skill_research_em WHERE ts_code=? AND ann_date<=?
+            ORDER BY ann_date DESC LIMIT 10""", [tscode, d1]).fetchall()
     except Exception:
         rpt = []
-    pbh = [r[0] for r in con.execute("SELECT pb FROM daily_basic WHERE ts_code=? AND pb IS NOT NULL AND pb>0", [tscode]).fetchall()]
-    peh = [r[0] for r in con.execute("SELECT pe_ttm FROM daily_basic WHERE ts_code=? AND pe_ttm IS NOT NULL AND pe_ttm>0", [tscode]).fetchall()]
+    pbh = [r[0] for r in con.execute("SELECT pb FROM daily_basic WHERE ts_code=? AND pb IS NOT NULL AND pb>0 AND trade_date<=?", [tscode, d1]).fetchall()]
+    peh = [r[0] for r in con.execute("SELECT pe_ttm FROM daily_basic WHERE ts_code=? AND pe_ttm IS NOT NULL AND pe_ttm>0 AND trade_date<=?", [tscode, d1]).fetchall()]
     anh = con.execute("""SELECT n_income_attr_p/1e8 FROM income
-        WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL ORDER BY end_date DESC LIMIT 6""", [tscode]).fetchall()
+        WHERE ts_code=? AND end_date LIKE '%1231' AND n_income_attr_p IS NOT NULL AND ann_date<=? ORDER BY end_date DESC LIMIT 6""", [tscode, d8]).fetchall()
     con.close()
     import math
     fyr, feps = {}, {}   # 券商预测:每年(Q4=全年)中位归母净利(亿)/中位EPS;只取近半年+每券商最新一份
@@ -232,7 +234,9 @@ def _business_prompt(code):
         if rc is not None and len(rc):
             rc = rc[rc["quarter"].astype(str).str.endswith("Q4")].copy()
             rc["rd"] = pd.to_datetime(rc["report_date"])
-            rc = rc[rc["rd"] >= rc["rd"].max() - pd.Timedelta(days=180)]   # 只留近半年研报
+            rc = rc[rc["rd"] <= pd.Timestamp(d1)]
+            if len(rc):
+                rc = rc[rc["rd"] >= rc["rd"].max() - pd.Timedelta(days=180)]   # 只留近半年研报
             rc = rc.sort_values("rd").groupby(["org_name", "quarter"], as_index=False).tail(1)   # 每券商每年最新一份
             for key, g in rc.groupby(rc["quarter"].astype(str).str[:4]):
                 y = int(key)
@@ -380,9 +384,9 @@ def _parse_business(txt, fintxt, pegdict=None):
         return {"raw": txt[:400], "peg_data": pegdict, "_ver": BIZ_VER}
 
 
-def business_stream(code):
-    """流式版公司分析:逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。"""
-    prompt, fintxt, pegdict = _business_prompt(code)
+def business_stream(code, date=None):
+    """流式版公司分析:逐段 yield {"delta":文本};结束 yield {"final":解析后的JSON}。date=分析基准日(历史分析截断到该日)。"""
+    prompt, fintxt, pegdict = _business_prompt(code, date)
     if prompt is None:
         yield {"final": {"raw": "无公司资料"}}
         return
