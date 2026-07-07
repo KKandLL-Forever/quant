@@ -13,6 +13,8 @@ cache_skill.py — 用「a-stock-data skill」的非官方源(东财/cninfo)增�
   --full 大回填：按股票循环、翻页取尽，每只按 [start,end] 窗口「先删后插」幂等。
   --update 增量(不带 --codes)：走快路径——不带 code「按日期抓全市场」翻页取尽，按窗口整段先删后插。
     成本随窗口页数走(几天增量分钟级)，不再随 5000+ 股票数走(旧法逐股扫全宇宙，几天也要小时级)。
+    安全垫：空库(无增量基准)或窗口 > --max-update-days(默认 30 天)一律中止并提示改用 --full——
+    全市场公告约 1500 条/天，窗口过大翻页爆炸(1 月≈1500 页，1 年≈2.4 万页)。库落后过多请用 --full 分段回填。
 
 限速：每次 HTTP 请求间隔 ≥ --sleep 秒(默认 1.2)，session 复用，失败指数退避重试，
       防东财/cninfo 封 IP。全量(5000+股×翻页)首跑耗时以小时计，之后 --days 增量分钟级。
@@ -174,6 +176,26 @@ def _date_range(args, con):
     else:
         start = _dash(args.start)
     return start, end
+
+
+def _guard_update(con, args, start_dash, end_dash):
+    """--update 安全垫:空库或窗口过大→打印指引并退出(避免误把快路径当全量回填,翻页爆炸)。"""
+    if _update_start(con, args.what) is None:
+        print("！！中止：库内", "/".join(_tables_for(args.what)), "为空,--update 没有增量基准。\n"
+              "  --update 是「按日期抓全市场」的增量快路径,不适合首次全量回填。\n"
+              f"  首跑请用 --full 分段回填,例如：\n"
+              f"    python first10/cache_skill.py --what {args.what} --full --start 20200101", flush=True)
+        con.close()
+        sys.exit(1)
+    gap = (datetime.strptime(end_dash, "%Y-%m-%d") - datetime.strptime(start_dash, "%Y-%m-%d")).days
+    if gap > args.max_update_days:
+        print(f"！！中止：本次增量窗口 {start_dash}~{end_dash} 跨 {gap} 天,超过 --update 上限 {args.max_update_days} 天。\n"
+              f"  全市场公告约 1500 条/天,窗口过大会翻页爆炸(1 月≈1500 页/半小时,1 年≈2.4 万页/8 小时)。\n"
+              f"  说明库已落后较多,请改用 --full 分段回填该缺口,例如：\n"
+              f"    python first10/cache_skill.py --what {args.what} --full --start {start_dash.replace('-', '')} --end {end_dash.replace('-', '')}\n"
+              f"  (确认知情要强跑快路径,可加 --max-update-days {gap} 放宽上限。)", flush=True)
+        con.close()
+        sys.exit(1)
 
 
 def _progress_path(what, start_dash, end_dash):
@@ -433,6 +455,7 @@ def run(args):
     _ensure_tables(con)
     start_dash, end_dash = _date_range(args, con)
     if args.update and not args.codes:
+        _guard_update(con, args, start_dash, end_dash)
         run_update_fast(args, con, start_dash, end_dash)
         con.close()
         return
@@ -517,6 +540,8 @@ if __name__ == "__main__":
     ap.add_argument("--days", type=int, default=None, help="配 --update：强制抓最近 N 天")
     ap.add_argument("--codes", default=None, help="只抓指定 ts_code(逗号分隔，用于小样验证)")
     ap.add_argument("--sleep", type=float, default=1.2, help="每次 HTTP 最小间隔秒(默认 1.2)")
+    ap.add_argument("--max-update-days", type=int, default=30,
+                    help="--update 快路径允许的最大窗口天数(默认 30，超过则中止并提示改用 --full)")
     ap.add_argument("--resume", action="store_true", help="段内断点续跑，跳过本窗口已抓完的股票")
     args = ap.parse_args()
     run(args)
