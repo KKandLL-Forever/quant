@@ -28,9 +28,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import duckdb
 from cache_tushare import DUCKDB_PATH
 
-BENCH = "000852.SH"
+BENCH = {"csi1000": "000852.SH", "ml": "000906.SH"}
 FWD = [1, 5, 10]
 ACCEPT_LAG = 2
+
+
+def load_bench(con, code, start):
+    """基准指数收盘序列:先查本地 index_daily,没有则走 tushare index_daily 拉入内存(不写库)。"""
+    df = con.execute("SELECT trade_date, close FROM index_daily WHERE ts_code=? AND trade_date>=? ORDER BY trade_date",
+                     [code, start]).df()
+    if len(df):
+        return df.set_index("trade_date")["close"]
+    import tushare as ts
+    from db_loader import _ENV
+    pro = ts.pro_api(_ENV["TUSHARE_TOKEN"])
+    parts = []
+    for y in range(int(start[:4]), 2027):
+        d = pro.index_daily(ts_code=code, start_date=f"{y}0101", end_date=f"{y}1231", fields="trade_date,close")
+        if d is not None and len(d):
+            parts.append(d)
+    alld = pd.concat(parts)
+    alld["trade_date"] = pd.to_datetime(alld["trade_date"]).dt.date
+    return alld.sort_values("trade_date").set_index("trade_date")["close"]
 
 
 def value_area(hi, lo, vol, nb=40):
@@ -145,31 +164,48 @@ def summarize(name, events):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--n", type=int, default=None, help="抽样股票数(默认全部 CSI1000)")
+    ap.add_argument("--pool", choices=["csi1000", "ml"], default="csi1000",
+                    help="股池:csi1000=中证1000成分;ml=ML主升池(最新日流通市值 top800 非北交所 + 前20热股)")
+    ap.add_argument("--n", type=int, default=None, help="抽样股票数(截断股池)")
     ap.add_argument("--start", default="20240101")
     args = ap.parse_args()
 
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
-    codes = [r[0] for r in con.execute(
-        "SELECT DISTINCT con_code FROM csi1000_members WHERE trade_date=(SELECT MAX(trade_date) FROM csi1000_members) ORDER BY con_code"
-    ).fetchall()]
+    if args.pool == "ml":
+        sel = con.execute("SELECT MAX(trade_date) FROM daily_basic").fetchone()[0]
+        codes = [r[0] for r in con.execute(
+            "SELECT ts_code FROM daily_basic WHERE trade_date=? AND ts_code NOT LIKE '%.BJ' ORDER BY circ_mv DESC LIMIT 800",
+            [sel]).fetchall()]
+        try:
+            hot = [r[0] for r in con.execute(
+                "SELECT ts_code FROM ths_hot WHERE data_type='热股' AND trade_date=? ORDER BY rank LIMIT 20",
+                [sel.strftime("%Y%m%d")]).fetchall()]
+            mv = dict(con.execute("SELECT ts_code,circ_mv FROM daily_basic WHERE trade_date=?", [sel]).fetchall())
+            codes = list(dict.fromkeys(codes + [c for c in hot if not c.endswith(".BJ") and (mv.get(c) or 0) >= 2_000_000]))
+        except Exception:
+            pass
+    else:
+        codes = [r[0] for r in con.execute(
+            "SELECT DISTINCT con_code FROM csi1000_members WHERE trade_date=(SELECT MAX(trade_date) FROM csi1000_members) ORDER BY con_code"
+        ).fetchall()]
     if args.n:
         codes = codes[:args.n]
     start = f"{args.start[:4]}-{args.start[4:6]}-{args.start[6:8]}"
-    bench = con.execute("SELECT trade_date, close FROM index_daily WHERE ts_code=? AND trade_date>=? ORDER BY trade_date",
-                        [BENCH, start]).df()
-    bench = bench.set_index("trade_date")["close"]
+    bench_code = BENCH[args.pool]
+    bench = load_bench(con, bench_code, args.start)
+    bench.index = pd.to_datetime(bench.index)
 
     methods = {"固定5日": ("fix", 5), "固定10日": ("fix", 10), "固定20日": ("fix", 20),
                "固定30日": ("fix", 30), "锚定VP": ("anch", None)}
     bag = {m: [] for m in methods}
 
-    print(f"股票 {len(codes)} 只 | 起 {start} | 基准 {BENCH}", flush=True)
+    print(f"股池 {args.pool} · {len(codes)} 只 | 起 {start} | 基准 {bench_code}", flush=True)
     for i, code in enumerate(codes, 1):
         d = con.execute("SELECT trade_date, high, low, close, vol FROM daily WHERE ts_code=? AND trade_date>=? ORDER BY trade_date",
                         [code, start]).df()
         if len(d) < 40:
             continue
+        d["trade_date"] = pd.to_datetime(d["trade_date"])
         d = d[d["trade_date"].isin(bench.index)]
         if len(d) < 40:
             continue
@@ -185,7 +221,8 @@ def main():
     rows = [summarize(m, bag[m]) for m in methods]
     df = pd.DataFrame(rows)
     pd.set_option("display.unicode.east_asian_width", True)
-    print("\n=== VP 价值区突破 事件研究(超额 vs 中证1000)===")
+    bn = {"000852.SH":"中证1000","000906.SH":"中证800"}.get(bench_code, bench_code)
+    print(f"\n=== VP 价值区突破 事件研究(超额 vs {bn})===")
     print(df.to_string(index=False))
 
     try:
@@ -206,7 +243,7 @@ def main():
         fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5))
         a1.bar(names, f10, color=["#c9c2b4", "#e0a458", "#e08a2f", "#b5701a", "#c0392b"][:len(names)])
         a1.axhline(0, color="#888", lw=0.8)
-        a1.set_title("突破 VAH 后 +10日 平均超额%(vs 中证1000)")
+        a1.set_title(f"突破 VAH 后 +10日 平均超额%(vs {bn})")
         a1.grid(alpha=0.25, axis="y")
         a2.bar(names, sep, color="#2077b4")
         a2.axhline(0, color="#888", lw=0.8)
