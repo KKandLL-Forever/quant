@@ -284,12 +284,12 @@ function AnaHost({ children }: { children: React.ReactNode }) {
   }
 
   // 打开分析弹窗到「选日期」态,拉出已缓存日期高亮,不自动跑;选中日期才分析
-  const analyze = (code: string, _date?: string, _force?: boolean, name = '') => {
+  const analyze = (code: string, date?: string, _force?: boolean, name = '') => {
     if (pollRef.current) clearInterval(pollRef.current)
     esRef.current?.close()
     timers.current.forEach(clearTimeout); timers.current = []
     curRid.current = null
-    setAna({ open: true, code, name, phase: 'pick', dates: [] })
+    setAna({ open: true, code, name, date, phase: 'pick', dates: [] })
     loadDates(code)
   }
 
@@ -379,6 +379,8 @@ function AnaHost({ children }: { children: React.ReactNode }) {
             const has = (ana.dates || []).includes(ds)
             return <div className="ant-picker-cell-inner" style={has ? { background: '#f6efdd', boxShadow: '0 0 0 1px #e6d6a8 inset', borderRadius: 4, fontWeight: 700 } : undefined}>{(cur as any).date()}</div>
           }} />
+        {ana.phase === 'pick' && ana.date && <Button type="primary" size="small"
+          onClick={() => runAnalysis(ana.code, ana.date, false, ana.name)}>开始分析 @ {ana.date}</Button>}
         <span style={{ fontSize: 12, color: '#999' }}>
           {(ana.dates || []).length ? <>已有 {ana.dates.length} 天缓存(<span style={{ background: '#f6efdd', padding: '0 4px', borderRadius: 3 }}>高亮</span>日秒开)</> : '暂无历史缓存'}
           {ana.phase === 'pick' && ' · 选择日期开始分析'}
