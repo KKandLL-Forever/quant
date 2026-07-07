@@ -446,7 +446,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
 function MainPage() {
   const { params, setParams, parts, setParts, payload, loading, train } = useSignalStore()
   const analyze = useAna()
-  const [showKc, setKc] = useState(true), [showCy, setCy] = useState(true), [only50, set50] = useState(false)
+  const [showKc, setKc] = useState(false), [showCy, setCy] = useState(false), [only50, set50] = useState(false)
   const [kl, setKl] = useState<any>(null)     // K线弹窗 {open, loading, code, date, data}
   const [adv, setAdv] = useState<any>(null)   // 缠论卖点提示弹窗 {open, loading, code, date, data}
 
