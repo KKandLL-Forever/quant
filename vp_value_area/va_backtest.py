@@ -34,6 +34,24 @@ from model_robustness import pbo_cscv, deflated_sharpe
 ACCEPT_LAG = 2
 
 
+def hs300_defensive(start):
+    """沪深300「MA30 且 MA60 同时走坏」→ 防御(空仓)布尔序列(复用 xiaoxifu/regime_combo 口径,走 tushare)。"""
+    import tushare as ts
+    from db_loader import _ENV
+    pro = ts.pro_api(_ENV["TUSHARE_TOKEN"])
+    parts = []
+    for y in range(int(start[:4]) - 1, 2027):
+        d = pro.index_daily(ts_code="000300.SH", start_date=f"{y}0101", end_date=f"{y}1231", fields="trade_date,close")
+        if d is not None and len(d):
+            parts.append(d)
+    ix = pd.concat(parts)
+    ix = ix.set_index(pd.to_datetime(ix["trade_date"]))["close"].sort_index()
+    ma30, ma60 = ix.rolling(30).mean(), ix.rolling(60).mean()
+    healthy30 = (ix > ma30) & (ma30 > ma30.shift(5))
+    healthy60 = (ix > ma60) & (ma60 > ma60.shift(5))
+    return ((~healthy30) & (~healthy60)).fillna(False)
+
+
 def ml_pool(con):
     """ML主升池:最新交易日流通市值 top800 非北交所 + 前20热股(circ_mv≥200亿)。"""
     sel = con.execute("SELECT MAX(trade_date) FROM daily_basic").fetchone()[0]
@@ -125,9 +143,13 @@ def main():
 
     grid = {"锚定VP+接受": ("anch", True), "锚定VP裸": ("anch", False),
             "固定30+接受": (30, True), "固定20+接受": (20, True), "固定30裸": (30, False)}
+    defser = hs300_defensive(args.start).reindex(cal, method="ffill").fillna(False)
+    defensive_g = defser.values.astype(bool)
+
     trades = {k: [] for k in grid}
     head_trades = []
     head_contrib = [[] for _ in range(ndays)]
+    head_contrib_gate = [[] for _ in range(ndays)]
 
     print(f"ML池 {len(codes)} 只 | 起 {start} | 持有 {args.hold}日 | 费 {args.cost*100:.2f}% | 基准 中证800", flush=True)
     for i, code in enumerate(codes, 1):
@@ -150,25 +172,33 @@ def main():
             if name == "锚定VP+接受":
                 for r in tr:
                     add_to_contrib(head_contrib, r, op, cl, gidx, args.hold, args.cost)
+                    if not defensive_g[r["entry_g"]]:
+                        add_to_contrib(head_contrib_gate, r, op, cl, gidx, args.hold, args.cost)
                     head_trades.append(r)
         if i % 100 == 0:
             print(f"  [{i}/{len(codes)}]", flush=True)
 
-    # 头牌净值
+    # 头牌净值:裸 vs 牛熊门控
     port = curve_from_contrib(head_contrib, ndays)
+    portg = curve_from_contrib(head_contrib_gate, ndays)
     bench_ret = np.zeros(ndays)
     bench_ret[1:] = bench_g[1:] / bench_g[:-1] - 1
     tot, ann, sr, mdd, eq = stats(port)
+    gt, ga, gs, gm, geq = stats(portg)
     bt, ba, bs, bm, beq = stats(bench_ret)
-    exday = port - bench_ret
+    exday = portg - bench_ret
     et, ea, es, em, eeq = stats(exday)
+    n_gated = sum(1 for t in head_trades if defensive_g[t["entry_g"]])
+    pct_bear = defensive_g.mean() * 100
 
     print("\n=== 头牌:锚定VP + 接受确认 (t+3开盘进/持有%d日/扣%.2f%%) 等权日频组合 ===" % (args.hold, args.cost * 100))
     print(f"  笔数 {len(head_trades)} | 逐笔净超额均值 {np.mean([t['net_ex'] for t in head_trades])*100:.2f}% | "
           f"胜率 {np.mean([t['net_ex']>0 for t in head_trades])*100:.1f}%")
-    print(f"  组合:  累计 {tot*100:6.1f}%  年化 {ann*100:5.1f}%  夏普 {sr:4.2f}  回撤 {mdd*100:5.1f}%")
-    print(f"  中证800:累计 {bt*100:6.1f}%  年化 {ba*100:5.1f}%  夏普 {bs:4.2f}  回撤 {bm*100:5.1f}%")
-    print(f"  超额:  累计 {et*100:6.1f}%  年化 {ea*100:5.1f}%  信息比 {es:4.2f}")
+    print(f"  防御(空仓)天数占比 {pct_bear:.0f}% | 被门控挡掉的信号 {n_gated}/{len(head_trades)}")
+    print(f"  裸VP:      累计 {tot*100:6.1f}%  年化 {ann*100:5.1f}%  夏普 {sr:4.2f}  回撤 {mdd*100:5.1f}%")
+    print(f"  VP+牛熊门控:累计 {gt*100:6.1f}%  年化 {ga*100:5.1f}%  夏普 {gs:4.2f}  回撤 {gm*100:5.1f}%")
+    print(f"  中证800:   累计 {bt*100:6.1f}%  年化 {ba*100:5.1f}%  夏普 {bs:4.2f}  回撤 {bm*100:5.1f}%")
+    print(f"  门控后超额:累计 {et*100:6.1f}%  年化 {ea*100:5.1f}%  信息比 {es:4.2f}")
 
     # 配置网格逐笔 → 月度矩阵 → PBO/DSR
     months = sorted({r["month"] for k in grid for r in trades[k]})
@@ -199,12 +229,15 @@ def main():
         plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS"]
         plt.rcParams["axes.unicode_minus"] = False
         fig, ax = plt.subplots(figsize=(13, 6))
-        ax.plot(cal, eq, color="#c0392b", lw=1.8, label=f"锚定VP+接受 组合(年化{ann*100:.1f}% 夏普{sr:.2f} 回撤{mdd*100:.1f}%)")
+        ax.plot(cal, eq, color="#e0a458", lw=1.5, label=f"裸VP(年化{ann*100:.1f}% 夏普{sr:.2f} 回撤{mdd*100:.1f}%)")
+        ax.plot(cal, geq, color="#c0392b", lw=1.9, label=f"VP+牛熊门控(年化{ga*100:.1f}% 夏普{gs:.2f} 回撤{gm*100:.1f}%)")
         ax.plot(cal, beq, color="#888", lw=1.4, label=f"中证800(年化{ba*100:.1f}%)")
-        ax.plot(cal, eeq, color="#2077b4", lw=1.4, ls="--", label=f"超额净值(年化{ea*100:.1f}% 信息比{es:.2f})")
+        for i in range(1, ndays):
+            if defensive_g[i]:
+                ax.axvspan(cal[i - 1], cal[i], color="#3a7fb5", alpha=0.06, lw=0)
         ax.axhline(1, color="#ccc", lw=0.8)
         ax.legend(fontsize=10, loc="upper left")
-        ax.set_title(f"锚定VP+接受确认 · ML主升池 · t+3开盘进/持有{args.hold}日/扣费{args.cost*100:.2f}%", fontsize=13, weight="bold")
+        ax.set_title(f"锚定VP+接受确认 · ML主升池 · 蓝底=沪深300门控防御(空仓)期 · 持有{args.hold}日/扣{args.cost*100:.2f}%", fontsize=12.5, weight="bold")
         ax.grid(alpha=0.25)
         out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "va_backtest_equity.png")
         plt.savefig(out, dpi=130, bbox_inches="tight")
