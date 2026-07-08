@@ -1043,14 +1043,38 @@ def lianban_history(start: str = "20250101", tier: int = 10, refresh: bool = Fal
 
 @app.post("/api/lianban/retrain")
 def lianban_retrain():
-    """重训 2进4 实盘部署模型(2lb_model_v6_deploy.py),分钟级同步跑,返回日志尾。"""
+    """重训 2进4 实盘部署模型:缺 v6 评估模型时先自动跑 ml_train_2lb_v6(评估),再跑部署;返回训练指标+日志尾。"""
+    py = _lianban_py()
+    v6_eval = os.path.join(_FIRST10, "model", "xgb_2lb_v6.pkl")
+    log = ""
+    eval_ran = False
+    if not os.path.exists(v6_eval):
+        eval_ran = True
+        try:
+            re = subprocess.run([py, os.path.join(_FIRST10, "ml_train_2lb_v6.py")],
+                                cwd=_FIRST10, capture_output=True, text=True, timeout=2400)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": "评估模型训练超时(>40分钟)"}
+        log += "[评估 ml_train_2lb_v6]\n" + ((re.stdout or "") + (re.stderr or ""))[-1200:] + "\n\n"
+        if re.returncode != 0 or not os.path.exists(v6_eval):
+            return {"ok": False, "error": "评估模型训练失败", "log": log}
+    metrics_tmp = os.path.join(LIANBAN_CACHE, "_retrain_metrics.json")
+    if os.path.exists(metrics_tmp):
+        os.remove(metrics_tmp)
     try:
-        r = subprocess.run([_lianban_py(), os.path.join(_FIRST10, "2lb_model_v6_deploy.py")],
+        r = subprocess.run([py, os.path.join(_FIRST10, "2lb_model_v6_deploy.py"), "--metrics-out", metrics_tmp],
                            cwd=_FIRST10, capture_output=True, text=True, timeout=1800)
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error": "重训超时(>30分钟)"}
-    ok = r.returncode == 0
-    return {"ok": ok, "log": ((r.stdout or "") + (r.stderr or ""))[-2500:]}
+        return {"ok": False, "error": "部署训练超时(>30分钟)", "log": log}
+    log += "[部署 2lb_model_v6_deploy]\n" + ((r.stdout or "") + (r.stderr or ""))[-1500:]
+    if r.returncode != 0:
+        return {"ok": False, "error": "部署训练失败", "log": log}
+    metrics = None
+    if os.path.exists(metrics_tmp):
+        with open(metrics_tmp, encoding="utf-8") as f:
+            metrics = json.load(f)
+        os.remove(metrics_tmp)
+    return {"ok": True, "eval_ran": eval_ran, "metrics": metrics, "log": log[-2500:]}
 
 
 @app.get("/api/health")

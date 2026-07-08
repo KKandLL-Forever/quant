@@ -1,6 +1,6 @@
 // 连板信号:2板→4板(2进4·到4板)每日概率打分。数据走 /api/lianban/score(后端 subprocess 跑 ml_score_2lb_v6,按日期缓存)。
 import { useEffect, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, DatePicker, message, Modal } from 'antd'
+import { Button, Card, Spin, Table, Tag, DatePicker, message, notification } from 'antd'
 import dayjs from 'dayjs'
 import { Header, PageTitle } from '../../shell'
 import { StockName } from '../../StockInfo'
@@ -53,11 +53,37 @@ export default function LianbanPage() {
 
   const doRetrain = async () => {
     setRetrain(true)
+    message.loading({ content: '正在重训 2进4 模型(缺评估模型会自动先训评估,分钟级)…', key: 'lbtrain', duration: 0 })
     try {
       const j = await (await fetch('/api/lianban/retrain', { method: 'POST' })).json()
-      Modal[j.ok ? 'success' : 'error']({ title: j.ok ? '部署模型重训完成' : '重训失败', width: 680,
-        content: <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: 400, overflow: 'auto' }}>{j.log || j.error}</pre> })
-    } catch (e) { message.error((e as Error).message) } finally { setRetrain(false) }
+      message.destroy('lbtrain')
+      if (!j.ok) {
+        notification.error({ message: '重训失败', duration: null, style: { width: 560 },
+          description: <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12, maxHeight: 360, overflow: 'auto', margin: 0 }}>{j.log || j.error}</pre> })
+        return
+      }
+      const m = j.metrics
+      notification.success({
+        message: `2进4 部署模型重训完成${j.eval_ran ? '(已自动补训评估模型)' : ''}`,
+        duration: null, placement: 'topRight', style: { width: 460 },
+        description: m ? (
+          <div style={{ fontSize: 13 }}>
+            <div style={{ marginBottom: 6 }}>轮数 <b>{m.rounds}</b> · 样本 <b>{m.n_train}</b> · 到4板正例率 <b>{(m.pos_rate * 100).toFixed(1)}%</b></div>
+            <div style={{ color: '#888', marginBottom: 4 }}>训练区间 {m.train_range}</div>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+              <thead><tr style={{ color: '#888' }}><td>档</td><td>切点</td><td>实收</td><td>到4板</td><td>n</td></tr></thead>
+              <tbody>{(m.tiers || []).map((t: any) => (
+                <tr key={t.label} style={{ borderTop: '1px solid #eee' }}>
+                  <td>{t.label}</td><td>≥{(t.proba * 100).toFixed(0)}%</td>
+                  <td style={{ color: t.ret >= 0 ? '#c0392b' : '#1f8e5a' }}>{t.ret >= 0 ? '+' : ''}{(t.ret * 100).toFixed(1)}%</td>
+                  <td>{(t.hit4 * 100).toFixed(0)}%</td><td>{t.n}</td>
+                </tr>))}</tbody>
+            </table>
+          </div>
+        ) : '训练完成(无指标返回)',
+      })
+      load(date, true); loadHist(true)
+    } catch (e) { message.destroy('lbtrain'); message.error((e as Error).message) } finally { setRetrain(false) }
   }
 
   const cols = [

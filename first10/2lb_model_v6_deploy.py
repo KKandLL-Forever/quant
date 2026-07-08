@@ -57,8 +57,8 @@ def _load_v6():
     return int(folds[-1]["best_iter"]), b["tiers"]
 
 
-def train(rounds_override=None):
-    """部署训练入口：锁定轮数 + 全量数据，关早停，出 2进4 实盘 pkl。"""
+def train(rounds_override=None, metrics_out=None):
+    """部署训练入口：锁定轮数 + 全量数据，关早停，出 2进4 实盘 pkl。metrics_out=写训练结果JSON(供webapp)。"""
     from ml_features_2lb_v3 import build_feature_matrix, FEATURE_COLS
     from ml_train_2lb_v6 import _get_signals, _attach_labels
 
@@ -99,9 +99,20 @@ def train(rounds_override=None):
         print(f"    {t['label']:<8s} proba≥{t['proba']:.4f}  实收 {t['ret']*100:+.2f}%  "
               f"到4板 {t['hit4']*100:.1f}%  (n={t['n']})")
 
+    if metrics_out:
+        import json
+        with open(metrics_out, "w", encoding="utf-8") as f:
+            json.dump({"rounds": int(rounds), "n_train": int(len(X)),
+                       "pos_rate": round(float(y.mean()), 4),
+                       "train_range": meta["train_range"],
+                       "tiers": [{"label": t["label"], "proba": round(float(t["proba"]), 4),
+                                  "ret": round(float(t["ret"]), 4), "hit4": round(float(t["hit4"]), 4),
+                                  "n": int(t["n"])} for t in tiers]}, f, ensure_ascii=False)
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--rounds", type=int, default=None, help="手动指定轮数，覆盖 v6 末折 best_iter")
+    ap.add_argument("--metrics-out", default=None, help="把训练结果写成 JSON 到该路径(供 webapp)")
     args = ap.parse_args()
-    train(args.rounds)
+    train(args.rounds, args.metrics_out)
