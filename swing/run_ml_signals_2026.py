@@ -278,7 +278,7 @@ def _czsc_one(job):
                 for t2 in range(t + 1, len(cc)):
                     if t2 in sd1:
                         return mult - 1, t, False, legs
-                    if t2 in bd:
+                    if t2 in bd and cc[t2] > cc[t]:   # 只往上补:回补价须高于上次止损价,避免单边下跌里越接越低
                         re = t2; break
                 if re is None:
                     return mult - 1, t, False, legs
