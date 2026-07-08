@@ -188,6 +188,22 @@ def _czsc_one(job):
                     return True
         return False
 
+    def _sell1(c):   # 仅缠论一卖(供 5%止损回补口径判「不再回补」用)
+        f = getattr(CS, "cxt_first_sell_V221126", None)
+        if not f:
+            return False
+        try:
+            out = f(c, di=1)
+        except Exception:
+            try:
+                out = f(c)
+            except Exception:
+                return False
+        for v in out.values():
+            if str(v).split("_")[0] != "其他":
+                return True
+        return False
+
     def _buy(c):
         for fn in ("cxt_first_buy_V221126", "cxt_second_bs_V230320", "cxt_third_buy_V230228"):
             f = getattr(CS, fn, None)
@@ -214,11 +230,14 @@ def _czsc_one(job):
     try:
         c = CZSC(bars[:1])
         sd = {0} if _sell(c) else set()
+        sd1 = {0} if _sell1(c) else set()
         bd = {0} if _buy(c) else set()
         for i in range(1, len(bars)):
             c.update(bars[i])
             if _sell(c):
                 sd.add(i)
+            if _sell1(c):
+                sd1.add(i)
             if _buy(c):
                 bd.add(i)
     except Exception:
@@ -248,19 +267,40 @@ def _czsc_one(job):
             t += 1
         return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True, legs
 
+    def _slr(bo):   # 5%止损回补口径:利润奔跑不封顶,唯一卖出=固定-5%止损;止损后缠论买点回补,回补前遇缠论一卖则不补、结束
+        mult, en, t = 1.0, bo, bo + 1
+        legs = [(bo, "买")]
+        while t < len(cc):
+            if cc[t] <= cc[en] * 0.95:
+                mult *= (cc[t] / cc[en]) * (1 - 2 * COST)
+                legs.append((t, "止5"))
+                re = None
+                for t2 in range(t + 1, len(cc)):
+                    if t2 in sd1:
+                        return mult - 1, t, False, legs
+                    if t2 in bd:
+                        re = t2; break
+                if re is None:
+                    return mult - 1, t, False, legs
+                en = re; legs.append((re, "补")); t = re + 1; continue
+            t += 1
+        return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True, legs
+
+    def _pack(fn, bo, d):
+        ret, exi, opn, legs = fn(bo)
+        exd = None if exi is None else pd.Timestamp(gd[exi])
+        hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
+        rebought = any(k == "补" for _, k in legs)
+        legdates = [[str(pd.Timestamp(gd[i]).date()), k, round(float(cc[i]), 3)] for i, k in legs]
+        return (round(ret * 100, 0), round(ret, 4),
+                None if exd is None else str(exd.date()), opn, hold, rebought, legdates)
+
     res = []
     for d in dates:
         bo = idxmap.get(pd.Timestamp(d))
         if bo is None:
             continue
-        ret, exi, opn, legs = _m3(bo)
-        exd = None if exi is None else pd.Timestamp(gd[exi])
-        hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
-        rebought = any(k == "补" for _, k in legs)
-        legdates = [[str(pd.Timestamp(gd[i]).date()), k, round(float(cc[i]), 3)] for i, k in legs]
-        res.append(((ts, str(pd.Timestamp(d).date())),
-                    (round(ret * 100, 0), round(ret, 4),
-                     None if exd is None else str(exd.date()), opn, hold, rebought, legdates)))
+        res.append(((ts, str(pd.Timestamp(d).date())), _pack(_m3, bo, d) + _pack(_slr, bo, d)))
     return res
 
 
@@ -302,7 +342,7 @@ def _tag_states(out):
         cur_exit = "flat"       # "flat" | None(持仓中) | pd.Timestamp(已离场日)
         anchor_exit = None      # 当前锚点仓位的离场日 str(持仓中则 None)
         for ds in sorted(dss):
-            ret_, raw_, exit_, opn_, hold_, rebought_, legs_ = out[(ts, ds)]
+            ret_, raw_, exit_, opn_, hold_, rebought_, legs_, *slr_ = out[(ts, ds)]
             d = pd.Timestamp(ds)
             anchor = (cur_exit == "flat") or (isinstance(cur_exit, pd.Timestamp) and d > cur_exit)
             posinfo = None
@@ -316,7 +356,7 @@ def _tag_states(out):
             else:
                 state = "加仓"     # 归属当前锚点仓位,带上锚点的离场日/持仓状态
                 posinfo = [anchor_exit, anchor_exit is None]
-            final[(ts, ds)] = (ret_, raw_, exit_, opn_, hold_, state, legs_, posinfo)
+            final[(ts, ds)] = (ret_, raw_, exit_, opn_, hold_, state, legs_, posinfo, *slr_)
     return final
 
 
@@ -745,7 +785,7 @@ def main():
         st = ("已走出主升浪" if r["label"] == 1 else "未达") if r["done"] else "进行中"
         code = r["ts"][:3]
         board = "科创" if r["ts"].startswith(("688", "689")) else "创业" if code in ("300", "301") else "主板"
-        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None, None, [], None))
+        cz = czx.get((r["ts"], str(r["date"].date())), (None, None, None, True, None, None, [], None, None, None, None, True, None, None, []))
         data.append({
             "date": str(r["date"].date()), "ts": r["ts"], "name": names.get(r["ts"], ""),
             "board": board, "mkt": "健康" if regs.get(BOARD_IDX.get(board, "沪深300"), {}).get(r["date"], False) else "走坏",
@@ -763,6 +803,7 @@ def main():
             "swtp": None if pd.isna(r["swtp"]) else str(r["swtp"].date()),
             "czret": cz[0], "czr": cz[1], "czexit": cz[2], "czopen": cz[3], "czhold": cz[4],
             "czstate": cz[5], "czlegs": cz[6], "czposinfo": cz[7],
+            "slrret": cz[8], "slrr": cz[9], "slrexit": cz[10], "slropen": cz[11], "slrhold": cz[12], "slrlegs": cz[14],
             "czcur": round(float(lastc.get(r["ts"], r["price"])), 3),
             "launch": None if pd.isna(r["launch"]) else int(r["launch"]),
             "hold": int(np.busday_count(r["date"].date(),

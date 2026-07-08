@@ -75,6 +75,7 @@ type Sig = SignalRow & {
   donret?: number | null; donr?: number | null; donexit?: string | null; donopen?: boolean; hold?: number | null
   czret?: number | null; czr?: number | null; czexit?: string | null; czopen?: boolean; czhold?: number | null
   czstate?: string | null; czlegs?: [string, string][]; czposinfo?: [string | null, boolean] | null
+  slrret?: number | null; slrr?: number | null; slrexit?: string | null; slropen?: boolean; slrhold?: number | null; slrlegs?: [string, string][]
   swret?: number | null; swr?: number | null; swexit?: string | null; swopen?: boolean; swhold?: number | null
 }
 import { useSignalStore } from './store/signalStore'
@@ -519,6 +520,7 @@ function MainPage() {
     const don = rows.filter(r => r.donret != null).map(r => r.donret as number)
     // const sw = rows.filter(r => r.swret != null).map(r => r.swret)   // 波段先隐藏
     const cz = rows.filter(r => r.czret != null).map(r => r.czret as number)
+    const slr = rows.filter(r => r.slrret != null).map(r => r.slrret as number)
     const done = rows.filter(r => r.status !== '进行中'), hit = done.filter(r => r.status === '已走出主升浪')
     const fwds = rows.filter(r => r.maxfwd != null).map(r => r.maxfwd as number)
     const days = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0) + '天' : '—'
@@ -535,6 +537,7 @@ function MainPage() {
         strat('唐奇安', don, 'hold', 'donopen'),
         // strat('波段', sw, 'swhold', 'swopen'),   // 波段先隐藏
         strat('缠论M3', cz, 'czhold', 'czopen'),
+        strat('5%止损·缠论回补', slr, 'slrhold', 'slropen'),
       ],
     }
   }, [rows, payload])
@@ -574,6 +577,7 @@ function MainPage() {
       if (r.czstate === '持仓中') return <Tag color="blue">持仓中</Tag>
       return (v || '持仓中') + (r.czhold != null ? '(' + r.czhold + '天)' : '')   // 已离场
     } },
+    { title: '5%止损盈亏', dataIndex: 'slrret', sorter: (a, b) => (a.slrret ?? -999) - (b.slrret ?? -999), render: (v, r) => v == null ? '—' : <span>{pct(v, true)}{r.slropen ? '(持仓)' : ''}{r.slrexit ? '' : ''}{r.slrhold != null && !r.slropen ? <span style={{ color: '#888', fontSize: 11 }}> {r.slrexit}({r.slrhold}天)</span> : null}</span> },
     { title: 'LLM分析', fixed: 'right', render: (_, r) => <Button size="small" type="primary" ghost onClick={() => analyze(r.ts, r.date, false, r.name)}>分析</Button> },
     { title: '缠论提示', fixed: 'right', render: (_, r) => <Button size="small" ghost style={{ color: '#0b6e4f', borderColor: '#0b6e4f' }} onClick={() => openAdvise(r.ts, r.date)}>卖点</Button> },
   ]
@@ -703,6 +707,9 @@ function MainPage() {
         {/* 波段先隐藏 <Chart title="波段止盈止损出场" series={portfolio(rows, 'swexit', 'swr', payload.cal, parts)} /> */}
         <div style={{ height: 8 }} />
         <Chart title="缠论M3(加仓并仓·卖点止盈+回调回补各占1份)" series={czPortfolio(rows, payload.cal ?? [], parts).curve} />
+        <div style={{ height: 8 }} />
+        <Chart title="5%止损·缠论回补(利润奔跑·唯一卖出=-5%止损·缠买回补·遇缠论一卖停补)"
+          series={czPortfolio(rows.map(r => ({ ...r, czret: r.slrret, czr: r.slrr, czexit: r.slrexit, czopen: r.slropen, czhold: r.slrhold, czlegs: r.slrlegs } as any)), payload.cal ?? [], parts).curve} />
       </div>}
 
       {payload && (() => {
