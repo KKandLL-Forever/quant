@@ -644,8 +644,59 @@ def run(start: str, tier_pct: int = 1, proba_thr: float = None,
         pass
 
 
+def screen_data(start="20250101", tier_pct=10, version="v6", limit=500):
+    """历史 Top 档 2板信号 + 最终连板高度/智能止盈实收/T+7,返回 JSON dict(供 webapp)。默认 v6 评估版,历史无穿越。"""
+    model, feat_cols, tiers, build_feature_matrix, ver_label, is_reg = _resolve_version(version)
+    ti = TIER_INDEX[tier_pct]
+    tier_label = tiers[ti]["label"]
+    proba_thr = tiers[ti]["proba"]
+    from ml_train_2lb_v3 import _get_signals
+    sig = _get_signals()
+    sig = sig[sig["trade_date"] >= start].reset_index(drop=True)
+    feat = build_feature_matrix(sig[["ts_code", "trade_date"]], require_label=False)
+    feat = feat.dropna(subset=feat_cols, how="all").copy()
+    feat["proba"] = model.predict(feat[feat_cols]) if is_reg else model.predict_proba(feat[feat_cols])[:, 1]
+    picked = feat[feat["proba"] >= proba_thr].copy()
+    if picked.empty:
+        return {"ok": True, "tier": tier_label, "version": ver_label, "start": start, "rows": [], "summary": {"n": 0}}
+    con = _duckdb.connect(DUCK_PATH, read_only=True)
+    try:
+        prices = _attach_prices(con, picked)
+        boards = _attach_boards(con, picked)
+        picked_b = picked[["ts_code", "trade_date"]].merge(boards, on=["ts_code", "trade_date"], how="left")
+        realized = _attach_realized(con, picked_b)
+        names = _get_names(con, picked["ts_code"].tolist())
+    finally:
+        con.close()
+    df = picked[["ts_code", "trade_date", "proba"]].merge(prices, on=["ts_code", "trade_date"], how="left") \
+        .merge(boards, on=["ts_code", "trade_date"], how="left").merge(realized, on=["ts_code", "trade_date"], how="left")
+    df["name"] = df["ts_code"].map(names).fillna("")
+    df["ret_real"] = np.where(df["buy_open"].notna() & df["sell_real"].notna() & (df["buy_open"] > 0),
+                              df["sell_real"] / df["buy_open"] - 1.0, np.nan)
+    df["ret_t7"] = np.where(df["buy_open"].notna() & df["t7_close"].notna() & (df["buy_open"] > 0),
+                            df["t7_close"] / df["buy_open"] - 1.0, np.nan)
+    df = df.sort_values(["trade_date", "proba"], ascending=[False, False]).reset_index(drop=True)
+    rows = []
+    for _, r in df.head(limit).iterrows():
+        rows.append({"ts_code": r["ts_code"], "name": r.get("name") or "", "trade_date": str(r["trade_date"])[:10],
+                     "proba": round(float(r["proba"]), 4),
+                     "boards": None if pd.isna(r.get("boards")) else int(r["boards"]),
+                     "ret_real": None if pd.isna(r["ret_real"]) else round(float(r["ret_real"]), 4),
+                     "ret_t7": None if pd.isna(r["ret_t7"]) else round(float(r["ret_t7"]), 4)})
+    valr = df["ret_real"].dropna()
+    bn = df["boards"].dropna()
+    summary = {"n": int(len(df)),
+               "avg_real": None if not len(valr) else round(float(valr.mean()), 4),
+               "med_real": None if not len(valr) else round(float(valr.median()), 4),
+               "win": None if not len(valr) else round(float((valr > 0).mean()), 4),
+               "to3": None if not len(bn) else round(float((bn >= 3).mean()), 4),
+               "to4": None if not len(bn) else round(float((bn >= 4).mean()), 4)}
+    return {"ok": True, "tier": tier_label, "version": ver_label, "start": start, "rows": rows, "summary": summary}
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
+    p.add_argument("--json-out", default=None, help="把历史信号写成 JSON 到该路径(供 webapp),用 v6 评估版")
     p.add_argument("--start", default="20260101")
     p.add_argument("--tier", type=int, default=1, choices=[1, 5, 10, 20],
                    help="分位档下限：1/5/10/20（默认 1，含更高 proba）")
@@ -658,4 +709,10 @@ if __name__ == "__main__":
     p.add_argument("--model-version", default="v3", choices=list(MODEL_VERSIONS),
                    help="模型版本（v3 默认 / v5 评估 / v5d 部署 / v6 评估·2进4 / v6d 部署 / v2 旧版）")
     args = p.parse_args()
-    run(args.start, args.tier, args.proba, args.tier_top, args.proba_hi, args.model_version)
+    if args.json_out:
+        import json
+        with open(args.json_out, "w", encoding="utf-8") as f:
+            json.dump(screen_data(args.start, args.tier, args.model_version), f, ensure_ascii=False)
+        print(f"JSON 已写: {args.json_out}")
+    else:
+        run(args.start, args.tier, args.proba, args.tier_top, args.proba_hi, args.model_version)

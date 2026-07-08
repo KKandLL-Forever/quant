@@ -1017,6 +1017,30 @@ def lianban_score(date: str = "", refresh: bool = False):
     return {**data, "cached": False}
 
 
+@app.get("/api/lianban/history")
+def lianban_history(start: str = "20250101", tier: int = 10, refresh: bool = False):
+    """历史 Top档 2板信号 + 最终高度/智能止盈实收/T+7(v6评估版,无穿越);按 start+tier 缓存,较慢(分钟级)。"""
+    cf = os.path.join(LIANBAN_CACHE, f"hist_{start}_{tier}.json")
+    if not refresh and os.path.exists(cf):
+        with open(cf, encoding="utf-8") as f:
+            return {**json.load(f), "cached": True}
+    tmp = os.path.join(LIANBAN_CACHE, f"_tmph_{start}_{tier}.json")
+    cmd = [_lianban_py(), os.path.join(_FIRST10, "screen_2lb_top1_t7.py"), "--json-out", tmp,
+           "--start", start, "--tier", str(tier), "--model-version", "v6"]
+    try:
+        r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True, timeout=600)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "历史扫描超时(>10分钟)"}
+    if not os.path.exists(tmp):
+        return {"ok": False, "error": "历史扫描失败", "log": (r.stderr or r.stdout or "")[-1500:]}
+    with open(tmp, encoding="utf-8") as f:
+        data = json.load(f)
+    os.remove(tmp)
+    with open(cf, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    return {**data, "cached": False}
+
+
 @app.post("/api/lianban/retrain")
 def lianban_retrain():
     """重训 2进4 实盘部署模型(2lb_model_v6_deploy.py),分钟级同步跑,返回日志尾。"""

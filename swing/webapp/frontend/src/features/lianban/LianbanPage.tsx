@@ -7,6 +7,8 @@ import { StockName } from '../../StockInfo'
 import { useAna } from '../../App'
 
 interface Sig { ts_code: string; name: string; proba: number; tier: string | null; top10: boolean; rank: number | null; posn: string | null; concepts: string }
+interface HistRow { ts_code: string; name: string; trade_date: string; proba: number; boards: number | null; ret_real: number | null; ret_t7: number | null }
+interface HistPayload { ok: boolean; error?: string; tier?: string; version?: string; start?: string; cached?: boolean; rows?: HistRow[]; summary?: { n: number; avg_real?: number | null; med_real?: number | null; win?: number | null; to3?: number | null; to4?: number | null } }
 interface Payload {
   ok: boolean; error?: string; date?: string; n_signals?: number; note?: string; cached?: boolean
   regime?: { label: string; color: string; msg: string }
@@ -22,7 +24,19 @@ export default function LianbanPage() {
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
   const [retrain, setRetrain] = useState(false)
+  const [hist, setHist] = useState<HistPayload | null>(null)
+  const [histLoading, setHistLoading] = useState(false)
   const analyze = useAna()
+
+  const loadHist = async (refresh = false) => {
+    setHistLoading(true)
+    try {
+      const j: HistPayload = await (await fetch(`/api/lianban/history?start=20250101&tier=10${refresh ? '&refresh=true' : ''}`)).json()
+      if (!j.ok) throw new Error(j.error || '历史扫描失败')
+      setHist(j)
+    } catch (e) { message.error((e as Error).message) } finally { setHistLoading(false) }
+  }
+  useEffect(() => { loadHist() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = async (d: string, refresh = false) => {
     setLoading(true)
@@ -99,6 +113,32 @@ export default function LianbanPage() {
           </div>
         </Card>
       ))}
+
+      <Card size="small" style={{ marginTop: 16 }} loading={histLoading}
+        title={<span>历史信号(Top10% · v6评估版·无穿越 · 2025年起)
+          {hist?.summary && hist.summary.n > 0 && <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>
+            {hist.summary.n} 条 · 智能止盈均收益 <b style={{ color: (hist.summary.avg_real ?? 0) >= 0 ? '#c0392b' : '#1f8e5a' }}>{hist.summary.avg_real != null ? (hist.summary.avg_real * 100).toFixed(1) + '%' : '—'}</b>
+            · 胜率 <b>{hist.summary.win != null ? (hist.summary.win * 100).toFixed(0) + '%' : '—'}</b>
+            · 到3板率 <b>{hist.summary.to3 != null ? (hist.summary.to3 * 100).toFixed(0) + '%' : '—'}</b>
+            · 到4板率 <b>{hist.summary.to4 != null ? (hist.summary.to4 * 100).toFixed(0) + '%' : '—'}</b>
+            {hist.cached && <span style={{ marginLeft: 6, color: '#0b6e4f' }}>(缓存)</span>}
+          </span>}
+          <Button size="small" style={{ marginLeft: 12 }} loading={histLoading} onClick={() => loadHist(true)}>刷新重扫</Button>
+        </span>}>
+        <Table rowKey={(r: HistRow) => r.ts_code + r.trade_date} size="small" pagination={{ pageSize: 20, showSizeChanger: false }}
+          dataSource={hist?.rows || []}
+          columns={[
+            { title: '信号日', dataIndex: 'trade_date', width: 110, defaultSortOrder: 'descend' as const, sorter: (a: HistRow, b: HistRow) => a.trade_date < b.trade_date ? -1 : 1 },
+            { title: '名称', dataIndex: 'name', render: (v: string, r: HistRow) => <span><StockName code={r.ts_code}><a onClick={() => analyze(r.ts_code, r.trade_date, false, v)}><b>{v}</b></a></StockName> <span style={{ opacity: .55 }}>{r.ts_code}</span></span> },
+            { title: '到4板概率', dataIndex: 'proba', sorter: (a: HistRow, b: HistRow) => a.proba - b.proba, render: (v: number) => <b>{(v * 100).toFixed(1)}%</b> },
+            { title: '最终高度', dataIndex: 'boards', width: 100, sorter: (a: HistRow, b: HistRow) => (a.boards ?? 0) - (b.boards ?? 0), render: (v: number | null) => v == null ? <span style={{ color: '#bbb' }}>—</span> : <Tag color={v >= 4 ? 'red' : v >= 3 ? 'orange' : 'default'}>{v}板</Tag> },
+            { title: '智能止盈实收', dataIndex: 'ret_real', sorter: (a: HistRow, b: HistRow) => (a.ret_real ?? -9) - (b.ret_real ?? -9), render: (v: number | null) => v == null ? <span style={{ color: '#999' }}>持有中/未结算</span> : <b style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{(v * 100).toFixed(1)}%</b> },
+            { title: 'T+7', dataIndex: 'ret_t7', sorter: (a: HistRow, b: HistRow) => (a.ret_t7 ?? -9) - (b.ret_t7 ?? -9), render: (v: number | null) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{(v * 100).toFixed(1)}%</span> },
+          ]} />
+        <div style={{ fontSize: 12, color: '#999', marginTop: 6 }}>
+          v6 评估版(walk-forward、末折≤2023,对 2024~ 是干净样本外),历史成绩可信、无穿越。智能止盈=2板次日开盘买、炸板次日开盘卖、连板持有到断板当日开盘卖。最新几条可能未结算(实收显示持有中)。
+        </div>
+      </Card>
     </div>
   )
 }
