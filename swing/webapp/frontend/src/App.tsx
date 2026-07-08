@@ -538,7 +538,7 @@ function MainPage() {
         strat('唐奇安', don, 'hold', 'donopen'),
         // strat('波段', sw, 'swhold', 'swopen'),   // 波段先隐藏
         strat('缠论M3', cz, 'czhold', 'czopen'),
-        strat('5%止损·缠论回补', slr, 'slrhold', 'slropen'),
+        strat('5%硬止损(不回补)', slr, 'slrhold', 'slropen'),
       ],
     }
   }, [rows, payload])
@@ -710,7 +710,7 @@ function MainPage() {
         <div style={{ height: 8 }} />
         <Chart title="缠论M3(加仓并仓·卖点止盈+回调回补各占1份)" series={czPortfolio(rows, payload.cal ?? [], parts).curve} />
         <div style={{ height: 8 }} />
-        <Chart title="5%止损·缠论回补(利润奔跑·唯一卖出=-5%止损·缠买回补·遇缠论一卖停补)"
+        <Chart title="5%硬止损(利润奔跑·唯一卖出=收盘跌破入场价-5%·任何情况不回补·单腿)"
           series={czPortfolio(rows.map(r => ({ ...r, czret: r.slrret, czr: r.slrr, czexit: r.slrexit, czopen: r.slropen, czhold: r.slrhold, czlegs: r.slrlegs } as any)), payload.cal ?? [], parts).curve} />
       </div>}
 

@@ -188,22 +188,6 @@ def _czsc_one(job):
                     return True
         return False
 
-    def _sell1(c):   # 仅缠论一卖(供 5%止损回补口径判「不再回补」用)
-        f = getattr(CS, "cxt_first_sell_V221126", None)
-        if not f:
-            return False
-        try:
-            out = f(c, di=1)
-        except Exception:
-            try:
-                out = f(c)
-            except Exception:
-                return False
-        for v in out.values():
-            if str(v).split("_")[0] != "其他":
-                return True
-        return False
-
     def _buy(c):
         for fn in ("cxt_first_buy_V221126", "cxt_second_bs_V230320", "cxt_third_buy_V230228"):
             f = getattr(CS, fn, None)
@@ -230,14 +214,11 @@ def _czsc_one(job):
     try:
         c = CZSC(bars[:1])
         sd = {0} if _sell(c) else set()
-        sd1 = {0} if _sell1(c) else set()
         bd = {0} if _buy(c) else set()
         for i in range(1, len(bars)):
             c.update(bars[i])
             if _sell(c):
                 sd.add(i)
-            if _sell1(c):
-                sd1.add(i)
             if _buy(c):
                 bd.add(i)
     except Exception:
@@ -267,24 +248,13 @@ def _czsc_one(job):
             t += 1
         return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True, legs
 
-    def _slr(bo):   # 5%止损回补口径:利润奔跑不封顶,唯一卖出=固定-5%止损;止损后缠论买点回补,回补前遇缠论一卖则不补、结束
-        mult, en, t = 1.0, bo, bo + 1
+    def _slr(bo):   # 5%硬止损口径:利润奔跑不封顶,唯一卖出=收盘跌破入场价-5%即清仓;任何情况都不回补,单腿结束
         legs = [(bo, "买")]
-        while t < len(cc):
-            if cc[t] <= cc[en] * 0.95:
-                mult *= (cc[t] / cc[en]) * (1 - 2 * COST)
+        for t in range(bo + 1, len(cc)):
+            if cc[t] <= cc[bo] * 0.95:
                 legs.append((t, "止5"))
-                re = None
-                for t2 in range(t + 1, len(cc)):
-                    if t2 in sd1:
-                        return mult - 1, t, False, legs
-                    if t2 in bd and cc[t2] > cc[t]:   # 只往上补:回补价须高于上次止损价,避免单边下跌里越接越低
-                        re = t2; break
-                if re is None:
-                    return mult - 1, t, False, legs
-                en = re; legs.append((re, "补")); t = re + 1; continue
-            t += 1
-        return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True, legs
+                return (cc[t] / cc[bo]) * (1 - 2 * COST) - 1, t, False, legs
+        return (cc[-1] / cc[bo]) * (1 - 2 * COST) - 1, None, True, legs
 
     def _pack(fn, bo, d):
         ret, exi, opn, legs = fn(bo)
