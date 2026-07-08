@@ -803,7 +803,8 @@ def main():
         _, brk, _pv = min(pends, key=lambda p: p[1])   # 取最近的突破价(现价固定,brk 越小越近)
         ml_fc.append({"code": ts, "name": names.get(ts, ""), "typ": typ,
                       "price": round(float(craw[-1]), 2), "trig": round(float(brk) * ratio, 2),
-                      "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1)})
+                      "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1),
+                      "pct": round((float(cc[-1]) / float(cc[-2]) - 1) * 100, 1)})
     ml_fc.sort(key=lambda x: x["dist"])
     if args.json:
         payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",

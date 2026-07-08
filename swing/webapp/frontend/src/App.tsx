@@ -760,7 +760,8 @@ function MainPage() {
       {payload && (() => {
         const bd = (c: string) => c.startsWith('688') || c.startsWith('689') ? '科创' : (c.slice(0, 3) === '300' || c.slice(0, 3) === '301') ? '创业' : '主板'
         const mlFc = ((payload as any).ml_forecast ?? []).filter((r: any) =>
-          (showKc || bd(r.code) !== '科创') && (showCy || bd(r.code) !== '创业') && (!only50 || r.price <= 50))
+          (showKc || bd(r.code) !== '科创') && (showCy || bd(r.code) !== '创业') && (!only50 || r.price <= 50)
+          && (r.pct == null || r.pct >= 0))
         return mlFc.length > 0 && (
         <Card size="small" style={{ marginTop: 12 }} title={`明日预判 ${mlFc.length} 只(形态已成型、只差站上突破价;非实时,需明日收盘站上+放量+创新高)`}>
           <Table rowKey={(r: any) => r.code + r.typ} size="small" pagination={{ pageSize: 20 }}
@@ -770,6 +771,7 @@ function MainPage() {
               { title: '名称', dataIndex: 'name', render: (v: string, r: any) => <StockName code={r.code}><a onClick={() => openKline(r.code, payload.latest ?? '', undefined)}>{v}</a></StockName> },
               { title: '代码', dataIndex: 'code' },
               { title: '现价', dataIndex: 'price', render: (v: number) => `${v}元` },
+              { title: '当日涨幅', dataIndex: 'pct', sorter: (a: any, b: any) => (a.pct ?? 0) - (b.pct ?? 0), render: (v: number) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</span> },
               { title: '突破价', dataIndex: 'trig', render: (v: number) => <b style={{ color: '#c0392b' }}>{v}元</b> },
               { title: '距突破', dataIndex: 'dist', defaultSortOrder: 'ascend', sorter: (a: any, b: any) => a.dist - b.dist, render: (v: number) => <span style={{ color: v <= 1 ? '#c0392b' : '#5b554a' }}>+{v}%</span> },
               { title: 'LLM分析', width: 80, render: (_: any, r: any) => <Button size="small" type="primary" ghost onClick={() => analyze(r.code, payload.latest ?? '', false, r.name)}>分析</Button> },
