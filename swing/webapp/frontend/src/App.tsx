@@ -524,8 +524,21 @@ function MainPage() {
     const done = rows.filter(r => r.status !== '进行中'), hit = done.filter(r => r.status === '已走出主升浪')
     const fwds = rows.filter(r => r.maxfwd != null).map(r => r.maxfwd as number)
     const days = (a: number[]) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(0) + '天' : '—'
+    const maxDD = (curve: [string, number][]) => {   // 组合净值曲线的最大回撤
+      if (!curve || curve.length === 0) return '—'
+      let peak = -Infinity, mdd = 0
+      for (const [, v] of curve) { if (v > peak) peak = v; if (peak > 0) mdd = Math.min(mdd, v / peak - 1) }
+      return (mdd * 100).toFixed(1) + '%'
+    }
+    const cal = payload?.cal ?? []
+    const slrRows = rows.map(r => ({ ...r, czret: r.slrret, czr: r.slrr, czexit: r.slrexit, czopen: r.slropen, czhold: r.slrhold, czlegs: r.slrlegs } as any))
+    const curves: Record<string, [string, number][]> = {
+      '唐奇安': portfolio(rows, 'donexit', 'donr', cal, parts),
+      '缠论M3': czPortfolio(rows, cal, parts).curve,
+      '5%止损·缠论回补': czPortfolio(slrRows, cal, parts).curve,
+    }
     const strat = (name: string, arr: number[], holdKey: string, openKey: string) => ({
-      name, n: arr.length, win: winr(arr), avg: avg(arr), dd: avg(arr.filter(v => v < 0)),
+      name, n: arr.length, win: winr(arr), avg: avg(arr), dd: avg(arr.filter(v => v < 0)), mdd: maxDD(curves[name]),
       hold: days(rows.filter(r => r[holdKey] != null).map(r => r[holdKey] as number)),
       on: rows.filter(r => r[openKey]).length,
     })
@@ -540,7 +553,7 @@ function MainPage() {
         strat('5%止损·缠论回补', slr, 'slrhold', 'slropen'),
       ],
     }
-  }, [rows, payload])
+  }, [rows, payload, parts])
 
   const today = useMemo(() => {
     if (!payload) return null
@@ -678,7 +691,7 @@ function MainPage() {
           <div style={{ fontSize: 13, color: '#444', marginBottom: 4 }}>三种出场口径对比</div>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead><tr style={{ color: '#888', textAlign: 'right' }}>
-              <th style={{ textAlign: 'left' }}>出场</th><th>胜率</th><th>平均盈亏</th><th>平均回撤</th><th>平均持仓</th><th>进行中</th>
+              <th style={{ textAlign: 'left' }}>出场</th><th>胜率</th><th>平均盈亏</th><th>平均回撤</th><th>最大回撤</th><th>平均持仓</th><th>进行中</th>
             </tr></thead>
             <tbody>{stats.strats.map(s => (
               <tr key={s.name} style={{ textAlign: 'right', borderTop: '1px solid #ece7db' }}>
@@ -686,12 +699,13 @@ function MainPage() {
                 <td>{s.win}</td>
                 <td style={{ color: '#c0392b' }}>{s.avg}</td>
                 <td style={{ color: '#27ae60' }}>{s.dd}</td>
+                <td style={{ color: '#c0392b', fontWeight: 600 }}>{s.mdd}</td>
                 <td>{s.hold}</td>
                 <td>{s.on}/{s.n}</td>
               </tr>
             ))}</tbody>
           </table>
-          <div style={{ fontSize: 11, color: '#999', marginTop: 4, lineHeight: 1.3 }}>胜率=盈亏&gt;0占比;平均盈亏=全部信号均值;平均回撤=亏损信号平均亏幅;均扣双边费、持仓中按现价。进行中=未离场/总条数</div>
+          <div style={{ fontSize: 11, color: '#999', marginTop: 4, lineHeight: 1.3 }}>胜率=盈亏&gt;0占比;平均盈亏=全部信号均值;平均回撤=亏损信号平均亏幅;最大回撤=该口径组合净值曲线(下方图,跟随份数)的峰-谷最大跌幅;均扣双边费、持仓中按现价。进行中=未离场/总条数</div>
         </Card>
       </div>}
 
