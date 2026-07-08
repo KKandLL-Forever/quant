@@ -12,6 +12,7 @@ export const NAV_ITEMS = [
   { key: '/boll', label: 'BOLL突破信号' },
   { key: '/concept', label: '概念轮动' },
   { key: '/oversold', label: '超跌反弹' },
+  { key: '/lianban', label: '连板信号' },
 ]
 
 export const QUANT_THEME = {

@@ -88,6 +88,7 @@ import XiaoxifuPage from './features/xiaoxifu/XiaoxifuPage'
 import BollPage from './features/boll/BollPage'
 import ConceptPage from './features/concept/ConceptPage'
 import OversoldPage from './features/oversold/OversoldPage'
+import LianbanPage from './features/lianban/LianbanPage'
 
 // K线(echarts):蜡烛 + 缠论笔 + 中枢markArea + 突破日markLine + 买卖markPoint;带十字光标/滚轮缩放
 function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
@@ -908,6 +909,7 @@ export default function App() {
           if (r === '/boll') return <BollPage />
           if (r === '/concept') return <ConceptPage />
           if (r === '/oversold') return <OversoldPage />
+          if (r === '/lianban') return <LianbanPage />
           return <MainPage />
         })()}
       </AnaHost>

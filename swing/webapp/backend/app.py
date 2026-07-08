@@ -980,6 +980,55 @@ def stock_info(code: str = ""):
             "concepts": [c[0] for c in cons]}
 
 
+LIANBAN_CACHE = os.path.join(os.path.dirname(__file__), ".lianban_cache")
+os.makedirs(LIANBAN_CACHE, exist_ok=True)
+_PY312 = os.path.join(_ROOT, ".venv312", "bin", "python")
+_FIRST10 = os.path.join(_ROOT, "first10")
+
+
+def _lianban_py():
+    """连板脚本需 xgboost,优先用 .venv312;没有则回退当前解释器。"""
+    return _PY312 if os.path.exists(_PY312) else sys.executable
+
+
+@app.get("/api/lianban/score")
+def lianban_score(date: str = "", refresh: bool = False):
+    """2进4(到4板)每日打分:按日期缓存,refresh=true 才重跑 ml_score_2lb_v6(约10~20秒)。"""
+    key = date or "latest"
+    cf = os.path.join(LIANBAN_CACHE, f"score_{key}.json")
+    if not refresh and os.path.exists(cf):
+        with open(cf, encoding="utf-8") as f:
+            return {**json.load(f), "cached": True}
+    tmp = os.path.join(LIANBAN_CACHE, f"_tmp_{key}.json")
+    cmd = [_lianban_py(), os.path.join(_FIRST10, "ml_score_2lb_v6.py"), "--json-out", tmp]
+    if date:
+        cmd += ["--date", date]
+    try:
+        r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True, timeout=300)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "打分超时(>5分钟)"}
+    if not os.path.exists(tmp):
+        return {"ok": False, "error": "打分失败", "log": (r.stderr or r.stdout or "")[-1500:]}
+    with open(tmp, encoding="utf-8") as f:
+        data = json.load(f)
+    os.remove(tmp)
+    with open(cf, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    return {**data, "cached": False}
+
+
+@app.post("/api/lianban/retrain")
+def lianban_retrain():
+    """重训 2进4 实盘部署模型(2lb_model_v6_deploy.py),分钟级同步跑,返回日志尾。"""
+    try:
+        r = subprocess.run([_lianban_py(), os.path.join(_FIRST10, "2lb_model_v6_deploy.py")],
+                           cwd=_FIRST10, capture_output=True, text=True, timeout=1800)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "重训超时(>30分钟)"}
+    ok = r.returncode == 0
+    return {"ok": ok, "log": ((r.stdout or "") + (r.stderr or ""))[-2500:]}
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True}

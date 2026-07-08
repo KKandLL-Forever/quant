@@ -150,9 +150,74 @@ def score(trade_date, top_n):
         pass
 
 
+def score_data(trade_date=None, top_n=20):
+    """同 score() 的数据层,但返回 JSON 可序列化 dict(供 webapp 后端),不出 HTML/SHAP/浏览器。"""
+    base.MODEL_PATH = MODEL_PATH
+    model, feat_cols, bundle = _load_model()
+    thresholds, hit_rates, auc = _resolve_tiers(bundle)
+    con = _duckdb.connect(DUCK_PATH, read_only=True)
+    try:
+        if trade_date is None:
+            trade_date = _latest_trade_date(con)
+        trade_date = str(trade_date)
+        sig = _get_signals_for_date(con, trade_date)
+        if sig.empty:
+            return {"ok": True, "date": trade_date, "n_signals": 0, "signals": [], "note": "该日无 2 板信号"}
+        market_state = _get_market_state(con, trade_date)
+        names = _get_names(con, sig["ts_code"].tolist())
+        concepts = _get_concepts(con, sig["ts_code"].tolist())
+    finally:
+        con.close()
+    regime = _classify_market_regime(market_state)
+    from ml_features_2lb_v3 import build_feature_matrix
+    feat = build_feature_matrix(sig[["ts_code", "trade_date"]], require_label=False)
+    if feat.empty:
+        return {"ok": False, "error": "特征构建失败", "date": trade_date}
+    feat["proba"] = model.predict_proba(feat[feat_cols].copy())[:, 1]
+    feat["concepts"] = feat["ts_code"].map(concepts).fillna("")
+    feat = feat.merge(sig[["ts_code", "name_at_date"]], on="ts_code", how="left")
+    feat["name"] = feat["name_at_date"].fillna(feat["ts_code"].map(names)).fillna("")
+    feat = feat.sort_values("proba", ascending=False).reset_index(drop=True)
+    top10_thr = next((thr for thr, label, *_ in thresholds if "10%" in label), None)
+
+    def _tier(p):
+        for thr, label, *_ in thresholds:
+            if p >= thr:
+                return label
+        return None
+
+    sigs, rank = [], 0
+    for _, r in feat.iterrows():
+        p = float(r["proba"])
+        istop = top10_thr is not None and p >= top10_thr
+        posn = None
+        if istop:
+            rank += 1
+            posn = _suggest_position(rank, regime[1])[0]
+        sigs.append({"ts_code": r["ts_code"], "name": r.get("name") or "", "proba": round(p, 4),
+                     "tier": _tier(p), "top10": bool(istop), "rank": rank if istop else None,
+                     "posn": posn, "concepts": r.get("concepts") or ""})
+    ms = {k: (float(v) if isinstance(v, (int, float, np.floating)) and not isinstance(v, bool) else v)
+          for k, v in dict(market_state or {}).items()}
+    return {"ok": True, "date": trade_date, "n_signals": int(len(feat)),
+            "regime": {"label": regime[0], "color": regime[1], "msg": regime[2]},
+            "market_state": ms, "auc": round(float(auc), 4),
+            "tiers": [{"proba": round(float(thr), 4), "label": label, "win": (rest[0] if rest else None)}
+                      for thr, label, *rest in thresholds],
+            "top10_thr": None if top10_thr is None else round(float(top10_thr), 4),
+            "signals": sigs}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="2 板→4 板(2进4)晋级概率打分（HTML 报告）")
     parser.add_argument("--date", default=None, help="交易日 YYYYMMDD（默认 daily 最大日期）")
     parser.add_argument("--top", type=int, default=15, help="展示 top N 条（默认 15）")
+    parser.add_argument("--json-out", default=None, help="把打分结果写成 JSON 到该路径(供 webapp 后端),不出 HTML")
     args = parser.parse_args()
-    score(args.date, args.top)
+    if args.json_out:
+        import json
+        with open(args.json_out, "w", encoding="utf-8") as f:
+            json.dump(score_data(args.date, args.top), f, ensure_ascii=False)
+        print(f"JSON 已写: {args.json_out}")
+    else:
+        score(args.date, args.top)
