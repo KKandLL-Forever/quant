@@ -21,6 +21,7 @@ async-lru==2.3.0
 asyncer==0.0.18
 attrs==26.1.0
 babel==2.18.0
+backtrader==1.9.78.123
 baostock==0.9.2
 bcrypt==5.0.0
 beautifulsoup4==4.15.0
