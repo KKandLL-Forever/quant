@@ -28,6 +28,7 @@ A 股量化研究仓库:一个共享数据层(tushare → 本地 DuckDB)之上,*
 - `alpha144/` — **流动性冲击择时**(复现「@B:A 用人话讲因子·第七期」Alpha#144=Amihud 非流动性+突破5日新高)。`alpha144.py`(因子+事件驱动定槽回测,--universe/--liq-floor)。**结论:视频宣称中证500年化49%/回撤16%复现不出**——因子在中证500很弱(Q4-Q0年化差~3%),溢价是小盘效应(中证2000年化差15%);且**要求日成交额≥5000万即由+14%转-3%,是微盘流动性幻觉,不可实盘**。详见 alpha144/README.md。
 - `qlib_workflow/` — qlib 工作流(Alpha158 + LGBM),吃自有 DuckDB 数据。
 - `x2_library/` — x2strategy 止盈止损方法库;`old/` — 废弃旧策略(含最早的 BOLL 网格)。
+- `research/` — 一次性形态/信号研究脚本(留档,不进前端);结论写在各脚本文件头 docstring,防重复踩坑。总纲:纯技术形态剥 beta 后系统性无 alpha,edge 在 regime+选股模型。
 - `docs/` — PRD / SCHEMA / 数据字典。
 
 ## 模型工作准绳(全局)
