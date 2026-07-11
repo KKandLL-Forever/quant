@@ -23,14 +23,15 @@
   · 且「做空指数」只能借道股指期货(升贴水/移仓)或 ETF(难融券),指数级 gross 结果还高估了可实现收益。
   → 与总纲一致:纯技术趋势系统剥 beta 后无系统性 alpha,edge 是熊市空头的风险溢价而非选股/择时能力。
 
-商品期货主连验证(--futures,2018~2026,12品种,单边3bp):碳酸锂神图=选择偏差,已证伪。
+商品期货主连验证(--futures,读本地 fut_daily 缓存,2013~2026,12品种,单边3bp):碳酸锂神图=选择偏差,已证伪。
   · 碳酸锂单品种确实惊艳(策略年化+18% vs BH-11%,夏普0.59)——但那是 2023-2025 碳酸锂单边
     崩盘(50万→7万)一波大空头喂出来的,单品种单段行情,正是原图 LC2609 截图的来源。
-  · 换成 12 个流动品种(螺纹/铜/银/橡胶/豆粕/铁矿/棕榈/焦炭/PTA/白糖/甲醇+碳酸锂)等权组合:
-    策略年化 -2.0%/夏普 -0.12/回撤 -38%,全面输给 BH多头 +6.2%/0.48/-25%;除碳酸锂外几乎每个
-    品种都跑输,组合逐年也几乎年年输(仅2018赢)。
-  · 主连换月跳空本会给趋势系统「送」人为动量(利好方向),即便如此仍全盘皆输 → 更坐实无真实 edge。
-  → 单品种截图 = 幸存者/选择偏差的教科书案例:一个跑赢的合约不代表系统有效,多品种长历史组合才算数。留档。
+  · 换成 12 个流动品种(螺纹/铜/银/橡胶/豆粕/铁矿/棕榈/焦炭/PTA/白糖/甲醇+碳酸锂)等权组合(2013~2026):
+    策略年化 1.5%/夏普 0.19/回撤 -38%,仍不及 BH多头 2.1%/0.22;除碳酸锂/铁矿外几乎每个品种都跑输,
+    近年(2022 -12%、2024 -13%)被震荡行情反复打脸。早年(2013-2015 熊市)靠空头腿赢,是危机溢价非 alpha。
+  · 主连换月跳空本会给趋势系统「送」人为动量(利好方向),即便如此组合仍不敌纯多头 → 更坐实无真实 edge。
+  → 单品种截图 = 幸存者/选择偏差的教科书案例:一个跑赢的合约不代表系统有效,多品种长历史组合才算数。
+  数据源:futures_cache.py 缓存的 fut_daily 主连(需先跑一次)。留档。
 """
 import argparse
 import sys
@@ -109,32 +110,27 @@ FUT = {
 }
 
 
-def _pro():
-    import os
-    import tushare as ts
-    import cache_tushare as ct
-    tok = (os.environ.get("TUSHARE_TOKEN") or ct._ENV.get("TUSHARE_TOKEN", "")).strip()
-    return ts.pro_api(tok)
-
-
-def load_fut(pro, code: str) -> pd.DataFrame:
-    """tushare 主力连续日线(不复权拼接,换月有跳空);pct 用 close 环比。"""
-    d = pro.fut_daily(ts_code=code, start_date="20130101", end_date="20260710")
-    if d is None or not len(d):
+def load_fut(con, code: str) -> pd.DataFrame:
+    """本地 DuckDB 主力连续日线(由 futures_cache.py 缓存,不复权拼接、换月有跳空);pct 用 close 环比。"""
+    d = con.execute(
+        "SELECT trade_date, close, vol FROM fut_daily WHERE ts_code=? ORDER BY trade_date", [code]).df()
+    if not len(d):
         return pd.DataFrame()
-    d = d.sort_values("trade_date").reset_index(drop=True)
     d["pct"] = d["close"].pct_change().fillna(0.0)
-    return d[["trade_date", "close", "vol", "pct"]]
+    return d
 
 
 def run_futures(n1: int, n2: int, cost: float):
-    """碳酸锂 + 一篮子流动商品主连:单品种 vs BH + 等权组合。"""
-    pro = _pro()
+    """碳酸锂 + 一篮子流动商品主连:单品种 vs BH + 等权组合。读本地 fut_daily(先跑 futures_cache.py)。"""
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    if not con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name='fut_daily'").fetchone()[0]:
+        con.close()
+        raise SystemExit("本地无 fut_daily 表:请先运行 python futures_cache.py 缓存期货数据")
     rets, bhs = {}, {}
     print(f"\n=== 两仪四象 · 商品期货主连 · N1={n1} N2={n2} · 单边{cost*1e4:.0f}bp ===\n")
     print(f"{'品种':<8}{'起始':>10}{'策略年化':>9}{'BH年化':>9}{'策略夏普':>9}{'BH夏普':>9}{'策略回撤':>9}{'反手':>6}")
     for code, name in FUT.items():
-        df = load_fut(pro, code)
+        df = load_fut(con, code)
         if len(df) < 200:
             print(f"{name:<8}{'(数据不足)':>10}")
             continue
@@ -147,6 +143,7 @@ def run_futures(n1: int, n2: int, cost: float):
         print(f"{name:<8}{df['trade_date'].iloc[0]:>10}{ms['cagr']*100:>8.1f}%{mb['cagr']*100:>8.1f}%"
               f"{ms['sharpe']:>9.2f}{mb['sharpe']:>9.2f}{ms['mdd']*100:>8.1f}%{flips:>6}")
 
+    con.close()
     port = pd.DataFrame(rets).mean(axis=1).dropna()
     portbh = pd.DataFrame(bhs).mean(axis=1).dropna()
     mp, mpb = metrics(port.to_numpy()), metrics(portbh.to_numpy())
