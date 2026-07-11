@@ -94,6 +94,7 @@ google-api-core==2.31.0
 google-auth==2.55.0
 google-genai==2.10.0
 googleapis-common-protos==1.75.0
+gplearn==0.4.3
 graphene==3.4.3
 graphql-core==3.2.11
 graphql-relay==3.2.0
