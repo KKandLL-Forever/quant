@@ -40,7 +40,7 @@ const IPO_MARKS = [
 const ipoMarkLine = {
   silent: true, symbol: 'none',
   lineStyle: { color: '#7a6cff', type: 'dashed' as const, width: 1, opacity: 0.65 },
-  label: { fontSize: 9, color: '#6b5bd6', rotate: 90 },
+  label: { fontSize: 12, color: '#6b5bd6', rotate: 90 },
   data: IPO_MARKS.map((m, i) => ({
     xAxis: m.date,
     label: { formatter: m.name, position: (i % 2 ? 'insideEndBottom' : 'insideEndTop') as any },
