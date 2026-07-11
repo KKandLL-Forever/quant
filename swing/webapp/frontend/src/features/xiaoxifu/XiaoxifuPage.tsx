@@ -18,15 +18,23 @@ interface Payload {
 interface StratCfg { key: string; label: string; hasKL: boolean; fixed?: boolean; showL?: boolean; showShares?: boolean; showPool?: boolean; kicker: string; desc: string; actionTitle?: string }
 interface PoolItem { code: string; name: string; industry: string }
 const STRATS: StratCfg[] = [
-  { key: 'leader', label: '龙头动量轮动', hasKL: true, showPool: true, showShares: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
-    desc: '各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF · 股票池可自定义' },
-  { key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~39%(含手续费)',
-    desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF' },
-  { key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~20%(含手续费)',
-    desc: '13 只主流行业 ETF · 每 K 交易日调仓取前 L · 基准科创50ETF' },
-  { key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, showL: true, showShares: true, kicker: 'Regime Switch · 年化~112%(含手续费) · 回撤减半',
+  {
+    key: 'leader', label: '龙头动量轮动', hasKL: true, showPool: true, showShares: true, kicker: 'Leader Momentum · 年化~102%(含手续费)',
+    desc: '各赛道龙头股 · 每 K 交易日调仓取前 L · 基准科创50ETF · 股票池可自定义'
+  },
+  {
+    key: 'allweather', label: '全天候动量轮动', hasKL: false, kicker: 'All-Weather · 年化~39%(含手续费)',
+    desc: '纳指/沪深300/黄金 3 只跨资产 ETF · 每日调仓正动量全取 · 基准沪深300ETF'
+  },
+  {
+    key: 'industry', label: '行业动量轮动', hasKL: true, showShares: true, kicker: 'Industry Rotation · 年化~20%(含手续费)',
+    desc: '13 只主流行业 ETF · 每 K 交易日调仓取前 L · 基准科创50ETF'
+  },
+  {
+    key: 'regime', label: '牛熊切换组合', hasKL: false, fixed: true, showL: true, showShares: true, kicker: 'Regime Switch · 年化~112%(含手续费) · 回撤减半',
     desc: '沪深300「MA30 且 MA60 同时走坏」→ 切全天候避险,否则持龙头(用「龙头动量」页设定的股票池) · 对照纯龙头/纯全天候',
-    actionTitle: '牛熊切换记录' },
+    actionTitle: '牛熊切换记录'
+  },
 ]
 const PALETTE = ['#c0392b', '#1f8e5a', '#3b82f6']
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`
@@ -36,7 +44,9 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const [K, setK] = useState(5)
   const [L, setL] = useState(5)
   const [capital, setCapital] = useState(100000)
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs('2026-01-01'), dayjs()])
+  const [range, setRange] = useState<[Dayjs, Dayjs]>(
+    () => [dayjs(cfg.key === 'allweather' || cfg.key === 'industry' ? '2020-01-01' : '2026-01-01'), dayjs()]
+  )
   const [stockOpts, setStockOpts] = useState<{ label: string; value: string }[]>([])
   const [nameMap, setNameMap] = useState<Record<string, string>>({})
   const [defaultPool, setDefaultPool] = useState<PoolItem[]>([])
@@ -55,11 +65,10 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
       setPool(j.saved && j.saved.length ? j.saved : j.default)   // 后端保存的池优先
     })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   const savePool = (p: PoolItem[]) => {
     setPool(p)
     localStorage.setItem('xiaoxifu:leaderPool', JSON.stringify(p))
-    fetch('/api/leader_pool_save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pool: p }) }).catch(() => {})
+    fetch('/api/leader_pool_save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pool: p }) }).catch(() => { })
   }
 
   const load = async () => {
@@ -79,7 +88,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
       setData(j)
     } catch (e) { message.error((e as Error).message) } finally { setLoading(false) }
   }
-  useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load() }, [range]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const equityData = useMemo(() => (data?.equity || []).map(row => {
     const o: Record<string, number | string> = { date: row.date }
@@ -101,8 +110,10 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   }), [equityData, data]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rebColumns = [
-    { title: cfg.actionTitle ? '切换日' : '调仓日', dataIndex: 'date', width: 190,
-      render: (d: string, row: Rebalance) => row.next ? <b style={{ color: '#0b6e4f' }}>🔮 {d}</b> : d },
+    {
+      title: cfg.actionTitle ? '切换日' : '调仓日', dataIndex: 'date', width: 190,
+      render: (d: string, row: Rebalance) => row.next ? <b style={{ color: '#0b6e4f' }}>🔮 {d}</b> : d
+    },
     ...(cfg.actionTitle ? [{
       title: '切换为', dataIndex: 'state', width: 150,
       render: (state: string) => <Tag color={state?.includes('避险') ? 'blue' : 'red'}><b>{state}</b></Tag>,
@@ -136,12 +147,16 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
           disabledDate={(d) => d && d > dayjs().endOf('day')}
           onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])} />
         {cfg.showPool && <Button size="small" onClick={() => setPoolOpen(true)}
-          style={{ background: 'linear-gradient(135deg,#0b6e4f,#0f8a63)', color: '#fff', border: 'none',
-            fontWeight: 500, boxShadow: '0 2px 8px -3px rgba(11,110,79,.6)' }}>
+          style={{
+            background: 'linear-gradient(135deg,#0b6e4f,#0f8a63)', color: '#fff', border: 'none',
+            fontWeight: 500, boxShadow: '0 2px 8px -3px rgba(11,110,79,.6)'
+          }}>
           ✎ 编辑股票池 <b style={{ marginLeft: 2 }}>{pool.length}</b> 只</Button>}
         <Button type="primary" size="small" onClick={load} loading={loading}
-          style={{ background: 'linear-gradient(135deg,#c0392b,#e05a3f)', border: 'none', fontWeight: 600,
-            letterSpacing: 1, boxShadow: '0 2px 10px -3px rgba(192,57,43,.6)' }}>▶ 运行回测</Button>
+          style={{
+            background: 'linear-gradient(135deg,#c0392b,#e05a3f)', border: 'none', fontWeight: 600,
+            letterSpacing: 1, boxShadow: '0 2px 10px -3px rgba(192,57,43,.6)'
+          }}>▶ 运行回测</Button>
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 权重滞后1天(T+1执行)</span>
       </div>
 
