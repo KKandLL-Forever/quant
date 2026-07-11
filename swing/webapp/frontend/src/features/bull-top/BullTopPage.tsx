@@ -32,7 +32,8 @@ const areaData = (dates: string[]) => bullAreas(dates).map(b =>
   [{ xAxis: fmtDate(b.x1), itemStyle: { color: b.c, opacity: 0.07 }, name: b.label }, { xAxis: fmtDate(b.x2) }])
 const IPO_MARKS = [
   { date: '2018-06-08', name: '工业富联' }, { date: '2018-06-11', name: '宁德时代' },
-  { date: '2020-07-16', name: '中芯国际' }, { date: '2022-01-05', name: '中国移动' },
+  { date: '2020-01-16', name: '京沪高铁' }, { date: '2020-07-16', name: '中芯国际' },
+  { date: '2021-08-20', name: '中国电信' }, { date: '2022-01-05', name: '中国移动' },
   { date: '2022-04-21', name: '中国海油' }, { date: '2025-12-05', name: '摩尔线程' },
   { date: '2025-12-17', name: '沐曦股份' },
 ]
