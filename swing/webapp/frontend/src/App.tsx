@@ -424,7 +424,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
       {ana && <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
         <DatePicker style={{ width: 200 }} allowClear={false} value={ana.date ? dayjs(ana.date) : null}
           placeholder="选择分析日期"
-          disabledDate={(d) => d && d > dayjs().endOf('day')}
+          disabledDate={(d) => !d || !cal.set.has(d.format('YYYY-MM-DD'))}
           onChange={(d) => d && runAnalysis(ana.code, d.format('YYYY-MM-DD'), false, ana.name)}
           cellRender={(cur, info) => {
             if (info.type !== 'date') return info.originNode
