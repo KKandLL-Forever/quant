@@ -1,7 +1,7 @@
 // 涨停统计:连板梯队 / 连板成功率 / 连板日历 三同级 tab。数据走后端(DuckDB limit_list_d)。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Input, Button, Card, Table, Spin, Tabs, Collapse, Progress, message } from 'antd'
-import { Header, PageTitle } from '../../shell'
+import { Header, PageTitle, SkelTable } from '../../shell'
 import { fetchLimitup, buildLadder, calcSuccessRates, type LimitStock, type SuccessRateRow } from '../../lib/limitUp'
 import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
 import { ZoomBox } from '../../components/ZoomBox'
@@ -175,7 +175,7 @@ export default function LimitUpPage() {
           {data && <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>区间 {data.dates[0]} ~ {data.dates[data.dates.length - 1]} · {data.dates.length} 个交易日</span>}
         </div>
       )}
-      {loading && tab !== 'calendar' && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {loading && tab !== 'calendar' && <SkelTable rows={14} />}
 
       <Tabs size="large" activeKey={tab} onChange={setTab} items={[
         { key: 'ladder', label: '连板梯队', children: data ? <LadderView data={data} /> : null },

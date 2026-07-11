@@ -1,7 +1,7 @@
 // BOLL缩口扩张+MACD金叉 当日信号(ML大盘池)。突出「第二次信号(前30天已出过)+大盘健康」为重点买点。数据走 /api/boll。
 import { useEffect, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
-import { Header, PageTitle } from '../../shell'
+import { Button, Card, Table, Tag, Select, message } from 'antd'
+import { Header, PageTitle, SkelStatus, SkelTable } from '../../shell'
 import { StockName } from '../../StockInfo'
 import { useAna } from '../../App'
 
@@ -66,7 +66,7 @@ export default function BollPage() {
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>信号=BOLL缩口→扩张+MACD金叉+站上上轨+放量;综合口径再叠 大盘健康+第二次+MA60上行+RS跑赢(回测年化12.6%/夏普1.29/回撤12.4%);次日入场,持有约15日</span>
       </div>
 
-      {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {loading && <><SkelStatus /><SkelTable /><SkelTable /></>}
 
       {!loading && data && (
         <>

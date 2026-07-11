@@ -1,9 +1,9 @@
 // 小西西弗动量轮动策略复现(龙头/全天候/行业):Tab 切换,每策略 = 绩效卡 + 累计收益曲线 + 调仓动作表。数据走 /api/xiaoxifu。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, Modal, Input, DatePicker, message } from 'antd'
+import { Button, Card, Table, Tag, InputNumber, Statistic, Row, Col, Tabs, Select, Modal, Input, DatePicker, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import dayjs, { Dayjs } from 'dayjs'
-import { Header, PageTitle } from '../../shell'
+import { Header, PageTitle, SkelStatRow, SkelChart, SkelTable } from '../../shell'
 
 interface Pick { code: string; name: string; weight: number; price?: number | null }
 interface Rebalance { date: string; picks: Pick[]; state?: string; next?: boolean }
@@ -160,7 +160,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{cfg.desc} · 权重滞后1天(T+1执行)</span>
       </div>
 
-      {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {loading && <><SkelStatRow n={3} /><SkelChart h={420} /><SkelTable /></>}
 
       {!loading && data && (
         <>

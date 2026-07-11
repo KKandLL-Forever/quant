@@ -1,8 +1,8 @@
 // 概念轮动:扩散指标 + RRG 四象限(复现「做量化的西蒙」框架)。RRG散点(X=RS强度,Y=RS动量,气泡=扩散度,色=象限)+主线候选表。数据走 /api/concept。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, Select, message } from 'antd'
+import { Button, Card, Table, Tag, Select, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
-import { Header, PageTitle } from '../../shell'
+import { Header, PageTitle, SkelStatus, SkelChart, SkelTable } from '../../shell'
 
 interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean; trail: number[][] }
 interface Payload { ok: boolean; error?: string; date: string; bench: string; concepts: Cpt[] }
@@ -107,7 +107,7 @@ export default function ConceptPage() {
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>主线候选 = 扩散榜前40 且落在 RRG 领先/改善区。散点仅画扩散榜前60。</span>
       </div>
 
-      {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {loading && <><SkelStatus /><SkelChart h={480} /><SkelTable /></>}
 
       {!loading && data && (
         <>

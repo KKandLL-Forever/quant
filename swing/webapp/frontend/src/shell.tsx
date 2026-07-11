@@ -1,5 +1,6 @@
-// 共享外壳:导航项 / antd 主题 / Header / PageTitle。供各页面复用,避免循环依赖。
+// 共享外壳:导航项 / antd 主题 / Header / PageTitle / 骨架屏积木。供各页面复用,避免循环依赖。
 import React from 'react'
+import { Skeleton } from 'antd'
 
 export const NAV_ITEMS = [
   { key: '/', label: 'ML 主升浪信号' },
@@ -49,6 +50,26 @@ export const PageTitle = ({ kicker, children }: { kicker?: string; children: Rea
       color: 'var(--accent)', fontWeight: 500, textTransform: 'uppercase' }}>{kicker}</div>}
     <h1 style={{ fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 30, margin: '2px 0 0',
       letterSpacing: .2, color: 'var(--ink)' }}>{children}</h1>
+  </div>
+)
+
+// ── 骨架屏积木:各页首帧加载态用,尺寸对齐真实块以降 CLS(布局位移) ──
+const skelBlk: React.CSSProperties = { background: '#fffdf8', border: '1px solid #ece7db', borderRadius: 8, marginBottom: 14 }
+const skelLine = (w: number | string, h = 14) => <Skeleton.Input active size="small" style={{ width: w, height: h, minWidth: 0 }} />
+export const SkelStatus = ({ h = 60 }: { h?: number }) => (
+  <div style={{ ...skelBlk, padding: 14, minHeight: h }}><Skeleton active paragraph={{ rows: 1, width: ['82%'] }} title={{ width: '28%' }} /></div>
+)
+export const SkelChart = ({ h = 240, title = true }: { h?: number; title?: boolean }) => (
+  <div style={{ ...skelBlk, padding: 14 }}>{title && <div style={{ marginBottom: 10 }}>{skelLine(280)}</div>}
+    <Skeleton.Node active style={{ width: '100%', height: h }}><span /></Skeleton.Node></div>
+)
+export const SkelTable = ({ rows = 8, title = true }: { rows?: number; title?: boolean }) => (
+  <div style={{ ...skelBlk, padding: 14 }}>{title && <div style={{ marginBottom: 12 }}>{skelLine(320)}</div>}
+    <Skeleton active title={false} paragraph={{ rows, width: '100%' }} /></div>
+)
+export const SkelStatRow = ({ n = 3 }: { n?: number }) => (
+  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+    {Array.from({ length: n }).map((_, i) => <div key={i} style={{ ...skelBlk, marginBottom: 0, padding: 14, flex: '1 1 200px', minHeight: 120 }}><Skeleton active paragraph={{ rows: 2 }} title={{ width: '50%' }} /></div>)}
   </div>
 )
 

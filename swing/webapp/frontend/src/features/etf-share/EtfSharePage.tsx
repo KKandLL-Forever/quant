@@ -1,8 +1,8 @@
 // ETF份额:多只ETF总份额时序对比(echarts多线,原生图例/十字光标/滚轮缩放)。数据走后端 /api/etfshare(tushare etf_share_size)。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Spin, message } from 'antd'
+import { Button, Card, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
-import { Header, PageTitle } from '../../shell'
+import { Header, PageTitle, SkelChart } from '../../shell'
 
 interface EtfMeta { ts_code: string; name: string; color: string }
 const ETF_LIST: EtfMeta[] = [
@@ -119,7 +119,7 @@ export default function EtfSharePage() {
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>单位:亿份 · 点图例可隐藏/显示 · 滚轮缩放 · 份额增=资金净申购</span>
       </div>
 
-      {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {loading && <><SkelChart h={480} title={false} /><SkelChart h={220} /></>}
       {!loading && (
         <Card size="small">
           <ReactECharts option={mainOpt} notMerge style={{ height: 480 }} />

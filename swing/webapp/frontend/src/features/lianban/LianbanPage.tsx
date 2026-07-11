@@ -1,8 +1,8 @@
 // 连板信号:2板→4板(2进4·到4板)每日概率打分。数据走 /api/lianban/score(后端 subprocess 跑 ml_score_2lb_v6,按日期缓存)。
 import { useEffect, useState } from 'react'
-import { Button, Card, Spin, Table, Tag, DatePicker, message, notification } from 'antd'
+import { Button, Card, Table, Tag, DatePicker, message, notification } from 'antd'
 import dayjs from 'dayjs'
-import { Header, PageTitle } from '../../shell'
+import { Header, PageTitle, SkelStatus, SkelTable } from '../../shell'
 import { StockName } from '../../StockInfo'
 import { useAna } from '../../App'
 
@@ -113,7 +113,7 @@ export default function LianbanPage() {
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>信号=当日2板个股;proba=模型预测该2板最终走到≥4连板的概率;Top10%以上给仓位建议。按日期缓存,刷新才重跑(约10~20秒)</span>
       </div>
 
-      {loading && <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>}
+      {loading && <><SkelStatus /><SkelTable /></>}
 
       {!loading && data && data.regime && (
         <Card size="small" style={{ marginBottom: 14, borderLeft: `4px solid ${data.regime.color}` }}>

@@ -1,10 +1,10 @@
 // 牛市逃顶:全A整体法PE估值(+分位危险/机会线)、融资余额/流通、换手率、股东月度净减持。
 // 数据走后端 /api/bulltop;前四图共用一个缩放窗口(滚轮缩放+拖动平移,联动)。
 import { useEffect, useMemo, useState } from 'react'
-import { Card, Spin, message } from 'antd'
+import { Card, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
-import { Header, PageTitle } from '../../shell'
+import { Header, PageTitle, SkelChart } from '../../shell'
 
 interface Val { date: string; peTtm: number; pct: number; circMv: number; totalMv: number; amountFull: number }
 interface Tov { date: string; turnover: number; ma5: number | null }
@@ -147,7 +147,14 @@ export default function BullTopPage() {
   const mgnData = useMemo(() => (d?.margin || []).map(mkMgn), [d, circByDate, amtByDate]) // eslint-disable-line react-hooks/exhaustive-deps
   const curMgn = d?.margin.length ? mkMgn(d.margin[d.margin.length - 1]) : null
 
-  if (loading) return <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}><Header /><div style={{ padding: 60, textAlign: 'center' }}><Spin /></div></div>
+  if (loading) return (
+    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+      <Header />
+      <PageTitle kicker="Bull-market Top Radar · 剔金融石化整体法">牛市逃顶</PageTitle>
+      <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>⚡ echarts · 滚轮缩放(前三图联动,全量点不抽稀)</div>
+      <SkelChart h={480} /><SkelChart h={320} /><SkelChart h={320} /><SkelChart h={320} />
+    </div>
+  )
   if (!d) return null
 
   const tone = cur ? (cur.peTtm <= opp ? '#1f8e5a' : cur.peTtm >= danger ? '#c0392b' : '#17140f') : '#17140f'
