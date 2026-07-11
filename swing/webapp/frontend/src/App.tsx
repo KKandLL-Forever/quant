@@ -497,32 +497,50 @@ function AnaHost({ children }: { children: React.ReactNode }) {
 
 function MainPageSkeleton() {
   const block = { background: '#fffdf8', border: '1px solid #ece7db', borderRadius: 8 }
+  const line = (w: string, h = 12) => <Skeleton.Input active size="small" style={{ width: w, height: h, minWidth: 0 }} />
   return (
     <div>
-      <div style={{ ...block, padding: 14, marginBottom: 12 }}>
-        <Skeleton.Input active size="small" style={{ width: 180 }} />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, margin: '0 0 8px' }}>
+        {line('92%')}{line('88%')}{line('60%', 13)}
+      </div>
+
+      <div style={{ ...block, padding: 14, marginBottom: 12, minHeight: 196 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+          {line('120px', 15)}<span style={{ flex: 1 }} />{line('72px')}{line('72px')}{line('72px')}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           {[0, 1].map(i => <div key={i}>
-            <Skeleton.Input active size="small" style={{ width: 90, marginBottom: 8 }} />
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {Array.from({ length: 5 }).map((_, j) => <Skeleton.Button key={j} active size="small" style={{ width: 96 }} />)}
+            {line('90px')}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+              {Array.from({ length: 4 }).map((_, j) => <Skeleton.Button key={j} active size="small" style={{ width: 104 }} />)}
             </div>
           </div>)}
         </div>
+        <div style={{ marginTop: 14 }}>{line('80px')}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>
+            {Array.from({ length: 6 }).map((_, j) => <Skeleton.Button key={j} active size="small" style={{ width: 96 }} />)}
+          </div>
+        </div>
       </div>
+
+      <div style={{ margin: '8px 0' }}>{line('360px')}</div>
+
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        {Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ ...block, padding: 14, flex: '1 1 300px' }}>
-          <Skeleton active paragraph={{ rows: 2 }} title={{ width: '40%' }} />
+        <div style={{ ...block, padding: 14, flex: '0 0 150px', minHeight: 120 }}><Skeleton active paragraph={{ rows: 1 }} title={{ width: '70%' }} /></div>
+        <div style={{ ...block, padding: 14, flex: '0 0 150px', minHeight: 120 }}><Skeleton active paragraph={{ rows: 1 }} title={{ width: '70%' }} /></div>
+        <div style={{ ...block, padding: 14, flex: '1 1 460px', minHeight: 120 }}>{line('160px')}<div style={{ marginTop: 10 }}><Skeleton active title={false} paragraph={{ rows: 3, width: ['100%', '100%', '100%'] }} /></div></div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ margin: '6px 0' }}>{line('440px')}</div>
+        {Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ ...block, padding: '6px 8px', marginBottom: 8 }}>
+          <div style={{ padding: '2px 0 4px' }}>{line('320px', 14)}</div>
+          <Skeleton.Node active style={{ width: '100%', height: 240 }}><span /></Skeleton.Node>
         </div>)}
       </div>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        {Array.from({ length: 2 }).map((_, i) => <div key={i} style={{ ...block, padding: 14, flex: '1 1 460px' }}>
-          <Skeleton.Input active size="small" style={{ width: 160, marginBottom: 12 }} />
-          <Skeleton.Node active style={{ width: '100%', height: 220 }}><span /></Skeleton.Node>
-        </div>)}
-      </div>
+
       <div style={{ ...block, padding: 14 }}>
-        <Skeleton active title={false} paragraph={{ rows: 8, width: '100%' }} />
+        <Skeleton active title={false} paragraph={{ rows: 12, width: '100%' }} />
       </div>
     </div>
   )
