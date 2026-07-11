@@ -2833,6 +2833,8 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     end     = datetime.today().strftime("%Y%m%d")
     limiter = RateLimiter(MAX_REQUESTS_PER_MIN)
 
+    fetch_stock_meta(pro, ck, limiter, duck_writer)
+
     if date_arg:
         miss_daily = miss_adj = miss_basic = miss_stock_st = miss_limit_step = [date_arg]
         miss_moneyflow = miss_cpt = miss_lld = [date_arg]
