@@ -166,8 +166,8 @@ CLOUD_ENABLED = True
 TABLE_START = {
     "limit_list_d":   "20200101",
     "stock_st":       "20160801",
-    "limit_step":     "20231101",
-    "limit_cpt_list": "20231101",
+    "limit_step":     "20231113",
+    "limit_cpt_list": "20231113",
     "stk_auction_o":  "20180101",
     "stk_auction_c":  "20180101",
     "stk_factor_pro":     "20200101",
