@@ -86,6 +86,7 @@ import os
 import signal
 import threading
 import time
+import warnings
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from datetime import datetime, date
@@ -2401,7 +2402,10 @@ def _run_concurrent(
         if not frames:
             pending = []
             return
-        big = pd.concat(frames, ignore_index=True)
+        with warnings.catch_warnings():
+            # WHY: fina 等表某期整列全 NA 是正常(可选字段该期无值),concat 的 dtype 弃用警告是噪声
+            warnings.simplefilter("ignore", FutureWarning)
+            big = pd.concat(frames, ignore_index=True)
         _bulk_write(ck, table, big)
         if duck_writer is not None:
             duck_writer.put(table, big)   # 非阻塞，立刻返回
