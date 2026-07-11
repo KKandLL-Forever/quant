@@ -106,22 +106,53 @@ def _write(con, table: str, df: pd.DataFrame, cols: list[str]) -> int:
     return len(d)
 
 
-def refresh_meta(pro, con, roots: list[str]) -> None:
-    """按品种所在交易所拉 fut_basic,过滤到追踪品种,upsert fut_meta。"""
+_META_COLS = ["ts_code", "symbol", "exchange", "name", "fut_code", "multiplier",
+              "trade_unit", "per_unit", "quote_unit", "list_date", "delist_date",
+              "d_month", "last_ddate"]
+
+
+def _clean_name(name: str) -> str:
+    """把合约名(沪银1608)去掉月份/后缀数字,得品种名(沪银)。"""
+    import re
+    return re.sub(r"\d.*$", "", str(name)).strip() or str(name)
+
+
+def refresh_meta(pro, con, roots: list[str]) -> dict:
+    """按品种所在交易所拉 fut_basic,过滤到追踪品种,upsert fut_meta;返回 主连码→品种名。"""
     exchs = sorted({ROOTS[r][0] for r in roots})
     wanted = set(roots)
     total = 0
+    targets = {}
     for ex in exchs:
         df = _retry(pro.fut_basic, exchange=ex)
         if df is None or df.empty:
             continue
         df = df[df["fut_code"].isin(wanted)]
-        total += _write(con, "fut_meta", df,
-                        ["ts_code", "symbol", "exchange", "name", "fut_code", "multiplier",
-                         "trade_unit", "per_unit", "quote_unit", "list_date", "delist_date",
-                         "d_month", "last_ddate"])
+        total += _write(con, "fut_meta", df, _META_COLS)
+        for r in df["fut_code"].unique():
+            targets[f"{r}.{ROOTS[r][1]}"] = ROOTS[r][2]
         time.sleep(0.15)
     print(f"fut_meta: upsert {total} 合约")
+    return targets
+
+
+def discover_meta(pro, con, exchanges: list[str]) -> dict:
+    """枚举指定交易所全部品种,upsert 全量 fut_meta;返回 主连码→品种名(去月份)。"""
+    total = 0
+    targets = {}
+    for ex in exchanges:
+        df = _retry(pro.fut_basic, exchange=ex)
+        if df is None or df.empty:
+            print(f"  {ex}: 空/需权限")
+            continue
+        df = df.dropna(subset=["fut_code"])
+        total += _write(con, "fut_meta", df, _META_COLS)
+        for fc, g in df.groupby("fut_code"):
+            suf = str(g["ts_code"].iloc[0]).split(".")[-1]
+            targets[f"{fc}.{suf}"] = _clean_name(g["name"].iloc[0])
+        time.sleep(0.15)
+    print(f"fut_meta: upsert {total} 合约,发现 {len(targets)} 品种")
+    return targets
 
 
 def _fetch_daily_sliced(pro, ts_code: str, start: str, end: str) -> pd.DataFrame:
@@ -175,6 +206,7 @@ def main():
     ap.add_argument("--init", action="store_true", help="首次全量(主连长历史按年切片)")
     ap.add_argument("--contracts", action="store_true", help="额外缓存各品种全部月合约日线")
     ap.add_argument("--roots", default="", help="只更指定品种(fut_code,逗号分隔)")
+    ap.add_argument("--exchanges", default="", help="枚举整所全部品种(SHFE/CFFEX/INE/GFEX/DCE/CZCE,逗号分隔)")
     args = ap.parse_args()
 
     tok = _token()
@@ -182,31 +214,33 @@ def main():
         raise SystemExit("缺 TUSHARE_TOKEN:请在 .pyenv.local 配置或设为环境变量")
     pro = ts.pro_api(tok)
 
-    roots = [r.strip().upper() for r in args.roots.split(",") if r.strip()] if args.roots else list(ROOTS)
-    bad = [r for r in roots if r not in ROOTS]
-    if bad:
-        raise SystemExit(f"未知品种 {bad},可选:{list(ROOTS)}")
-
     con = duckdb.connect(DUCKDB_PATH)
     for ddl in _SCHEMA.values():
         con.execute(ddl)
 
-    refresh_meta(pro, con, roots)
+    if args.exchanges:
+        exchanges = [e.strip().upper() for e in args.exchanges.split(",") if e.strip()]
+        targets = discover_meta(pro, con, exchanges)
+    else:
+        roots = [r.strip().upper() for r in args.roots.split(",") if r.strip()] if args.roots else list(ROOTS)
+        bad = [r for r in roots if r not in ROOTS]
+        if bad:
+            raise SystemExit(f"未知品种 {bad},可选:{list(ROOTS)}")
+        targets = refresh_meta(pro, con, roots)
 
-    print(f"\n主力连续日线 + 主力映射（{len(roots)} 品种，{'全量' if args.init else '增量'}）：")
-    for r in roots:
-        _, suf, cn = ROOTS[r]
-        cont = f"{r}.{suf}"
+    print(f"\n主力连续日线 + 主力映射（{len(targets)} 品种，{'全量' if args.init else '增量'}）：")
+    for cont, cn in sorted(targets.items()):
         nd = update_daily(pro, con, cont, args.init)
         nm = update_mapping(pro, con, cont)
-        print(f"  {cn:<6}{cont:<10} 日线+{nd:<5} 映射={nm}")
+        print(f"  {cn:<8}{cont:<11} 日线+{nd:<5} 映射={nm}")
 
     if args.contracts:
+        codes_roots = sorted({cont.split(".")[0] for cont in targets})
         print(f"\n月合约日线（{'全量' if args.init else '增量'}，量大）：")
-        for r in roots:
+        for r in codes_roots:
             codes = _month_contracts(con, r)
             tot = sum(update_daily(pro, con, c, args.init) for c in codes)
-            print(f"  {ROOTS[r][2]:<6} {len(codes)} 合约 · 新增 {tot} 行")
+            print(f"  {r:<6} {len(codes)} 合约 · 新增 {tot} 行")
 
     con.close()
     print("\n完成。")

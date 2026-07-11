@@ -23,15 +23,16 @@
   · 且「做空指数」只能借道股指期货(升贴水/移仓)或 ETF(难融券),指数级 gross 结果还高估了可实现收益。
   → 与总纲一致:纯技术趋势系统剥 beta 后无系统性 alpha,edge 是熊市空头的风险溢价而非选股/择时能力。
 
-商品期货主连验证(--futures,读本地 fut_daily 缓存,2013~2026,12品种,单边3bp):碳酸锂神图=选择偏差,已证伪。
-  · 碳酸锂单品种确实惊艳(策略年化+18% vs BH-11%,夏普0.59)——但那是 2023-2025 碳酸锂单边
-    崩盘(50万→7万)一波大空头喂出来的,单品种单段行情,正是原图 LC2609 截图的来源。
-  · 换成 12 个流动品种(螺纹/铜/银/橡胶/豆粕/铁矿/棕榈/焦炭/PTA/白糖/甲醇+碳酸锂)等权组合(2013~2026):
-    策略年化 1.5%/夏普 0.19/回撤 -38%,仍不及 BH多头 2.1%/0.22;除碳酸锂/铁矿外几乎每个品种都跑输,
-    近年(2022 -12%、2024 -13%)被震荡行情反复打脸。早年(2013-2015 熊市)靠空头腿赢,是危机溢价非 alpha。
-  · 主连换月跳空本会给趋势系统「送」人为动量(利好方向),即便如此组合仍不敌纯多头 → 更坐实无真实 edge。
-  → 单品种截图 = 幸存者/选择偏差的教科书案例:一个跑赢的合约不代表系统有效,多品种长历史组合才算数。
-  数据源:futures_cache.py 缓存的 fut_daily 主连(需先跑一次)。留档。
+商品期货主连验证(--futures,读本地 fut_daily 缓存,2013~2026,42品种全池,单边3bp):
+  是「防御型危机alpha」,不是收益引擎;单品种高夏普=选择偏差。
+  · 单品种夏普跑赢 buy&hold 的仅 12/42;且赢家清一色短历史单段趋势的新品种——氧化铝(2023起夏普1.47)、
+    丁二烯橡胶(1.17)、集运欧线(1.43)、多晶硅(2024起1.38)、碳酸锂(0.59)。全是「碳酸锂型」:上市才1-2年、
+    恰好一波单边,样本极小。长历史成熟品种(铜/金/IF/锌/白糖/PTA/豆粕)几乎全输。原图 LC2609 就是这12个幸存者之一。
+  · 42品种等权组合(2013~2026):策略 年化2.4%/夏普0.34/回撤-18%  vs  BH多头 2.6%/0.28/-41%。
+    组合夏普略胜、但收益几乎一样,赢全在回撤减半。逐年:牛市年年输BH,熊市(2013/14/15/18)靠空头腿赢。
+  → 结论:多空反手趋势系统的价值是「能做空→熊市削回撤」的防御属性(危机溢价),不是选股/择时的超额收益;
+    单品种漂亮截图=幸存者偏差。想用只能当组合层面的对冲叠加,且需大量品种分散、忍受长期低收益。
+  数据源:futures_cache.py 缓存的 fut_daily 主连(--exchanges SHFE,CFFEX,INE,GFEX,DCE,CZCE 抓全池)。留档。
 """
 import argparse
 import sys
@@ -103,13 +104,6 @@ def metrics(r: np.ndarray) -> dict:
     return {"cagr": cagr, "sharpe": sharpe, "mdd": mdd, "win": win}
 
 
-FUT = {
-    "LC.GFE": "碳酸锂", "RB.SHF": "螺纹钢", "CU.SHF": "沪铜", "AG.SHF": "沪银",
-    "RU.SHF": "橡胶", "M.DCE": "豆粕", "I.DCE": "铁矿石", "P.DCE": "棕榈油",
-    "J.DCE": "焦炭", "TA.ZCE": "PTA", "SR.ZCE": "白糖", "MA.ZCE": "甲醇",
-}
-
-
 def load_fut(con, code: str) -> pd.DataFrame:
     """本地 DuckDB 主力连续日线(由 futures_cache.py 缓存,不复权拼接、换月有跳空);pct 用 close 环比。"""
     d = con.execute(
@@ -120,19 +114,33 @@ def load_fut(con, code: str) -> pd.DataFrame:
     return d
 
 
+def _discover_conts(con) -> dict:
+    """本地 fut_daily 里所有主连(代码点号前全字母,无月份数字)→ 品种名(取自 fut_meta,去月份数字)。"""
+    import re
+    codes = [r[0] for r in con.execute(
+        "SELECT DISTINCT ts_code FROM fut_daily WHERE regexp_matches(ts_code, '^[A-Za-z]+\\.[A-Za-z]+$') ORDER BY ts_code").fetchall()]
+    out = {}
+    for c in codes:
+        root = c.split(".")[0]
+        nm = con.execute("SELECT name FROM fut_meta WHERE fut_code=? LIMIT 1", [root]).fetchone()
+        clean = re.sub(r"\d.*$", "", str(nm[0])).strip() if nm and nm[0] else root
+        out[c] = clean or root
+    return out
+
+
 def run_futures(n1: int, n2: int, cost: float):
-    """碳酸锂 + 一篮子流动商品主连:单品种 vs BH + 等权组合。读本地 fut_daily(先跑 futures_cache.py)。"""
+    """本地缓存的全部期货主连:单品种 vs BH + 等权组合。先跑 futures_cache.py 落库。"""
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     if not con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name='fut_daily'").fetchone()[0]:
         con.close()
         raise SystemExit("本地无 fut_daily 表:请先运行 python futures_cache.py 缓存期货数据")
+    universe = _discover_conts(con)
     rets, bhs = {}, {}
-    print(f"\n=== 两仪四象 · 商品期货主连 · N1={n1} N2={n2} · 单边{cost*1e4:.0f}bp ===\n")
-    print(f"{'品种':<8}{'起始':>10}{'策略年化':>9}{'BH年化':>9}{'策略夏普':>9}{'BH夏普':>9}{'策略回撤':>9}{'反手':>6}")
-    for code, name in FUT.items():
+    print(f"\n=== 两仪四象 · 期货主连({len(universe)}品种) · N1={n1} N2={n2} · 单边{cost*1e4:.0f}bp ===\n")
+    print(f"{'品种':<10}{'起始':>10}{'策略年化':>9}{'BH年化':>9}{'策略夏普':>9}{'BH夏普':>9}{'策略回撤':>9}{'反手':>6}")
+    for code, name in sorted(universe.items()):
         df = load_fut(con, code)
-        if len(df) < 200:
-            print(f"{name:<8}{'(数据不足)':>10}")
+        if len(df) < 250:
             continue
         strat, _, _, flips = backtest(df["close"].to_numpy(), df["vol"].to_numpy(),
                                       df["pct"].to_numpy(), n1, n2, cost)
@@ -140,14 +148,16 @@ def run_futures(n1: int, n2: int, cost: float):
         rets[name] = pd.Series(strat, index=idx)
         bhs[name] = pd.Series(df["pct"].to_numpy(), index=idx)
         ms, mb = metrics(strat), metrics(df["pct"].to_numpy())
-        print(f"{name:<8}{df['trade_date'].iloc[0]:>10}{ms['cagr']*100:>8.1f}%{mb['cagr']*100:>8.1f}%"
+        print(f"{name:<10}{df['trade_date'].iloc[0]:>10}{ms['cagr']*100:>8.1f}%{mb['cagr']*100:>8.1f}%"
               f"{ms['sharpe']:>9.2f}{mb['sharpe']:>9.2f}{ms['mdd']*100:>8.1f}%{flips:>6}")
 
     con.close()
+    wins = sum(1 for nm in rets if metrics(rets[nm].to_numpy())["sharpe"] > metrics(bhs[nm].to_numpy())["sharpe"])
     port = pd.DataFrame(rets).mean(axis=1).dropna()
     portbh = pd.DataFrame(bhs).mean(axis=1).dropna()
     mp, mpb = metrics(port.to_numpy()), metrics(portbh.to_numpy())
-    print(f"\n等权组合({len(rets)}品种,每日再平衡):")
+    print(f"\n单品种夏普跑赢 buy&hold 的:{wins}/{len(rets)}")
+    print(f"等权组合({len(rets)}品种,每日再平衡):")
     print(f"  策略  年化 {mp['cagr']*100:>6.1f}%  夏普 {mp['sharpe']:>5.2f}  回撤 {mp['mdd']*100:>6.1f}%  胜率 {mp['win']*100:.0f}%")
     print(f"  BH多头 年化 {mpb['cagr']*100:>6.1f}%  夏普 {mpb['sharpe']:>5.2f}  回撤 {mpb['mdd']*100:>6.1f}%")
     print("\n  组合逐年(策略/BH):")
