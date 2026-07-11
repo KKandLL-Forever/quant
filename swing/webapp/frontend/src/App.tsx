@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react'
-import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Tag, message, Input, Tabs, DatePicker, ConfigProvider, FloatButton, AutoComplete, Popover } from 'antd'
+import { Table, Button, Modal, Select, InputNumber, Checkbox, Card, Spin, Skeleton, Tag, message, Input, Tabs, DatePicker, ConfigProvider, FloatButton, AutoComplete, Popover } from 'antd'
 import type { TableColumnsType } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
@@ -495,6 +495,39 @@ function AnaHost({ children }: { children: React.ReactNode }) {
   </AnaCtx.Provider>
 }
 
+function MainPageSkeleton() {
+  const block = { background: '#fffdf8', border: '1px solid #ece7db', borderRadius: 8 }
+  return (
+    <div>
+      <div style={{ ...block, padding: 14, marginBottom: 12 }}>
+        <Skeleton.Input active size="small" style={{ width: 180 }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 12 }}>
+          {[0, 1].map(i => <div key={i}>
+            <Skeleton.Input active size="small" style={{ width: 90, marginBottom: 8 }} />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {Array.from({ length: 5 }).map((_, j) => <Skeleton.Button key={j} active size="small" style={{ width: 96 }} />)}
+            </div>
+          </div>)}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        {Array.from({ length: 3 }).map((_, i) => <div key={i} style={{ ...block, padding: 14, flex: '1 1 300px' }}>
+          <Skeleton active paragraph={{ rows: 2 }} title={{ width: '40%' }} />
+        </div>)}
+      </div>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        {Array.from({ length: 2 }).map((_, i) => <div key={i} style={{ ...block, padding: 14, flex: '1 1 460px' }}>
+          <Skeleton.Input active size="small" style={{ width: 160, marginBottom: 12 }} />
+          <Skeleton.Node active style={{ width: '100%', height: 220 }}><span /></Skeleton.Node>
+        </div>)}
+      </div>
+      <div style={{ ...block, padding: 14 }}>
+        <Skeleton active title={false} paragraph={{ rows: 8, width: '100%' }} />
+      </div>
+    </div>
+  )
+}
+
 function MainPage() {
   const { params, setParams, parts, setParts, payload, loading, train } = useSignalStore()
   const analyze = useAna()
@@ -625,6 +658,8 @@ function MainPage() {
         {(() => { const p = banner.crowd.pct; const col = p == null ? 'inherit' : p >= 0.8 ? '#c0392b' : p >= 0.6 ? '#e08a2f' : '#27ae60'
           return <span style={{ color: col, fontWeight: p != null && p >= 0.8 ? 700 : 400 }}>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{p != null ? (p * 100).toFixed(0) + '%' : '—'},{banner.crowd.label}){p != null && p >= 0.8 ? ' ⚠️' : ''}</span> })()}
       </div>}
+      {loading && !payload && <MainPageSkeleton />}
+
       {payload && <p style={{ fontSize: 12, color: '#999', margin: '0 0 4px' }}>
         健康/走坏=同小西西弗牛熊开关:走坏=MA30与MA60同时走坏(收盘&lt;均线且均线下行),至少一条多头即健康(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。
       </p>}
