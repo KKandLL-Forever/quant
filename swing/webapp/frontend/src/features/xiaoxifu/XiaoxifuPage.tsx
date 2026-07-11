@@ -98,10 +98,10 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
   const colorOf = (name: string) => data ? PALETTE[data.cols.indexOf(name) % PALETTE.length] || '#888' : '#888'
   const equityOpt = useMemo(() => ({
     animation: false,
-    grid: { left: 48, right: 20, top: 14, bottom: 74 },
+    grid: { left: 48, right: 20, top: 14, bottom: 56 },
     legend: { bottom: 4, textStyle: { fontSize: 12 } },
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => v == null ? '-' : pct(Number(v)) },
-    dataZoom: [{ type: 'inside' }, { type: 'slider', bottom: 26, height: 16 }],
+    dataZoom: [{ type: 'inside' }],
     xAxis: { type: 'category', data: equityData.map(r => r.date as string), boundaryGap: false, axisLabel: { fontSize: 10 } },
     yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: (v: number) => pct(v) }, splitLine: { lineStyle: { color: '#f0eadc' } } },
     series: (data?.cols || []).map(c => ({
