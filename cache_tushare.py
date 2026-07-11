@@ -2377,7 +2377,11 @@ def _run_concurrent(
         nonlocal total, pending
         if not pending:
             return
-        big = pd.concat(pending, ignore_index=True)
+        frames = [df for df in pending if not df.empty]
+        if not frames:
+            pending = []
+            return
+        big = pd.concat(frames, ignore_index=True)
         _bulk_write(ck, table, big)
         if duck_writer is not None:
             duck_writer.put(table, big)   # 非阻塞，立刻返回
