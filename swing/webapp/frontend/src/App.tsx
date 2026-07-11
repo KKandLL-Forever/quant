@@ -380,7 +380,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
   return <AnaCtx.Provider value={analyze}>
     {children}
 
-    <FloatButton type="primary" description="AI" tooltip="LLM 分析任意股票" style={{ right: 28, bottom: 28, width: 52, height: 52 }}
+    <FloatButton type="primary" shape="square" description="AI" tooltip="LLM 分析任意股票" style={{ right: 28, bottom: 28, width: 52, height: 52 }}
       onClick={() => { setOpts([]); setInp({ open: true, date: dayjs().format('YYYY-MM-DD') }) }} />
 
     <Modal open={!!inp?.open} width={440} onCancel={() => setInp(null)} onOk={submitInp} okText="分析" title="LLM 分析 · 查任意股票">
