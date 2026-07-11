@@ -132,6 +132,24 @@ def analyze_cached_dates(code: str = ""):
     return {"ok": True, "dates": sorted(dates)}
 
 
+@app.get("/api/trade_cal")
+def trade_cal():
+    """返回全部已过交易日(YYYY-MM-DD,升序)+ 最新交易日,供日期选择器禁非交易日、限上限。"""
+    import duckdb
+    import datetime as dt
+    from cache_tushare import DUCKDB_PATH
+    today = dt.date.today().strftime("%Y%m%d")
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT cal_date FROM trade_cal WHERE exchange='SSE' AND is_open=1 "
+            "AND cal_date <= ? ORDER BY cal_date", [today]).fetchall()
+    finally:
+        con.close()
+    dates = [f"{d[0][:4]}-{d[0][4:6]}-{d[0][6:8]}" for d in rows if d[0] and len(d[0]) == 8]
+    return {"ok": True, "dates": dates, "latest": dates[-1] if dates else None}
+
+
 @app.post("/api/analyze/start")
 def analyze_start(req: AnalyzeReq):
     """启动分析子进程(只产技术面/消息面报告),立即返回 rid;命中缓存则直接回结果。"""

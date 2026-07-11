@@ -362,8 +362,20 @@ function AnaHost({ children }: { children: React.ReactNode }) {
     setAna(null)
   }
 
-  const [inp, setInp] = useState<any>(null)   // 悬浮输入 {open, code, name, date}
+  const [inp, setInp] = useState<any>(null)   // 悬浮输入 {open, code, name, date, dates}
   const [opts, setOpts] = useState<{ value: string; label: string; code: string; name: string }[]>([])
+  const [cal, setCal] = useState<{ set: Set<string>; latest: string | null }>({ set: new Set(), latest: null })
+  useEffect(() => {
+    fetch('/api/trade_cal').then(r => r.json()).then((j: { ok: boolean; dates: string[]; latest: string | null }) => {
+      if (j.ok) setCal({ set: new Set(j.dates), latest: j.latest })
+    }).catch(() => { })
+  }, [])
+  const loadInpDates = async (code: string) => {
+    try {
+      const j = await (await fetch(`/api/analyze/cached_dates?code=${encodeURIComponent(code)}`)).json()
+      setInp((s: any) => s && s.code === code ? { ...s, dates: j.dates || [] } : s)
+    } catch { /* 忽略 */ }
+  }
   const searchStock = async (q: string) => {
     if (!q || !q.trim()) { setOpts([]); return }
     try {
@@ -381,18 +393,26 @@ function AnaHost({ children }: { children: React.ReactNode }) {
     {children}
 
     <FloatButton type="primary" shape="square" description="AI" tooltip="LLM 分析任意股票" style={{ right: 28, bottom: 28, width: 52, height: 52 }}
-      onClick={() => { setOpts([]); setInp({ open: true, date: dayjs().format('YYYY-MM-DD') }) }} />
+      onClick={() => { setOpts([]); setInp({ open: true, date: cal.latest || dayjs().format('YYYY-MM-DD'), dates: [] }) }} />
 
     <Modal open={!!inp?.open} width={440} onCancel={() => setInp(null)} onOk={submitInp} okText="分析" title="LLM 分析 · 查任意股票">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
         <AutoComplete options={opts} style={{ width: '100%' }} onSearch={searchStock}
           placeholder="输入代码或名称,如 002407 / 多氟多"
           value={inp?.name ? `${inp.name}(${inp.code})` : (inp?.q ?? '')}
-          onChange={(v) => setInp((s: any) => ({ ...s, q: v, code: undefined, name: undefined }))}
-          onSelect={(_v, o: any) => setInp((s: any) => ({ ...s, code: o.code, name: o.name, q: o.label }))} />
+          onChange={(v) => setInp((s: any) => ({ ...s, q: v, code: undefined, name: undefined, dates: [] }))}
+          onSelect={(_v, o: any) => { setInp((s: any) => ({ ...s, code: o.code, name: o.name, q: o.label, dates: [] })); loadInpDates(o.code) }} />
         <DatePicker style={{ width: '100%' }} value={inp?.date ? dayjs(inp.date) : null} allowClear={false}
-          onChange={(d) => setInp((s: any) => ({ ...s, date: d ? d.format('YYYY-MM-DD') : s.date }))} />
-        <div style={{ fontSize: 12, color: '#999' }}>按所选股票 + 日期跑技术面/消息面/基本面/综合决策;可查不在选股策略里的票。</div>
+          disabledDate={(d) => !d || !cal.set.has(d.format('YYYY-MM-DD'))}
+          onChange={(d) => setInp((s: any) => ({ ...s, date: d ? d.format('YYYY-MM-DD') : s.date }))}
+          cellRender={(cur, info) => {
+            if (info.type !== 'date') return info.originNode
+            const ds = (cur as any).format('YYYY-MM-DD')
+            const has = (inp?.dates || []).includes(ds)
+            return <div className="ant-picker-cell-inner" style={has ? { background: '#f6efdd', boxShadow: '0 0 0 1px #e6d6a8 inset', borderRadius: 4, fontWeight: 700 } : undefined}>{(cur as any).date()}</div>
+          }} />
+        <div style={{ fontSize: 12, color: '#999' }}>按所选股票 + 日期跑技术面/消息面/基本面/综合决策;可查不在选股策略里的票。
+          {inp?.code && ((inp?.dates || []).length ? <> · 已有 {inp.dates.length} 天缓存(<span style={{ background: '#f6efdd', padding: '0 4px', borderRadius: 3 }}>高亮</span>日秒开)</> : ' · 暂无历史缓存')}</div>
       </div>
     </Modal>
 
