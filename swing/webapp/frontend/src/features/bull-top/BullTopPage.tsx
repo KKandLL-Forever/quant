@@ -30,6 +30,21 @@ const GROUP = 'bulltop-zoom'
 const linkReady = (chart: echarts.ECharts) => { chart.group = GROUP; echarts.connect(GROUP) }
 const areaData = (dates: string[]) => bullAreas(dates).map(b =>
   [{ xAxis: fmtDate(b.x1), itemStyle: { color: b.c, opacity: 0.07 }, name: b.label }, { xAxis: fmtDate(b.x2) }])
+const IPO_MARKS = [
+  { date: '2018-06-08', name: '工业富联' }, { date: '2018-06-11', name: '宁德时代' },
+  { date: '2020-07-16', name: '中芯国际' }, { date: '2022-01-05', name: '中国移动' },
+  { date: '2022-04-21', name: '中国海油' }, { date: '2025-12-05', name: '摩尔线程' },
+  { date: '2025-12-17', name: '沐曦股份' },
+]
+const ipoMarkLine = {
+  silent: true, symbol: 'none',
+  lineStyle: { color: '#7a6cff', type: 'dashed' as const, width: 1, opacity: 0.65 },
+  label: { fontSize: 9, color: '#6b5bd6', rotate: 90 },
+  data: IPO_MARKS.map((m, i) => ({
+    xAxis: m.date,
+    label: { formatter: m.name, position: (i % 2 ? 'insideEndBottom' : 'insideEndTop') as any },
+  })),
+}
 const baseGrid = { left: 46, right: 46, top: 16, bottom: 44 }
 const baseLegend = { bottom: 6, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 12 } }
 const pctLine = (yAxisIndex: number) => ({ label: { formatter: '3%', fontSize: 10, color: '#c0392b' }, yAxis: 3, ...(yAxisIndex ? { yAxisIndex } : {}) })
@@ -57,7 +72,8 @@ function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; m
     dataZoom: [{ type: 'inside' }],
     series: [
       { name: '全A整体法PE-TTM', type: 'line', showSymbol: false, data: data.map(v => v.peTtm), lineStyle: { width: 1.6 }, itemStyle: { color: '#17140f' },
-        markArea: area.length ? { silent: true, label: { fontSize: 10, color: '#8a7', position: 'insideTop' }, data: area } : undefined },
+        markArea: area.length ? { silent: true, label: { fontSize: 10, color: '#8a7', position: 'insideTop' }, data: area } : undefined,
+        markLine: ipoMarkLine },
       { name: '总市值', type: 'line', yAxisIndex: 1, showSymbol: false, data: data.map(v => v.totalMv), lineStyle: { width: 1.3 }, itemStyle: { color: '#e07b39' } },
       { name: nDanger, type: 'line', showSymbol: false, data: flat(danger), lineStyle: { width: 1.2, type: 'dashed' }, itemStyle: { color: '#c0392b' } },
       { name: nMid, type: 'line', showSymbol: false, data: flat(mid), lineStyle: { width: 1.2, type: 'dashed' }, itemStyle: { color: '#b8860b' } },
