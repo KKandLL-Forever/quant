@@ -21,7 +21,16 @@
   · 始终在场无止损 → 最大回撤 -60%~-66%,不优于甚至差于 buy&hold,风险调整后并无改善。
   · 参数网格夏普 0.0~0.47,好区间集中在 N1≈10 一条带(N1=20 整排塌到 0.05~0.15),边际过拟合。
   · 且「做空指数」只能借道股指期货(升贴水/移仓)或 ETF(难融券),指数级 gross 结果还高估了可实现收益。
-  → 与总纲一致:纯技术趋势系统剥 beta 后无系统性 alpha,edge 是熊市空头的风险溢价而非选股/择时能力。留档。
+  → 与总纲一致:纯技术趋势系统剥 beta 后无系统性 alpha,edge 是熊市空头的风险溢价而非选股/择时能力。
+
+商品期货主连验证(--futures,2018~2026,12品种,单边3bp):碳酸锂神图=选择偏差,已证伪。
+  · 碳酸锂单品种确实惊艳(策略年化+18% vs BH-11%,夏普0.59)——但那是 2023-2025 碳酸锂单边
+    崩盘(50万→7万)一波大空头喂出来的,单品种单段行情,正是原图 LC2609 截图的来源。
+  · 换成 12 个流动品种(螺纹/铜/银/橡胶/豆粕/铁矿/棕榈/焦炭/PTA/白糖/甲醇+碳酸锂)等权组合:
+    策略年化 -2.0%/夏普 -0.12/回撤 -38%,全面输给 BH多头 +6.2%/0.48/-25%;除碳酸锂外几乎每个
+    品种都跑输,组合逐年也几乎年年输(仅2018赢)。
+  · 主连换月跳空本会给趋势系统「送」人为动量(利好方向),即便如此仍全盘皆输 → 更坐实无真实 edge。
+  → 单品种截图 = 幸存者/选择偏差的教科书案例:一个跑赢的合约不代表系统有效,多品种长历史组合才算数。留档。
 """
 import argparse
 import sys
@@ -93,6 +102,63 @@ def metrics(r: np.ndarray) -> dict:
     return {"cagr": cagr, "sharpe": sharpe, "mdd": mdd, "win": win}
 
 
+FUT = {
+    "LC.GFE": "碳酸锂", "RB.SHF": "螺纹钢", "CU.SHF": "沪铜", "AG.SHF": "沪银",
+    "RU.SHF": "橡胶", "M.DCE": "豆粕", "I.DCE": "铁矿石", "P.DCE": "棕榈油",
+    "J.DCE": "焦炭", "TA.ZCE": "PTA", "SR.ZCE": "白糖", "MA.ZCE": "甲醇",
+}
+
+
+def _pro():
+    import os
+    import tushare as ts
+    import cache_tushare as ct
+    tok = (os.environ.get("TUSHARE_TOKEN") or ct._ENV.get("TUSHARE_TOKEN", "")).strip()
+    return ts.pro_api(tok)
+
+
+def load_fut(pro, code: str) -> pd.DataFrame:
+    """tushare 主力连续日线(不复权拼接,换月有跳空);pct 用 close 环比。"""
+    d = pro.fut_daily(ts_code=code, start_date="20130101", end_date="20260710")
+    if d is None or not len(d):
+        return pd.DataFrame()
+    d = d.sort_values("trade_date").reset_index(drop=True)
+    d["pct"] = d["close"].pct_change().fillna(0.0)
+    return d[["trade_date", "close", "vol", "pct"]]
+
+
+def run_futures(n1: int, n2: int, cost: float):
+    """碳酸锂 + 一篮子流动商品主连:单品种 vs BH + 等权组合。"""
+    pro = _pro()
+    rets, bhs = {}, {}
+    print(f"\n=== 两仪四象 · 商品期货主连 · N1={n1} N2={n2} · 单边{cost*1e4:.0f}bp ===\n")
+    print(f"{'品种':<8}{'起始':>10}{'策略年化':>9}{'BH年化':>9}{'策略夏普':>9}{'BH夏普':>9}{'策略回撤':>9}{'反手':>6}")
+    for code, name in FUT.items():
+        df = load_fut(pro, code)
+        if len(df) < 200:
+            print(f"{name:<8}{'(数据不足)':>10}")
+            continue
+        strat, _, _, flips = backtest(df["close"].to_numpy(), df["vol"].to_numpy(),
+                                      df["pct"].to_numpy(), n1, n2, cost)
+        idx = pd.to_datetime(df["trade_date"])
+        rets[name] = pd.Series(strat, index=idx)
+        bhs[name] = pd.Series(df["pct"].to_numpy(), index=idx)
+        ms, mb = metrics(strat), metrics(df["pct"].to_numpy())
+        print(f"{name:<8}{df['trade_date'].iloc[0]:>10}{ms['cagr']*100:>8.1f}%{mb['cagr']*100:>8.1f}%"
+              f"{ms['sharpe']:>9.2f}{mb['sharpe']:>9.2f}{ms['mdd']*100:>8.1f}%{flips:>6}")
+
+    port = pd.DataFrame(rets).mean(axis=1).dropna()
+    portbh = pd.DataFrame(bhs).mean(axis=1).dropna()
+    mp, mpb = metrics(port.to_numpy()), metrics(portbh.to_numpy())
+    print(f"\n等权组合({len(rets)}品种,每日再平衡):")
+    print(f"  策略  年化 {mp['cagr']*100:>6.1f}%  夏普 {mp['sharpe']:>5.2f}  回撤 {mp['mdd']*100:>6.1f}%  胜率 {mp['win']*100:.0f}%")
+    print(f"  BH多头 年化 {mpb['cagr']*100:>6.1f}%  夏普 {mpb['sharpe']:>5.2f}  回撤 {mpb['mdd']*100:>6.1f}%")
+    print("\n  组合逐年(策略/BH):")
+    for y, g in port.groupby(port.index.year):
+        b = portbh[portbh.index.year == y]
+        print(f"    {y}: {((1+g).prod()-1)*100:>6.1f}% / {((1+b).prod()-1)*100:>6.1f}%")
+
+
 def load(con, code: str) -> pd.DataFrame:
     df = con.execute(
         "SELECT trade_date, close, vol, pct_chg FROM index_daily WHERE ts_code=? AND trade_date>=? ORDER BY trade_date",
@@ -107,8 +173,13 @@ def main():
     ap.add_argument("--n2", type=int, default=10)
     ap.add_argument("--cost-bps", type=float, default=2.0)
     ap.add_argument("--grid", action="store_true", help="扫 N1/N2 网格看稳健性")
+    ap.add_argument("--futures", action="store_true", help="改跑商品期货主连(碳酸锂+一篮子)")
     args = ap.parse_args()
     cost = args.cost_bps / 1e4
+
+    if args.futures:
+        run_futures(args.n1, args.n2, cost)
+        return
 
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     data = {code: load(con, code) for code in INDICES}
