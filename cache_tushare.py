@@ -1915,6 +1915,22 @@ def _missing_dates(ck: Client, table: str, all_dates: list[str]) -> list[str]:
     return [d for d in all_dates if d not in have]
 
 
+def _incomplete_recent(ck: Client, table: str, all_dates: list[str],
+                       lookback: int = 6, frac: float = 0.90) -> list[str]:
+    """近 lookback 个交易日中,table 行数不足 daily 同日 frac 的日期。
+
+    # WHY: stk_factor_pro 等表 tushare 当日「逐步发全」,若抓早了只落部分行,而增量按
+    #      「日期是否存在」判定会把这天当已抓、永不回补,致最新日长期不完整。用行数比对触发回补。
+    """
+    out = []
+    for d in all_dates[-lookback:]:
+        n = ck.execute(f"SELECT count(*) FROM {table} WHERE trade_date=?", [d]).fetchone()[0]
+        nd = ck.execute("SELECT count(*) FROM daily WHERE trade_date=?", [d]).fetchone()[0]
+        if nd > 0 and n < frac * nd:
+            out.append(d)
+    return out
+
+
 def _trading_dates(pro, limiter: RateLimiter, start: str, end: str) -> list[str]:
     df = _retry_call(
         pro.trade_cal, limiter, f"trade_cal {start}-{end}",
@@ -2874,7 +2890,9 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
         miss_lld        = _missing_dates(ck, "limit_list_d",   _floor("limit_list_d"))
         miss_auc_o      = _missing_dates(ck, "stk_auction_o",  _floor("stk_auction_o"))
         miss_auc_c      = _missing_dates(ck, "stk_auction_c",  _floor("stk_auction_c"))
-        miss_sf         = _missing_dates(ck, "stk_factor_pro",     _floor("stk_factor_pro"))
+        sf_floor        = _floor("stk_factor_pro")
+        miss_sf         = sorted(set(_missing_dates(ck, "stk_factor_pro", sf_floor))
+                                 | set(_incomplete_recent(ck, "stk_factor_pro", sf_floor)))
         cyq_start       = _cyq_update_start(ck, all_dates)
         idx_start       = _index_daily_update_start(ck)
         fina_plan       = _fina_plan(ck, all_dates, full=False)
