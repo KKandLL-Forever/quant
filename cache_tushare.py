@@ -1922,13 +1922,17 @@ def _incomplete_recent(ck: Client, table: str, all_dates: list[str],
     # WHY: stk_factor_pro 等表 tushare 当日「逐步发全」,若抓早了只落部分行,而增量按
     #      「日期是否存在」判定会把这天当已抓、永不回补,致最新日长期不完整。用行数比对触发回补。
     """
-    out = []
-    for d in all_dates[-lookback:]:
-        n = ck.execute(f"SELECT count(*) FROM {table} WHERE trade_date=?", [d]).fetchone()[0]
-        nd = ck.execute("SELECT count(*) FROM daily WHERE trade_date=?", [d]).fetchone()[0]
-        if nd > 0 and n < frac * nd:
-            out.append(d)
-    return out
+    recent = all_dates[-lookback:]
+    if not recent:
+        return []
+    in_clause = ",".join(f"'{d[:4]}-{d[4:6]}-{d[6:8]}'" for d in recent)
+
+    def _counts(t: str) -> dict:
+        rows = ck.execute(f"SELECT trade_date, count() FROM {t} WHERE trade_date IN ({in_clause}) GROUP BY trade_date")
+        return {d.strftime("%Y%m%d"): int(c) for d, c in rows if d}
+
+    tc, dc = _counts(table), _counts("daily")
+    return [d for d in recent if dc.get(d, 0) > 0 and tc.get(d, 0) < frac * dc[d]]
 
 
 def _trading_dates(pro, limiter: RateLimiter, start: str, end: str) -> list[str]:
