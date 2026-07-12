@@ -70,3 +70,6 @@ xiaoxifu/龙头动量轮动策略_N*/
 research/gp_data_*.json
 research/gp_holdings*.html
 research/gp_picks_*.csv
+research/cn_regime.html
+research/cn_regime*.csv
+research/cn_regime.json
