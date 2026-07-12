@@ -65,3 +65,8 @@ swing/*_shap.png
 swing/*.pkl
 !swing/webapp/frontend/index.html
 xiaoxifu/龙头动量轮动策略_N*/
+
+# GP 因子研究生成物(数据/HTML,勿入库)
+research/gp_data_*.json
+research/gp_holdings*.html
+research/gp_picks_*.csv

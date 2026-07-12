@@ -26,7 +26,17 @@
   → 定性:GP 只跟喂给它的特征一样好——喂真因子→重现已知(且容量受限)的溢价,喂噪声→一无所获;
     它不是"自我进化出圣杯",而是一台高效的"已知因子重组+确认"工具。视频里 +0.062/夏普1.21 若真做了 OOS
     则可信度尚可(数量级对得上),但演示全程无训练/测试划分,无法判断是本脚本这种(真)还是纯样本内(假)。留档。
-用法:python research/gp_alpha.py [--pop 300 --gens 15 --uni 1000]  对照:加 --shuffle
+三段式选股 + 剥beta + 择时(--picks N --test-start,2026-07 深挖,hold=20,top20,前800成交额池):最终定论。
+  切分:Train=test_start前全部,Val=前1年选公式,Test=test_start起冻结选股。Test IC 两窗都≈0.10(相对选股力在)。
+  · 起点即结论:Test从2025 纯多头扣费净 +58.7%/回撤-18%;Test从2023(含熊)-45.4%/回撤-62%。只看近窗严重高估。
+  · 剥beta后 alpha≈0:2025 +58.7% = universe(β)+49.5% + 选股超额仅+4.7%;2023 选股超额 -55%(负!)。
+    用中证1000/IM期货对冲口径一致 → 收益几乎全是 beta,「IC正 ≠ 多头赚钱」;便携alpha无正α可搬,退化成加杠杆。
+  · 择时控仓(上证MA30&MA60双线走坏=空仓)是唯一真改善:含熊完整周期,中证1000择时 +37.4%/夏普0.58/回撤-18%,
+    完胜满仓β(+31.7%/-36%)——回撤砍半、收益略升。但纯牛窗(2025)择时踩空反而拖后腿(保险要交保费)。
+    择时对 top20 也把 -45%→-24%,但因本身负α只能少亏;择时纯β完胜择时top20 → 那个GP因子毫无价值。
+  → 总定论:这套 GP 的 edge 全在 beta,剥beta后无α;真正值钱的不是选股因子/便携alpha,而是最朴素的
+    「大盘健康就满仓指数、走坏就空仓」的 regime 择时——与仓库总纲(edge在regime择时不在技术因子)完全闭环。留档。
+用法:python research/gp_alpha.py [--pop 300 --gens 15 --uni 1000]  对照:--shuffle  |  选股:--picks 20 --test-start 2023-01-01
 """
 import argparse
 import warnings
@@ -155,12 +165,79 @@ def run_fold(train: pd.DataFrame, test: pd.DataFrame, pop: int, gens: int, hold:
             "ann": bt["ann"], "sharpe": bt["sharpe"], "formula": str(best)}
 
 
+def _fit_gp(train: pd.DataFrame, pop: int, gens: int):
+    """在 train 上进化,返回 est(供跨全代取候选公式)。"""
+    from gplearn.genetic import SymbolicRegressor
+    from gplearn.fitness import make_fitness
+    global _DATE, _RANKY
+    _DATE = train["dcode"].to_numpy()
+    _RANKY = train.groupby("dcode")["fwd"].rank().to_numpy()
+    est = SymbolicRegressor(
+        population_size=pop, generations=gens, tournament_size=20,
+        p_crossover=0.7, p_subtree_mutation=0.1, p_hoist_mutation=0.05, p_point_mutation=0.1,
+        function_set=("add", "sub", "mul", "div", "sqrt", "log", "abs", "neg", "inv", "max", "min"),
+        metric=make_fitness(function=_rank_ic, greater_is_better=True, wrap=False),
+        parsimony_coefficient=0.002, feature_names=FEATS,
+        max_samples=1.0, n_jobs=1, random_state=42, verbose=0)
+    est.fit(train[FEATS].to_numpy(), train["fwd"].to_numpy())
+    return est
+
+
+def run_pick(panel: pd.DataFrame, pop: int, gens: int, hold: int, topn: int,
+             test_start: str, out_json: str):
+    """三段式:Train 进化 → Val(测试集前1年)选公式 → Test(test_start起)冻结选股,吐 HTML 用 JSON。"""
+    import json
+    ts = pd.Timestamp(test_start)
+    vs = ts - pd.DateOffset(years=1)
+    tr = panel[panel["td"] < vs]
+    va = panel[(panel["td"] >= vs) & (panel["td"] < ts)]
+    te = panel[panel["td"] >= ts]
+    print(f"Train {tr['td'].min().date()}~{tr['td'].max().date()} {len(tr):,}行 | "
+          f"Val {va['td'].min().date()}~{va['td'].max().date()} {len(va):,}行 | "
+          f"Test {te['td'].min().date()}~{te['td'].max().date()} {len(te):,}行\n")
+
+    est = _fit_gp(tr, pop, gens)
+    cands = {str(p): p for gen in est._programs for p in gen if p is not None}.values()
+    scored = [(oos_ic(p, va), p) for p in cands]
+    scored = [(ic, p) for ic, p in scored if np.isfinite(ic)]
+    best_val, best = max(scored, key=lambda x: x[0])
+    tr_ic, te_ic = oos_ic(best, tr), oos_ic(best, te)
+    print(f"选中公式(按验证集IC最高,共{len(scored)}个候选):\n  {best}")
+    print(f"Rank IC:  训练 {tr_ic:.3f}   验证 {best_val:.3f}   测试 {te_ic:.3f}\n")
+
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
+    con.close()
+    te = te.assign(fval=np.nan_to_num(best.execute(te[FEATS].to_numpy())))
+    periods = []
+    for d in sorted(te["td"].unique())[::hold]:
+        g = te[te["td"] == d].nlargest(topn, "fval")
+        picks = [{"name": names.get(r["ts_code"], r["ts_code"]), "code": r["ts_code"],
+                  "ret": round(float(r["fwd"]) * 100, 1)}
+                 for _, r in g.iterrows() if np.isfinite(r["fwd"])]
+        if not picks:
+            continue
+        rets = [p["ret"] for p in picks]
+        periods.append({"date": str(pd.Timestamp(d).date()), "picks": sorted(picks, key=lambda x: x["ret"]),
+                        "mean": round(float(np.mean(rets)), 1), "win": round(float(np.mean([x > 0 for x in rets])) * 100),
+                        "best": max(rets), "worst": min(rets)})
+    meta = {"hold": hold, "topn": topn, "test_start": test_start, "formula": str(best),
+            "train_ic": round(tr_ic, 3), "val_ic": round(best_val, 3), "test_ic": round(te_ic, 3),
+            "periods": periods}
+    with open(out_json, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+    print(f"{len(periods)} 期 → {out_json}")
+    print(f"各期均值收益: {[p['mean'] for p in periods]}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pop", type=int, default=300)
     ap.add_argument("--gens", type=int, default=15)
     ap.add_argument("--hold", type=int, default=10)
     ap.add_argument("--uni", type=int, default=1000)
+    ap.add_argument("--picks", type=int, default=0, help=">0 则跑三段式,输出每期前N只选股 JSON(供 HTML)")
+    ap.add_argument("--test-start", default="2025-01-01", help="测试集起始;验证集自动取其前1年,训练集取更早全部")
     ap.add_argument("--shuffle", action="store_true", help="对照组:每日截面内打乱未来收益(摧毁真信号),看GP能否凭空造IS_IC")
     args = ap.parse_args()
 
@@ -171,6 +248,13 @@ def main():
         panel["fwd"] = panel.groupby("td")["fwd"].transform(lambda s: rng.permutation(s.to_numpy()))
         print("【对照组】已按日打乱未来收益——真信号已摧毁,OOS_IC 应≈0")
     print(f"面板 {len(panel):,} 行,{panel['td'].nunique()} 天\n")
+
+    if args.picks:
+        import os
+        tag = args.test_start.replace("-", "")[:6]
+        out = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"gp_data_{tag}.json")
+        run_pick(panel, args.pop, args.gens, args.hold, args.picks, args.test_start, out)
+        return
 
     folds = [("2018-01-01", "2021-12-31", "2022"),
              ("2018-01-01", "2022-12-31", "2023"),
