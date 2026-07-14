@@ -136,7 +136,7 @@ def latest_signals(pool="ml", up_mode="mid"):
                                "band_ok": band_ok, "macd_ok": macd_ok, "widen_ok": widen_ok,
                                "ready": 3 - len(miss), "miss": "；".join(miss)})
     data = pd.concat(rows, ignore_index=True)
-    last = data["date"].max()
+    last = latest_td   # WHY: 页面日期须锚定最新交易日;若当日无信号则显示空,不能回落到最近一次有信号的旧日期
     mk = hs300_market((pd.Timestamp.today() - pd.Timedelta(days=400)).strftime("%Y-%m-%d"))
     mrow = mk[mk["date"] == last]
     mkt_up = bool(mrow["mkt_up"].iloc[0]) if len(mrow) else None
