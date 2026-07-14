@@ -89,6 +89,7 @@ import BollPage from './features/boll/BollPage'
 import ConceptPage from './features/concept/ConceptPage'
 import OversoldPage from './features/oversold/OversoldPage'
 import LianbanPage from './features/lianban/LianbanPage'
+import CacheSidebar from './features/analyze/CacheSidebar'
 
 // K线(echarts):蜡烛 + 缠论笔 + 中枢markArea + 突破日markLine + 买卖markPoint;带十字光标/滚轮缩放
 function KLineChart({ data, marks }: { data: KData; marks: Mark[] }) {
@@ -274,9 +275,12 @@ const Stat = ({ v, label, calc }: { v: React.ReactNode; label: string; calc: str
   </Card>
 )
 
-// 全站通用 LLM 分析:AnaHost 持有分析弹窗+流式逻辑+悬浮输入,各页经 useAna() 触发
-const AnaCtx = React.createContext<(code: string, date: string, force?: boolean, name?: string) => void>(() => { })
-export const useAna = () => React.useContext(AnaCtx)
+// 全站通用 LLM 分析:AnaHost 持有分析弹窗+流式逻辑+悬浮输入,各页经 useAna() 触发;
+// useAnaOpen() 供缓存侧栏秒开已缓存分析(直接 runAnalysis,命中缓存即弹窗直显)。
+type AnaCtx = { analyze: (code: string, date: string, force?: boolean, name?: string) => void; openCached: (code: string, date: string, name?: string) => void }
+const AnaCtx = React.createContext<AnaCtx>({ analyze: () => { }, openCached: () => { } })
+export const useAna = () => React.useContext(AnaCtx).analyze
+export const useAnaOpen = () => React.useContext(AnaCtx).openCached
 
 function AnaHost({ children }: { children: React.ReactNode }) {
   const [ana, setAna] = useState<any>(null)
@@ -302,7 +306,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
       if (m.t === 'biz') setAna((a: any) => a && a.rid === rid ? { ...a, bizText: (a.bizText || '') + m.d } : a)
       else if (m.t === 'biz_done') up(rid, { business: m.v })
       else if (m.t === 'ver') setAna((a: any) => a && a.rid === rid ? { ...a, verText: (a.verText || '') + m.d } : a)
-      else if (m.t === 'done') { up(rid, { verdict: m.verdict, business: m.business, phase: 'done' }); es.close(); loadDates(code) }
+      else if (m.t === 'done') { up(rid, { verdict: m.verdict, business: m.business, phase: 'done' }); es.close(); loadDates(code); window.dispatchEvent(new Event('llm-cache-updated')) }
       else if (m.t === 'error') { up(rid, { phase: 'error', stage: m.msg }); es.close() }
     }
     es.onerror = () => { es.close() }
@@ -389,7 +393,9 @@ function AnaHost({ children }: { children: React.ReactNode }) {
     setInp(null)
   }
 
-  return <AnaCtx.Provider value={analyze}>
+  const openCached = (code: string, date: string, name = '') => runAnalysis(code, date, false, name)
+
+  return <AnaCtx.Provider value={{ analyze, openCached }}>
     {children}
 
     <FloatButton type="primary" shape="square" description="AI" tooltip="LLM 分析任意股票" style={{ right: 28, bottom: 28, width: 52, height: 52 }}
@@ -657,7 +663,9 @@ function MainPage() {
 
   const banner: any = payload?.banner
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+      <CacheSidebar />
+      <div style={{ flex: 1, minWidth: 0 }}>
       <Header />
       <PageTitle kicker="Main-wave Signals · LightGBM + 缠论 + LLM">ML 主升浪信号</PageTitle>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
@@ -893,6 +901,7 @@ function MainPage() {
           adv?.data?.ok === false ? <pre style={{ color: 'red', whiteSpace: 'pre-wrap' }}>{adv.data.error}</pre> :
             adv?.data && <AdviceResult res={adv.data} />}
       </Modal>
+      </div>
     </div>
   )
 }

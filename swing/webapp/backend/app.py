@@ -132,6 +132,40 @@ def analyze_cached_dates(code: str = ""):
     return {"ok": True, "dates": sorted(dates)}
 
 
+@app.get("/api/analyze/cache_index")
+def analyze_cache_index():
+    """列全部已缓存 LLM 分析(供主页左侧缓存侧栏):扫 {code}_{date}.json,正则天然排除 biz_/train_/*.progress;每条读出 ts_code+verdict动作,一次 stock_meta 查询补名称。"""
+    import glob, re
+    pat = re.compile(r"^([^_]+)_(\d{4}-\d{2}-\d{2})\.json$")
+    items, codes = [], set()
+    for p in glob.glob(os.path.join(CACHE_DIR, "*.json")):
+        m = pat.match(os.path.basename(p))
+        if not m:
+            continue
+        r = _read_cache(p)
+        if not isinstance(r, dict):
+            continue
+        ts = r.get("code") or m.group(1)
+        v = r.get("verdict")
+        items.append({"ts_code": ts, "code": m.group(1), "name": None,
+                      "date": m.group(2), "action": v.get("action") if isinstance(v, dict) else None})
+        codes.add(ts)
+    nm = {}
+    if codes:
+        import duckdb
+        from cache_tushare import DUCKDB_PATH
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
+        try:
+            rows = con.execute(f"SELECT ts_code, name FROM stock_meta WHERE ts_code IN ({','.join('?' * len(codes))})",
+                               list(codes)).fetchall()
+        finally:
+            con.close()
+        nm = {c: n for c, n in rows}
+    for it in items:
+        it["name"] = nm.get(it["ts_code"]) or it["code"]
+    return {"ok": True, "count": len(items), "items": items}
+
+
 @app.get("/api/trade_cal")
 def trade_cal():
     """返回全部已过交易日(YYYY-MM-DD,升序)+ 最新交易日,供日期选择器禁非交易日、限上限。"""
