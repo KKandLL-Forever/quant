@@ -82,6 +82,23 @@ export default function EtfSharePage() {
     return { date: last.date, total: last.total, delta: prev ? last.total - prev.total : null }
   }, [totalData])
 
+  // 净申赎 = 合计份额日间差分(份额增=净申购红、减=净赎回绿);tushare 无毛申购/赎回额,只能取净额
+  const flowData = useMemo(() => {
+    const out: { date: string; flow: number }[] = []
+    for (let i = 1; i < totalData.length; i++) out.push({ date: totalData[i].date, flow: Math.round((totalData[i].total - totalData[i - 1].total) * 100) / 100 })
+    return out
+  }, [totalData])
+  const flowOpt = useMemo(() => ({
+    animation: false,
+    grid: { left: 52, right: 20, top: 14, bottom: 28 },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => `${v >= 0 ? '+' : ''}${v} 亿份` },
+    xAxis: { type: 'category', data: flowData.map(f => f.date), axisLabel: { fontSize: 10, formatter: fmtDate } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: [{ name: '净申赎', type: 'bar', data: flowData.map(f => f.flow),
+      itemStyle: { color: (p: any) => (p.value >= 0 ? '#c0392b' : '#1f8e5a') } }],
+  }), [flowData])
+
   const mainOpt = useMemo(() => ({
     animation: false,
     grid: { left: 52, right: 20, top: 14, bottom: 64 },
@@ -138,6 +155,15 @@ export default function EtfSharePage() {
             )}
           </span>}>
           <ReactECharts option={totalOpt} notMerge style={{ height: 220 }} />
+        </Card>
+      )}
+
+      {!loading && flowData.length > 0 && (
+        <Card size="small" style={{ marginTop: 16 }}
+          title={<span>全部 ETF 净申赎(份额日变动)
+            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>红=净申购(份额增) · 绿=净赎回(份额减) · 单位亿份 · tushare无毛申赎额,此为净额</span>
+          </span>}>
+          <ReactECharts option={flowOpt} notMerge style={{ height: 220 }} />
         </Card>
       )}
     </div>
