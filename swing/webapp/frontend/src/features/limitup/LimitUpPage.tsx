@@ -2,6 +2,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Input, Button, Card, Table, Spin, Tabs, Collapse, Progress, message } from 'antd'
 import { Header, PageTitle, SkelTable } from '../../shell'
+import { StockName } from '../../StockInfo'
+import { useAna } from '../../App'
 import { fetchLimitup, buildLadder, calcSuccessRates, type LimitStock, type SuccessRateRow } from '../../lib/limitUp'
 import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
 import { ZoomBox } from '../../components/ZoomBox'
@@ -18,6 +20,7 @@ function LadderView({ data }: { data: RangeData }) {
   const latest = data.dates[data.dates.length - 1]
   const ladder = buildLadder(latest, data.byDate.get(latest) || [])
   const maxBoard = ladder.groups[0]?.days ?? 0
+  const analyze = useAna()
   return (
     <>
       <div style={{ fontSize: 14, margin: '4px 0 12px' }}>
@@ -29,9 +32,12 @@ function LadderView({ data }: { data: RangeData }) {
             <div style={{ minWidth: 54, fontWeight: 700, color: boardColor(g.days) }}>{g.days}板<span style={{ color: 'var(--ink-soft)', fontWeight: 400, fontSize: 12 }}> ×{g.stocks.length}</span></div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {g.stocks.map(s => (
-                <span key={s.tsCode} className="hold-chip" title={`${s.industry} 封单${(s.fdAmount / 1e8).toFixed(2)}亿 炸板${s.openTimes}次`}>
-                  {s.name}{s.openTimes > 0 && <span className="hold-tag" style={{ background: '#e07b39' }}>炸{s.openTimes}</span>}
-                </span>
+                <StockName key={s.tsCode} code={s.tsCode}>
+                  <span className="hold-chip" style={{ cursor: 'pointer' }} title={`${s.industry} 封单${(s.fdAmount / 1e8).toFixed(2)}亿 炸板${s.openTimes}次 · 点击跑 LLM 分析`}
+                    onClick={() => analyze(s.tsCode, latest, false, s.name)}>
+                    {s.name}{s.openTimes > 0 && <span className="hold-tag" style={{ background: '#e07b39' }}>炸{s.openTimes}</span>}
+                  </span>
+                </StockName>
               ))}
             </div>
           </div>
