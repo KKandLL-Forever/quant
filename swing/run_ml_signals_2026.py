@@ -62,7 +62,8 @@ EVAL_FOLDS = [
 ]
 LGB_PARAMS = dict(learning_rate=0.02, num_leaves=15, min_child_samples=100,
                   subsample=0.7, colsample_bytree=0.6, reg_alpha=0.5, reg_lambda=5.0,
-                  min_split_gain=0.0, verbosity=-1)
+                  min_split_gain=0.0, verbosity=-1,
+                  deterministic=True, force_row_wise=True, n_jobs=1)   # 逐次可复现:单线程+确定性直方图(否则多线程浮点求和顺序不定,同种子也出不同树)
 FEATS_ALL = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", "ret20", "ret60",
              "volr", "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv",
              "rs20", "rs60", "rsturn", "bregnum", "crowd", "idxdist", "lb2rate", "nlb", "upratio",
@@ -567,6 +568,7 @@ def main():
     end_ts = pd.Timestamp(args.end) if args.end else None
 
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    con.execute("SET threads TO 1")   # WHY: 多线程浮点聚合顺序不固定致特征不可复现,单线程保证逐次一致
     sel = con.execute("SELECT MAX(trade_date) FROM daily_basic").fetchone()[0]
     uni_date = con.execute("SELECT MAX(trade_date) FROM daily_basic WHERE trade_date<=?",
                            [start_ts.strftime("%Y-%m-%d")]).fetchone()[0] or sel   # 股票池按 start 时点选(非最新日),使固定start的历史信号可复现、去前视池子偏差
