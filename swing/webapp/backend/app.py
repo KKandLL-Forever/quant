@@ -9,6 +9,7 @@
 
 import json
 import os
+import re
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 while _ROOT != "/" and not os.path.exists(os.path.join(_ROOT, "cache_tushare.py")):
     _ROOT = os.path.dirname(_ROOT)
@@ -132,38 +133,51 @@ def analyze_cached_dates(code: str = ""):
     return {"ok": True, "dates": sorted(dates)}
 
 
+_CACHE_INDEX_PAT = re.compile(r"^([^_]+)_(\d{4}-\d{2}-\d{2})\.json$")
+_CACHE_INDEX_ITEMS = {}       # basename -> (mtime, item);增量解析,只重读变动文件
+_CACHE_INDEX_NAMES = {}       # ts_code -> name;查过的名称常驻,新代码才查库
+
+
 @app.get("/api/analyze/cache_index")
 def analyze_cache_index():
-    """列全部已缓存 LLM 分析(供主页左侧缓存侧栏):扫 {code}_{date}.json,正则天然排除 biz_/train_/*.progress;每条读出 ts_code+verdict动作,一次 stock_meta 查询补名称。"""
-    import glob, re
-    pat = re.compile(r"^([^_]+)_(\d{4}-\d{2}-\d{2})\.json$")
-    items, codes = [], set()
-    for p in glob.glob(os.path.join(CACHE_DIR, "*.json")):
-        m = pat.match(os.path.basename(p))
+    """列全部已缓存 LLM 分析(供主页左侧缓存侧栏):扫 {code}_{date}.json,正则天然排除 biz_/train_/*.progress。增量解析(按 mtime 只重读变动文件)+名称库查询结果常驻缓存,文件多也不重复读盘/查库。"""
+    seen = set()
+    for e in os.scandir(CACHE_DIR):
+        m = _CACHE_INDEX_PAT.match(e.name)
         if not m:
             continue
-        r = _read_cache(p)
-        if not isinstance(r, dict):
+        seen.add(e.name)
+        cached = _CACHE_INDEX_ITEMS.get(e.name)
+        mtime = e.stat().st_mtime
+        if cached and cached[0] == mtime:
             continue
-        ts = r.get("code") or m.group(1)
+        r = _read_cache(e.path)
+        if not isinstance(r, dict):
+            _CACHE_INDEX_ITEMS.pop(e.name, None)
+            continue
         v = r.get("verdict")
-        items.append({"ts_code": ts, "code": m.group(1), "name": None,
-                      "date": m.group(2), "action": v.get("action") if isinstance(v, dict) else None})
-        codes.add(ts)
-    nm = {}
-    if codes:
+        _CACHE_INDEX_ITEMS[e.name] = (mtime, {
+            "ts_code": r.get("code") or m.group(1), "code": m.group(1), "name": None,
+            "date": m.group(2), "action": v.get("action") if isinstance(v, dict) else None})
+    for name in list(_CACHE_INDEX_ITEMS):
+        if name not in seen:
+            del _CACHE_INDEX_ITEMS[name]
+
+    items = [it for _, it in _CACHE_INDEX_ITEMS.values()]
+    miss = {it["ts_code"] for it in items if it["ts_code"] not in _CACHE_INDEX_NAMES}
+    if miss:
         import duckdb
         from cache_tushare import DUCKDB_PATH
         con = duckdb.connect(DUCKDB_PATH, read_only=True)
         try:
-            rows = con.execute(f"SELECT ts_code, name FROM stock_meta WHERE ts_code IN ({','.join('?' * len(codes))})",
-                               list(codes)).fetchall()
+            rows = con.execute(f"SELECT ts_code, name FROM stock_meta WHERE ts_code IN ({','.join('?' * len(miss))})",
+                               list(miss)).fetchall()
         finally:
             con.close()
-        nm = {c: n for c, n in rows}
-    for it in items:
-        it["name"] = nm.get(it["ts_code"]) or it["code"]
-    return {"ok": True, "count": len(items), "items": items}
+        for c, n in rows:
+            _CACHE_INDEX_NAMES[c] = n
+    return {"ok": True, "count": len(items),
+            "items": [{**it, "name": _CACHE_INDEX_NAMES.get(it["ts_code"]) or it["code"]} for it in items]}
 
 
 @app.get("/api/trade_cal")

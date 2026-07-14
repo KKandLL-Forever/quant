@@ -30,7 +30,8 @@ import io
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, _ROOT)
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+if __name__ == "__main__" and getattr(sys.stdout, "encoding", "").lower() not in ("utf-8", "utf8"):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 import duckdb
 import numpy as np
