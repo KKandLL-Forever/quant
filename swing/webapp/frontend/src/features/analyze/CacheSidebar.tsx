@@ -2,6 +2,7 @@
 // 顶部可筛选;点击条目经 useAnaOpen() 秒开该缓存(命中缓存即弹窗直显)。监听 llm-cache-updated 事件自动刷新。
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Tag, Input, Skeleton, Button } from 'antd'
+import { MenuFoldOutlined, MenuUnfoldOutlined } from '@ant-design/icons'
 import { useAnaOpen } from '../../App'
 
 type CacheItem = { ts_code: string; code: string; name: string; date: string; action: string | null }
@@ -64,7 +65,7 @@ export default function CacheSidebar() {
       <div role="button" onClick={() => setOpen(true)} title="展开 LLM 分析缓存" style={toggleBtn}
         onMouseEnter={e => { e.currentTarget.style.background = 'var(--panel)'; e.currentTarget.style.color = 'var(--accent)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg)'; e.currentTarget.style.color = 'var(--ink-soft)' }}>
-        <Chevron open={false} />
+        <MenuUnfoldOutlined />
       </div>
       <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 600, color: 'var(--ink-soft)', letterSpacing: 3, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
     </div>
@@ -80,7 +81,7 @@ export default function CacheSidebar() {
         <div role="button" onClick={() => setOpen(false)} title="收起" style={toggleBtn}
           onMouseEnter={e => { e.currentTarget.style.background = 'var(--panel)'; e.currentTarget.style.color = 'var(--accent)' }}
           onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg)'; e.currentTarget.style.color = 'var(--ink-soft)' }}>
-          <Chevron open={true} />
+          <MenuFoldOutlined />
         </div>
       </div>
       <Input size="small" allowClear placeholder="筛选名称/代码" value={filter} onChange={e => setFilter(e.target.value)} style={{ marginBottom: 8 }} />
@@ -123,11 +124,7 @@ const railBase: React.CSSProperties = {
 // 展开/收起共用同一颗按钮(同尺寸·同表面·同chevron),仅箭头旋转,让两态读作同一个控件
 const toggleBtn: React.CSSProperties = {
   width: 34, height: 34, flex: '0 0 auto', display: 'grid', placeItems: 'center',
-  borderRadius: 9, cursor: 'pointer', color: 'var(--ink-soft)',
+  borderRadius: 9, cursor: 'pointer', color: 'var(--ink-soft)', fontSize: 17,
   background: 'var(--bg)', border: '1px solid var(--line)',
   boxShadow: '0 1px 2px rgba(23,20,15,.06)', transition: 'background .15s, color .15s',
 }
-const Chevron = ({ open }: { open: boolean }) => (
-  <span style={{ display: 'inline-block', fontSize: 20, fontWeight: 700, lineHeight: 1,
-    transition: 'transform .22s cubic-bezier(0.2,0,0,1)', transform: open ? 'rotate(180deg)' : 'none' }}>›</span>
-)
