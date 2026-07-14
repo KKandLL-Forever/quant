@@ -383,7 +383,7 @@ def _business_prompt(code, date=None):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-07k"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-15a"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
