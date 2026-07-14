@@ -200,6 +200,8 @@ def _business_prompt(code, date=None):
         return None, None
     r = df.iloc[0]
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    _nx = con.execute("SELECT min(cal_date) FROM trade_cal WHERE exchange='SSE' AND is_open=1 AND cal_date>?", [d8]).fetchone()
+    d8_fcst = _nx[0] if _nx and _nx[0] else d8   # WHY: tushare盘后业绩预告的ann_date记为次一交易日,可见上界须放到分析日的下一交易日才吃得到当天盘后发的预告
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
         FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL AND ann_date<=? ORDER BY end_date DESC LIMIT 1""", [tscode, d8]).fetchone()
     mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,close,trade_date FROM daily_basic WHERE ts_code=? AND trade_date<=?
@@ -329,7 +331,7 @@ def _business_prompt(code, date=None):
     try:
         fc = pro.forecast(ts_code=tscode, start_date=f"{yr-1}0101", end_date=f"{yr+1}1231")
         if fc is not None and len(fc):
-            fc = fc[fc["ann_date"] <= d8].sort_values("ann_date")
+            fc = fc[fc["ann_date"] <= d8_fcst].sort_values("ann_date")
             if len(fc):
                 f0 = fc.iloc[-1]
                 nmin, nmax = f0.get("net_profit_min"), f0.get("net_profit_max")
