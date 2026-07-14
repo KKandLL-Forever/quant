@@ -60,21 +60,28 @@ export default function CacheSidebar() {
   const toggleDate = (d: string) => setOpenDates(s => ({ ...s, [d]: !s[d] }))
 
   if (!open) return (
-    <div style={{ ...railBase, width: 46, padding: '12px 0', textAlign: 'center' }}>
-      <div onClick={() => setOpen(true)} title="展开 LLM 分析缓存"
-        style={{ width: 34, height: 46, lineHeight: '46px', margin: '0 auto', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 800, borderRadius: 9, background: 'var(--accent)', boxShadow: '0 2px 8px -2px rgba(23,20,15,.35)' }}>›</div>
-      <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 600, color: 'var(--ink)', margin: '14px auto 0', letterSpacing: 3, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
+    <div style={{ ...railBase, width: 48, padding: '10px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+      <div role="button" onClick={() => setOpen(true)} title="展开 LLM 分析缓存" style={toggleBtn}
+        onMouseEnter={e => { e.currentTarget.style.background = 'var(--panel)'; e.currentTarget.style.color = 'var(--accent)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg)'; e.currentTarget.style.color = 'var(--ink-soft)' }}>
+        <Chevron open={false} />
+      </div>
+      <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 600, color: 'var(--ink-soft)', letterSpacing: 3, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
     </div>
   )
 
   return (
     <div style={{ ...railBase, width: 248, padding: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <b style={{ fontSize: 16, fontFamily: 'var(--font-display)' }}>LLM 分析缓存</b>
-        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{items?.length ?? 0}</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-soft)', fontVariantNumeric: 'tabular-nums' }}>{items?.length ?? 0}</span>
         <span style={{ flex: 1 }} />
         <Button size="small" type="text" onClick={() => fetchIdx()} title="刷新" style={{ padding: '0 4px', fontSize: 16, color: 'var(--ink-soft)' }}>↻</Button>
-        <Button size="small" type="text" onClick={() => setOpen(false)} title="收起" style={{ padding: '0 6px', fontSize: 18, color: 'var(--ink-soft)' }}>‹</Button>
+        <div role="button" onClick={() => setOpen(false)} title="收起" style={toggleBtn}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--panel)'; e.currentTarget.style.color = 'var(--accent)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg)'; e.currentTarget.style.color = 'var(--ink-soft)' }}>
+          <Chevron open={true} />
+        </div>
       </div>
       <Input size="small" allowClear placeholder="筛选名称/代码" value={filter} onChange={e => setFilter(e.target.value)} style={{ marginBottom: 8 }} />
       {items === null ? <Skeleton active paragraph={{ rows: 6 }} />
@@ -112,3 +119,15 @@ const railBase: React.CSSProperties = {
   background: 'var(--panel)', borderRight: '1px solid var(--line)', borderRadius: '0 10px 10px 0',
   boxShadow: '4px 0 20px -10px rgba(23,20,15,.22)', transition: 'width .15s', zIndex: 20,
 }
+
+// 展开/收起共用同一颗按钮(同尺寸·同表面·同chevron),仅箭头旋转,让两态读作同一个控件
+const toggleBtn: React.CSSProperties = {
+  width: 34, height: 34, flex: '0 0 auto', display: 'grid', placeItems: 'center',
+  borderRadius: 9, cursor: 'pointer', color: 'var(--ink-soft)',
+  background: 'var(--bg)', border: '1px solid var(--line)',
+  boxShadow: '0 1px 2px rgba(23,20,15,.06)', transition: 'background .15s, color .15s',
+}
+const Chevron = ({ open }: { open: boolean }) => (
+  <span style={{ display: 'inline-block', fontSize: 20, fontWeight: 700, lineHeight: 1,
+    transition: 'transform .22s cubic-bezier(0.2,0,0,1)', transform: open ? 'rotate(180deg)' : 'none' }}>›</span>
+)
