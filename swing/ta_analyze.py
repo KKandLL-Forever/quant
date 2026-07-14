@@ -201,7 +201,9 @@ def _business_prompt(code, date=None):
     r = df.iloc[0]
     con = duckdb.connect(DUCKDB_PATH, read_only=True)
     _nx = con.execute("SELECT min(cal_date) FROM trade_cal WHERE exchange='SSE' AND is_open=1 AND cal_date>?", [d8]).fetchone()
-    d8_fcst = _nx[0] if _nx and _nx[0] else d8   # WHY: tushare盘后业绩预告的ann_date记为次一交易日,可见上界须放到分析日的下一交易日才吃得到当天盘后发的预告
+    # WHY: tushare盘后业绩预告的ann_date记为次一交易日,可见上界须放到分析日的下一交易日才吃得到当天盘后发的预告;
+    #      日历没更新到未来时(d8已是表内最新日)取不到下一交易日,回退到+4日历日兜底(覆盖周末,此时无更晚数据可泄露)
+    d8_fcst = _nx[0] if _nx and _nx[0] else (pd.Timestamp(d8) + pd.Timedelta(days=4)).strftime("%Y%m%d")
     fin = con.execute("""SELECT grossprofit_margin,netprofit_margin,roe,or_yoy,netprofit_yoy
         FROM fina_indicator WHERE ts_code=? AND grossprofit_margin IS NOT NULL AND ann_date<=? ORDER BY end_date DESC LIMIT 1""", [tscode, d8]).fetchone()
     mv = con.execute("""SELECT total_mv,pe_ttm,pb,ps_ttm,dv_ttm,close,trade_date FROM daily_basic WHERE ts_code=? AND trade_date<=?

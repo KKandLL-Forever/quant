@@ -2329,7 +2329,7 @@ def _cyq_update_start(ck: Client, all_dates: list[str]) -> str | None:
 def fetch_and_write_trade_cal(pro, ck: Client, limiter, start: str, duck_writer=None) -> None:
     """拉取 SSE 交易日历（全量）并写入，is_open 转 UInt8。"""
     print("拉取交易日历...", end=" ", flush=True)
-    end = datetime.today().strftime("%Y%m%d")
+    end = f"{datetime.today().year + 1}1231"   # 交易日历是前瞻发布的,多抓到次年底,供"下一交易日"等逻辑用(如业绩预告T+1可见性判定)
     df = _retry_call(
         pro.trade_cal, limiter, "trade_cal",
         exchange="SSE", start_date=start, end_date=end,
