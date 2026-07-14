@@ -586,7 +586,12 @@ function MainPage() {
     } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
   }
 
-  useEffect(() => { train() }, [])   // 进页自动按默认(long/20260401)加载,一般命中缓存秒显
+  useEffect(() => {   // 进页先取最新交易日作起始(实盘应滚动到今天,而非写死过去某天),再自动加载
+    fetch('/api/trade_cal').then(r => r.json()).then((j: { latest?: string | null }) => {
+      const latest = j?.latest ? j.latest.replace(/-/g, '') : null
+      if (latest) { setParams({ start: latest }); train({ start: latest }) } else train()
+    }).catch(() => train())
+  }, [])   // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo<Sig[]>(() => !payload ? [] : (payload.signals as Sig[]).filter((r) =>
     (showKc || r.board !== '科创') && (showCy || r.board !== '创业') && (!only50 || (r.price ?? 0) <= 50)), [payload, showKc, showCy, only50])
