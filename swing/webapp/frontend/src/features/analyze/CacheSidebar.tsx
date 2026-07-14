@@ -60,14 +60,14 @@ export default function CacheSidebar() {
   const toggleDate = (d: string) => setOpenDates(s => ({ ...s, [d]: !s[d] }))
 
   if (!open) return (
-    <div style={{ ...railBase, width: 26, flex: '0 0 26px', padding: 0, textAlign: 'center' }}>
-      <div onClick={() => setOpen(true)} style={{ width: 26, height: 26, lineHeight: '26px', cursor: 'pointer', color: 'var(--accent)', fontSize: 18, fontWeight: 700 }}>›</div>
-      <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--ink-soft)', margin: '6px auto 0', letterSpacing: 2, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
+    <div style={{ ...railBase, width: 30, padding: '8px 0', textAlign: 'center' }}>
+      <div onClick={() => setOpen(true)} title="展开" style={{ width: 30, height: 30, lineHeight: '30px', cursor: 'pointer', color: 'var(--accent)', fontSize: 18, fontWeight: 700 }}>›</div>
+      <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--ink-soft)', margin: '10px auto 0', letterSpacing: 2, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
     </div>
   )
 
   return (
-    <div style={{ ...railBase, width: 248, flex: '0 0 248px', padding: 10 }}>
+    <div style={{ ...railBase, width: 248, padding: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
         <b style={{ fontSize: 13, fontFamily: 'var(--font-display)' }}>LLM 分析缓存</b>
         <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{items?.length ?? 0}</span>
@@ -107,8 +107,7 @@ export default function CacheSidebar() {
 }
 
 const railBase: React.CSSProperties = {
-  position: 'sticky', top: 18, alignSelf: 'flex-start',
-  maxHeight: 'calc(100vh - 36px)', overflowY: 'auto',
-  background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10,
-  boxShadow: '0 4px 20px -10px rgba(23,20,15,.18)', transition: 'width .15s', zIndex: 5,
+  position: 'fixed', left: 0, top: 0, height: '100vh', overflowY: 'auto',
+  background: 'var(--panel)', borderRight: '1px solid var(--line)', borderRadius: '0 10px 10px 0',
+  boxShadow: '4px 0 20px -10px rgba(23,20,15,.22)', transition: 'width .15s', zIndex: 20,
 }
