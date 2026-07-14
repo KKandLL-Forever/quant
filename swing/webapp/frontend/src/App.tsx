@@ -664,7 +664,6 @@ function MainPage() {
   const banner: any = payload?.banner
   return (
     <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-      <CacheSidebar />
       <div style={{ flex: 1, minWidth: 0 }}>
       <Header />
       <PageTitle kicker="Main-wave Signals · LightGBM + 缠论 + LLM">ML 主升浪信号</PageTitle>
@@ -982,6 +981,7 @@ export default function App() {
   return (
     <ConfigProvider locale={zhCN} theme={QUANT_THEME}>
       <AnaHost>
+        <CacheSidebar />
         {(() => {
           const r = hash.replace('#', '')
           if (r === '/advise') return <AdvisePage />

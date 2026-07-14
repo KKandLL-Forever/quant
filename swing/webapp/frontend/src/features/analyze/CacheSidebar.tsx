@@ -60,20 +60,21 @@ export default function CacheSidebar() {
   const toggleDate = (d: string) => setOpenDates(s => ({ ...s, [d]: !s[d] }))
 
   if (!open) return (
-    <div style={{ ...railBase, width: 30, padding: '8px 0', textAlign: 'center' }}>
-      <div onClick={() => setOpen(true)} title="展开" style={{ width: 30, height: 30, lineHeight: '30px', cursor: 'pointer', color: 'var(--accent)', fontSize: 18, fontWeight: 700 }}>›</div>
-      <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 12, color: 'var(--ink-soft)', margin: '10px auto 0', letterSpacing: 2, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
+    <div style={{ ...railBase, width: 46, padding: '12px 0', textAlign: 'center' }}>
+      <div onClick={() => setOpen(true)} title="展开 LLM 分析缓存"
+        style={{ width: 34, height: 46, lineHeight: '46px', margin: '0 auto', cursor: 'pointer', color: '#fff', fontSize: 24, fontWeight: 800, borderRadius: 9, background: 'var(--accent)', boxShadow: '0 2px 8px -2px rgba(23,20,15,.35)' }}>›</div>
+      <div onClick={() => setOpen(true)} style={{ writingMode: 'vertical-rl', textOrientation: 'mixed', fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 600, color: 'var(--ink)', margin: '14px auto 0', letterSpacing: 3, cursor: 'pointer', userSelect: 'none' }}>LLM 分析缓存</div>
     </div>
   )
 
   return (
     <div style={{ ...railBase, width: 248, padding: 10 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <b style={{ fontSize: 13, fontFamily: 'var(--font-display)' }}>LLM 分析缓存</b>
-        <span style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{items?.length ?? 0}</span>
+        <b style={{ fontSize: 16, fontFamily: 'var(--font-display)' }}>LLM 分析缓存</b>
+        <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{items?.length ?? 0}</span>
         <span style={{ flex: 1 }} />
-        <Button size="small" type="text" onClick={() => fetchIdx()} title="刷新" style={{ padding: '0 4px', color: 'var(--ink-soft)' }}>↻</Button>
-        <Button size="small" type="text" onClick={() => setOpen(false)} title="收起" style={{ padding: '0 4px', color: 'var(--ink-soft)' }}>‹</Button>
+        <Button size="small" type="text" onClick={() => fetchIdx()} title="刷新" style={{ padding: '0 4px', fontSize: 16, color: 'var(--ink-soft)' }}>↻</Button>
+        <Button size="small" type="text" onClick={() => setOpen(false)} title="收起" style={{ padding: '0 6px', fontSize: 18, color: 'var(--ink-soft)' }}>‹</Button>
       </div>
       <Input size="small" allowClear placeholder="筛选名称/代码" value={filter} onChange={e => setFilter(e.target.value)} style={{ marginBottom: 8 }} />
       {items === null ? <Skeleton active paragraph={{ rows: 6 }} />
