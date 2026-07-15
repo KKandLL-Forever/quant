@@ -53,7 +53,7 @@ interface SignalState {
 }
 
 export const useSignalStore = create<SignalState>((set, get) => ({
-  params: { mode: 'long', tier: 20, start: '20260401', train: false },
+  params: { mode: 'long', tier: 20, start: '20260622', train: false },
   setParams: (p) => set(s => ({ params: { ...s.params, ...p } })),
   parts: 4,
   setParts: (n) => set({ parts: n }),

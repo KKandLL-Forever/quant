@@ -586,7 +586,7 @@ function MainPage() {
     } catch (e) { setKl({ open: true, loading: false, code, date, marks, data: { error: String(e) } }) }
   }
 
-  useEffect(() => { train() }, [])   // 进页自动按默认(long/20260401)加载,一般命中缓存秒显
+  useEffect(() => { train() }, [])   // 进页自动按默认(long/20260622)加载,一般命中缓存秒显
 
   const rows = useMemo<Sig[]>(() => !payload ? [] : (payload.signals as Sig[]).filter((r) =>
     (showKc || r.board !== '科创') && (showCy || r.board !== '创业') && (!only50 || (r.price ?? 0) <= 50)), [payload, showKc, showCy, only50])
