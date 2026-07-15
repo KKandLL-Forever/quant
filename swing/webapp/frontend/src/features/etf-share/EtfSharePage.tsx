@@ -1,8 +1,11 @@
 // ETF份额:多只ETF总份额时序对比(echarts多线,原生图例/十字光标/滚轮缩放)。数据走后端 /api/etfshare(tushare etf_share_size)。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, message } from 'antd'
+import { Button, Card, DatePicker, message } from 'antd'
+import dayjs, { type Dayjs } from 'dayjs'
 import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle, SkelChart } from '../../shell'
+
+const { RangePicker } = DatePicker
 
 interface EtfMeta { ts_code: string; name: string; color: string }
 const ETF_LIST: EtfMeta[] = [
@@ -32,23 +35,29 @@ function presetStart(k: Preset): string {
 const fmtDate = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
 export default function EtfSharePage() {
-  const [preset, setPreset] = useState<Preset>('1Y')
+  const [preset, setPreset] = useState<Preset | null>('1Y')
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null)
   const [series, setSeries] = useState<Record<string, { trade_date: string; fdShare: number }[]>>({})
   const [loading, setLoading] = useState(false)
 
-  const load = async (p: Preset) => {
+  const fetchData = async (start: string, end?: string) => {
     setLoading(true)
     try {
       const r = await fetch('/api/etfshare', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codes: ETF_LIST.map(e => e.ts_code), start: presetStart(p) }),
+        body: JSON.stringify({ codes: ETF_LIST.map(e => e.ts_code), start, end }),
       })
       const j = await r.json()
       if (!j.ok) throw new Error(j.error)
       setSeries(j.series)
     } catch (e) { message.error((e as Error).message) } finally { setLoading(false) }
   }
-  useEffect(() => { load(preset) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const loadPreset = (p: Preset) => { setPreset(p); setRange(null); fetchData(presetStart(p)) }
+  const loadRange = (r: [Dayjs, Dayjs] | null) => {
+    setRange(r); if (!r) return
+    setPreset(null); fetchData(r[0].format('YYYYMMDD'), r[1].format('YYYYMMDD'))
+  }
+  useEffect(() => { fetchData(presetStart('1Y')) }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 每个日期一行,各 ETF 一列
   const chartData = useMemo(() => {
@@ -131,8 +140,10 @@ export default function EtfSharePage() {
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
         {PRESETS.map(([k, lbl]) => (
           <Button key={k} type={preset === k ? 'primary' : 'default'} size="small"
-            onClick={() => { setPreset(k); load(k) }}>{lbl}</Button>
+            onClick={() => loadPreset(k)}>{lbl}</Button>
         ))}
+        <RangePicker size="small" value={range} onChange={(v) => loadRange(v as [Dayjs, Dayjs] | null)}
+          disabledDate={(d) => d && d > dayjs().endOf('day')} allowClear />
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>单位:亿份 · 点图例可隐藏/显示 · 滚轮缩放 · 份额增=资金净申购</span>
       </div>
 
