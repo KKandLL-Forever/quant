@@ -147,9 +147,19 @@ export default function EtfSharePage() {
         <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>单位:亿份 · 点图例可隐藏/显示 · 滚轮缩放 · 份额增=资金净申购</span>
       </div>
 
-      {loading && <><SkelChart h={480} title={false} /><SkelChart h={220} /></>}
+      {loading && <><SkelChart h={480} /><SkelChart h={480} title={false} /><SkelChart h={220} /></>}
+
+      {!loading && flowData.length > 0 && (
+        <Card size="small"
+          title={<span>全部 ETF 净申赎(份额日变动)
+            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>红=净申购(份额增) · 绿=净赎回(份额减) · 单位亿份 · tushare无毛申赎额,此为净额</span>
+          </span>}>
+          <ReactECharts option={flowOpt} notMerge style={{ height: 480 }} />
+        </Card>
+      )}
+
       {!loading && (
-        <Card size="small">
+        <Card size="small" style={{ marginTop: 16 }} title="各 ETF 份额时序(亿份)">
           <ReactECharts option={mainOpt} notMerge style={{ height: 480 }} />
         </Card>
       )}
@@ -166,15 +176,6 @@ export default function EtfSharePage() {
             )}
           </span>}>
           <ReactECharts option={totalOpt} notMerge style={{ height: 220 }} />
-        </Card>
-      )}
-
-      {!loading && flowData.length > 0 && (
-        <Card size="small" style={{ marginTop: 16 }}
-          title={<span>全部 ETF 净申赎(份额日变动)
-            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>红=净申购(份额增) · 绿=净赎回(份额减) · 单位亿份 · tushare无毛申赎额,此为净额</span>
-          </span>}>
-          <ReactECharts option={flowOpt} notMerge style={{ height: 220 }} />
         </Card>
       )}
     </div>
