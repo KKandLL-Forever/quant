@@ -35,8 +35,8 @@ function presetStart(k: Preset): string {
 const fmtDate = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
 export default function EtfSharePage() {
-  const [preset, setPreset] = useState<Preset | null>('1Y')
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null)
+  const [preset, setPreset] = useState<Preset | null>(null)
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(() => [dayjs('2015-01-01'), dayjs()])
   const [series, setSeries] = useState<Record<string, { trade_date: string; fdShare: number }[]>>({})
   const [loading, setLoading] = useState(false)
 
@@ -57,7 +57,7 @@ export default function EtfSharePage() {
     setRange(r); if (!r) return
     setPreset(null); fetchData(r[0].format('YYYYMMDD'), r[1].format('YYYYMMDD'))
   }
-  useEffect(() => { fetchData(presetStart('1Y')) }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData('20150101') }, []) // eslint-disable-line react-hooks/exhaustive-deps  默认自定义范围 2015-至今
 
   // 每个日期一行,各 ETF 一列
   const chartData = useMemo(() => {
