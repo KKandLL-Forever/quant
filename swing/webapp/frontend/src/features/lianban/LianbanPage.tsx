@@ -49,7 +49,12 @@ export default function LianbanPage() {
       setData(j)
     } catch (e) { message.error((e as Error).message) } finally { setLoading(false) }
   }
-  useEffect(() => { load('') }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {   // 进页切到最新交易日并重新打分(不吃旧缓存)
+    fetch('/api/trade_cal').then(r => r.json()).then((j: { latest?: string | null }) => {
+      const latest = j?.latest ? j.latest.replace(/-/g, '') : ''
+      setDate(latest); load(latest, true)
+    }).catch(() => load('', true))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const doRetrain = async () => {
     setRetrain(true)
