@@ -84,10 +84,14 @@ FEAT_CN = {
 
 def _shap_plot(model, X, path):
     """对已训练 LGB 模型出 SHAP beeswarm 图(特征中英双标),保存到 path。"""
+    import platform
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    plt.rcParams["font.sans-serif"] = ["PingFang SC", "Arial Unicode MS", "Heiti TC", "STHeiti"]
+    _cjk = {"Windows": ["Microsoft YaHei", "SimHei"],
+            "Darwin": ["PingFang SC", "Arial Unicode MS", "Heiti TC", "STHeiti"]}.get(
+        platform.system(), ["Noto Sans CJK SC", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimHei"])
+    plt.rcParams["font.sans-serif"] = _cjk
     plt.rcParams["axes.unicode_minus"] = False
     import shap
     Xs = X.sample(min(2000, len(X)), random_state=0) if len(X) > 2000 else X
