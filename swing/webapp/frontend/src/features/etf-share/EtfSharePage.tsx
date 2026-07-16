@@ -70,20 +70,22 @@ export default function EtfSharePage() {
     return Object.values(byDate).sort((a, b) => (a.date < b.date ? -1 : 1))
   }, [series])
 
-  // 合计:各 ETF 份额前向填充(某日无更新则沿用上一已知值),仅当全部 ETF 都已有数据才计入,避免早期缺列导致低估
-  const totalData = useMemo(() => {
+  // 各 ETF 份额前向填充(某日无更新则沿用上一已知值),仅当全部 ETF 都已有数据才计入,避免早期缺列导致低估;保留各只值供净申赎拆分
+  const ffRows = useMemo(() => {
     const last: Record<string, number> = {}
-    const out: { date: string; total: number }[] = []
+    const out: { date: string; vals: Record<string, number>; total: number }[] = []
     for (const row of chartData) {
       for (const e of ETF_LIST) { const v = row[e.ts_code]; if (typeof v === 'number') last[e.ts_code] = v }
       if (ETF_LIST.every(e => typeof last[e.ts_code] === 'number')) {
         let sum = 0
-        for (const e of ETF_LIST) sum += last[e.ts_code]
-        out.push({ date: row.date as string, total: Math.round(sum * 100) / 100 })
+        const vals: Record<string, number> = {}
+        for (const e of ETF_LIST) { vals[e.ts_code] = last[e.ts_code]; sum += last[e.ts_code] }
+        out.push({ date: row.date as string, vals, total: Math.round(sum * 100) / 100 })
       }
     }
     return out
   }, [chartData])
+  const totalData = useMemo(() => ffRows.map(r => ({ date: r.date, total: r.total })), [ffRows])
   const totalSummary = useMemo(() => {
     if (totalData.length === 0) return null
     const last = totalData[totalData.length - 1]
@@ -91,16 +93,36 @@ export default function EtfSharePage() {
     return { date: last.date, total: last.total, delta: prev ? last.total - prev.total : null }
   }, [totalData])
 
-  // 净申赎 = 合计份额日间差分(份额增=净申购红、减=净赎回绿);tushare 无毛申购/赎回额,只能取净额
+  // 净申赎 = 份额日间差分(份额增=净申购红、减=净赎回绿);tushare 无毛申购/赎回额,只能取净额。per=各只拆分(其和严格等于合计)
   const flowData = useMemo(() => {
-    const out: { date: string; flow: number }[] = []
-    for (let i = 1; i < totalData.length; i++) out.push({ date: totalData[i].date, flow: Math.round((totalData[i].total - totalData[i - 1].total) * 100) / 100 })
+    const out: { date: string; flow: number; per: Record<string, number> }[] = []
+    for (let i = 1; i < ffRows.length; i++) {
+      const per: Record<string, number> = {}
+      for (const e of ETF_LIST) per[e.ts_code] = Math.round((ffRows[i].vals[e.ts_code] - ffRows[i - 1].vals[e.ts_code]) * 100) / 100
+      out.push({ date: ffRows[i].date, flow: Math.round((ffRows[i].total - ffRows[i - 1].total) * 100) / 100, per })
+    }
     return out
-  }, [totalData])
+  }, [ffRows])
   const flowOpt = useMemo(() => ({
     animation: false,
     grid: { left: 52, right: 20, top: 14, bottom: 28 },
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (v: any) => `${v >= 0 ? '+' : ''}${v} 亿份` },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: (ps: any) => {
+        const f = flowData[ps?.[0]?.dataIndex]
+        if (!f) return ''
+        const sgn = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
+        const col = (v: number) => (v >= 0 ? '#c0392b' : '#1f8e5a')
+        const head = `${fmtDate(f.date)}<br/><b style="color:${col(f.flow)}">合计 ${sgn(f.flow)} 亿份</b>`
+        const rows = ETF_LIST.map(e => ({ e, v: f.per[e.ts_code] ?? 0 })).filter(r => Math.abs(r.v) >= 0.005)
+          .sort((a, b) => Math.abs(b.v) - Math.abs(a.v))
+        if (!rows.length) return `${head}<br/><span style="color:#999;font-size:11px">各 ETF 均无申赎变动</span>`
+        const body = rows.map(r =>
+          `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${r.e.color};margin-right:6px"></span>` +
+          `${r.e.name} <b style="color:${col(r.v)}">${sgn(r.v)}</b>`).join('<br/>')
+        return `${head}<hr style="margin:5px 0;border:none;border-top:1px solid #e4ddcf"/>${body}`
+      },
+    },
     xAxis: { type: 'category', data: flowData.map(f => f.date), axisLabel: { fontSize: 10, formatter: fmtDate } },
     yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
     dataZoom: [{ type: 'inside' }],
