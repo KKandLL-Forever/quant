@@ -342,10 +342,16 @@ def _business_prompt(code, date=None):
                            f"净利同比 {f0.get('p_change_min')}%~{f0.get('p_change_max')}%{npt}")
     except Exception:
         pass
+    try:
+        import peer_finder
+        peertxt = peer_finder.peer_snapshot(tscode)["text"]
+    except Exception:
+        peertxt = "数据不足"
     info = (f"主营:{r['main_business']}\n简介:{str(r['introduction'])[:600]}\n申万行业:{sw}\n"
             f"财务(最新报告期):{fintxt}\n规模估值:{mvtxt}\n股价:{ytdtxt}\n分期归母净利:{proftxt}\n"
             f"最新业绩预告(公司自报,比实际财报领先一期,最新鲜):{fcsttxt}\n"
             f"前瞻PEG(彼得·林奇口径):{pegtxt}\n估值工具箱:{tooltxt or '数据不足'}\n多方法目标价:{fairtxt}\n"
+            f"同业可比与行业(相对估值参照系,同行PE/PB来自实时行情,行业空间/竞争地位来自研报):\n{peertxt}\n"
             f"近期券商研报标题(反映市场当期关注的逻辑/新业务,财报常滞后于此):{rpttxt}")
     prompt = f"""你是资深产业链分析师。基于下列公司资料+真实财务,**用数据说话**,深度分析其供应链地位与议价能力,不要泛泛而谈:
 
@@ -383,7 +389,7 @@ def _business_prompt(code, date=None):
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-15a"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-15c"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):
