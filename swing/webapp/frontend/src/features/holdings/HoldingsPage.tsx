@@ -52,7 +52,7 @@ export default function HoldingsPage() {
   ]
 
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Local Trade Journal · 上传对账单,纯本地解析">持仓总览</PageTitle>
 

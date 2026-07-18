@@ -224,7 +224,7 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
 
 export default function XiaoxifuPage() {
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="小西西弗的量化之路 · 风险调整动量 + 定期轮动(复现)">小西西弗动量轮动</PageTitle>
       <Tabs items={STRATS.map(s => ({ key: s.key, label: s.label, children: <StrategyView cfg={s} /> }))} />

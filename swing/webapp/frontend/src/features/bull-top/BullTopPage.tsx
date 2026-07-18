@@ -165,7 +165,7 @@ export default function BullTopPage() {
   const curMgn = d?.margin.length ? mkMgn(d.margin[d.margin.length - 1]) : null
 
   if (loading) return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Bull-market Top Radar · 剔金融石化整体法">牛市逃顶</PageTitle>
       <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>⚡ echarts · 滚轮缩放(前三图联动,全量点不抽稀)</div>
@@ -177,7 +177,7 @@ export default function BullTopPage() {
   const tone = cur ? (cur.peTtm <= opp ? '#1f8e5a' : cur.peTtm >= danger ? '#c0392b' : '#17140f') : '#17140f'
 
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Bull-market Top Radar · 剔金融石化整体法">牛市逃顶</PageTitle>
       <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginBottom: 12 }}>⚡ echarts · 滚轮缩放(前三图联动,全量点不抽稀)</div>

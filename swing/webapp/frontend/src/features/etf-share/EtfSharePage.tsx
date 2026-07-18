@@ -155,7 +155,7 @@ export default function EtfSharePage() {
   }), [totalData])
 
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="ETF Share Size · 份额=资金申赎的真实脚印">ETF 份额</PageTitle>
 

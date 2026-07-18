@@ -103,7 +103,7 @@ export default function LianbanPage() {
 
   const ms = data?.market_state
   return (
-    <div style={{ maxWidth: 1500, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="2进4·到4板 · XGBoost v6 部署模型(first10)">连板信号</PageTitle>
 

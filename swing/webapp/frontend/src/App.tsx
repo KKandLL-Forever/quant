@@ -663,7 +663,7 @@ function MainPage() {
 
   const banner: any = payload?.banner
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px', display: 'flex', gap: 14, alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
       <Header />
       <PageTitle kicker="Main-wave Signals · LightGBM + 缠论 + LLM">ML 主升浪信号</PageTitle>
@@ -924,7 +924,7 @@ function AdvisePage() {
   }
 
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Chan-theory Exit Advisor · 单只个股">缠论卖点提示</PageTitle>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>

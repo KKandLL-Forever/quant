@@ -93,7 +93,7 @@ export default function ConceptPage() {
   ]
 
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Concept Rotation · 扩散指标 + RRG 四象限(研究:concept_rotation)">概念轮动</PageTitle>
 

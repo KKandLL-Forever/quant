@@ -170,7 +170,7 @@ export default function LimitUpPage() {
   useEffect(() => { load() }, [])
 
   return (
-    <div style={{ maxWidth: 1850, margin: '18px auto', padding: '0 16px' }}>
+    <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
       <PageTitle kicker="Limit-up Ladder / Success-rate / Calendar">涨停统计</PageTitle>
 
