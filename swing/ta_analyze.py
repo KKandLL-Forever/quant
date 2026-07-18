@@ -59,10 +59,14 @@ def _biz_brief(biz):
     """把基本面分析师结论压成一段摘要,供综合决策参考;无有效结论返回空串。"""
     if not isinstance(biz, dict) or biz.get("raw"):
         return ""
-    parts = [f"类型:{biz['val_type']}" if biz.get("val_type") else "",
+    rf = biz.get("red_flags") or ""
+    rf_hit = bool(rf) and not __import__("re").match(r"^无[,，。\s]*$", rf)
+    parts = [f"⛔红线否决:{rf}(基本面结论应压到回避/降置信)" if rf_hit else "",
+             f"类型:{biz['val_type']}" if biz.get("val_type") else "",
              f"估值:{biz['val_method']}" if biz.get("val_method") else "",
              f"股价业绩匹配:{biz['valuation']}" if biz.get("valuation") else "",
              f"PEG:{biz['peg']}" if biz.get("peg") else "",
+             f"中性合理价:{biz['sc_base']}" if biz.get("sc_base") else "",
              f"地位:{biz['summary']}" if biz.get("summary") else ""]
     return "\n".join(x for x in parts if x)[:2000]
 
@@ -378,14 +382,17 @@ def _business_prompt(code, date=None):
    **⚠️ 若主锚结论与「valuation(前瞻匹配)」相反**,点破原因(通常=滞后ROE vs 前瞻业绩)并给统一判断。
 9) valuation: **股价-业绩 匹配测算**:对比【年初至今涨幅】与【最近报告期归母净利同比】判断背离;若维持PE不变,涨X%→利润需同比+X%,反推下一报告期需要的单季增速对照现实;结论区分"业绩已兑现 / 靠预期透支"。给一句话+关键数字。
 10) peg: **前瞻PEG 一句话结论**(基于「前瞻PEG」那行;不适用则说明为何——利润为负/无券商覆盖)。
-11) fair_value: **只用「★估值主锚」那一个方法**,结合「同业可比」中位与「估值工具箱/多方法目标价」里对应数字,给"合理价 X~Y 元"区间,再对比现价说明当前**低估/高估约±Z%**,点明用的哪个锚与关键数字。**铁律**:①**主锚=「无法估值」→ fair_value 直接写"纯预期驱动,暂无法给合理价"**;②若目标价那行标注「分歧>3x/标准估值失效」或数据不足,不硬凑区间,只给单锚定价或直说无法给;③周期股用正常化PE,别拿当期PE/静态PB当下沿。
+11) fair_value: **用「★估值主锚」结合同业中位/估值工具箱,给"合理价 X~Y 元 + 当前低估/高估约±Z%"一句总判断**。主锚=「无法估值」→ 直接写"纯预期驱动,暂无法给合理价"。
+11b) sc_bear / sc_base / sc_bull: **三情景定价(禁止概率加权,各写"价 + 条件")**——sc_bear=保守价+什么兑现不了(如增速回落/周期见顶);sc_base=中性价+核心假设;sc_bull=乐观价+什么兑现(如新业务放量/景气上行)。都用同一主锚推,数字要和 fair_value 自洽。主锚=「无法估值」→ 三个都写"纯预期,无法给"。
 12) new_biz: **业务转型/新业务(第二增长曲线)**:结合「主营/简介」与「近期券商研报标题」判断——公司是否在向**热门赛道**(如人形机器人/AI算力/液冷/低空/储能/固态电池等)转型或拓展新业务?若有:说清**是什么新业务、切入的环节/卡位、当前是纯题材预期还是已有订单收入落地**(主营构成/财报里通常还看不到→多为预期驱动)、以及**这块给估值贡献了多少想象空间(是不是主升逻辑)**。若研报标题反复出现某新方向,重点点出。**没有明显新业务/转型就直说"无,主业为主"**,不要硬编。
 
-只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":"","fair_value":"","new_biz":""}}"""
+13) red_flags: **红线否决扫描**(基本面地雷,任一命中→本股基本面结论压到"回避")。逐条对照可得信息扫:①业绩爆雷(预告大幅下修/预亏)②股价业绩严重背离·纯题材透支(纯博傻)③财务异常迹象(现金流与利润长期背离/应收暴增,若信息不足则不臆断)④退市·ST·重大诉讼/减持质押风险(若研报或资料提及)。命中就写"触发:<哪条>—<依据>";没有明显红线写"无"。数据有限只标"有迹象/需警惕",不做绝对断言、不编造。
+
+只输出JSON:{{"products":"","chain":"上游|中游|下游","chain_desc":"","market_pos":"","pricing":"","bottleneck":"被卡|卡别人|部分|否","reason":"","summary":"","val_type":"","val_method":"","valuation":"","peg":"","fair_value":"","sc_bear":"","sc_base":"","sc_bull":"","new_biz":"","red_flags":""}}"""
     return prompt, fintxt, pegdict
 
 
-BIZ_VER = "2026-07-19a"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
+BIZ_VER = "2026-07-19b"   # 公司分析 prompt/口径版本;改动即 +1,旧缓存自动失效重算
 
 
 def _parse_business(txt, fintxt, pegdict=None):

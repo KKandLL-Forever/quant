@@ -457,6 +457,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
           <ChatMsg av="🤖" bg="#8a8378" role="进行中"><span style={{ color: '#8a8378' }}>{ana.stage} <Typing /></span></ChatMsg>}
         {(ana.business || ana.bizText) && <ChatMsg img={AV.biz} bg="#a855f7" role="基本面分析师">
           {ana.business ? (() => { const b = ana.business; if (b.raw) return <span>{b.raw}</span>; return <>
+            {b.red_flags && !/^无[,，。\s]*$/.test(b.red_flags) && <div style={{ marginBottom: 6, padding: '6px 8px', background: '#fdecec', border: '1px solid #f0b4b4', borderRadius: 6 }}><b style={{ color: '#c0392b' }}>⛔ 红线否决:</b> <span style={{ color: '#a33' }}>{b.red_flags}</span></div>}
             <div><b>主营:</b> {b.products} {b.chain && <Tag style={{ marginLeft: 4 }}>{b.chain}</Tag>}<span style={{ color: '#666' }}>{b.chain_desc}</span></div>
             {b.new_biz && !/^无[,，。]?/.test(b.new_biz) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#fbeff7', border: '1px solid #eac4dd', borderRadius: 6 }}><b>🚀 新业务/转型:</b> {b.new_biz}</div>}
             {b.market_pos && <div><b>市场地位:</b> {b.market_pos}</div>}
@@ -481,6 +482,12 @@ function AnaHost({ children }: { children: React.ReactNode }) {
                 {f.side && <Tag color={sc} style={{ marginLeft: 6 }}>{f.side}{f.pct ? ` ${f.pct}` : ''}</Tag>}
                 <div style={{ marginTop: 2, color: '#333' }}>{hlNums(b.fair_value)}</div>
               </div> })()}
+            {(b.sc_bear || b.sc_base || b.sc_bull) && <div style={{ marginTop: 4, padding: '6px 8px', background: '#eef4fb', border: '1px solid #bcd4ec', borderRadius: 6 }}>
+              <b>三情景定价</b><span style={{ color: '#999', fontSize: 12 }}>(同一主锚推,非概率加权)</span>:
+              {b.sc_bull && <div style={{ marginTop: 2 }}><Tag color="red">乐观</Tag>{hlNums(b.sc_bull)}</div>}
+              {b.sc_base && <div style={{ marginTop: 2 }}><Tag color="gold">中性</Tag>{hlNums(b.sc_base)}</div>}
+              {b.sc_bear && <div style={{ marginTop: 2 }}><Tag color="green">保守</Tag>{hlNums(b.sc_bear)}</div>}
+            </div>}
             {b.summary && <div style={{ marginTop: 2 }}><b>小结:</b> {b.summary}</div>}
             {b.fin && <div style={{ color: '#999', fontSize: 12 }}>财务: {b.fin}</div>}
           </> })() : <span style={{ color: '#8a8378' }}>基本面分析生成中(结构化结果一次性排版展示)… <Typing /></span>}
