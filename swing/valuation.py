@@ -79,8 +79,8 @@ def pick_anchor(code: str) -> dict:
         return {"archetype": "资产型(重资产)", "anchor": "EV/EBITDA", "reason": f"高负债高折旧({l2 or l1}):剔除资本结构/折旧差异更公平", "computable": True}
 
     if has_profit_stable:
-        anc = "PE(动态扣非)" + ("叠PEG" if high_growth else "")
-        why = "有正且相对稳定利润" + (f",净利同比{npyoy:.0f}%属高成长叠PEG" if high_growth else "")
+        anc = "PE(前瞻,券商预测)" + ("叠PEG" if high_growth else "")
+        why = "有正且相对稳定利润" + (f",净利同比{npyoy:.0f}%属高成长叠PEG" if high_growth else "") + ";优先用研报『可比公司估值表』的前瞻PE与同业前瞻PE中位对比,无表再用TTM PE+前瞻PEG"
         return {"archetype": "成长型" if high_growth else "成熟盈利型", "anchor": anc, "reason": why, "computable": True}
     if has_networth:
         return {"archetype": "资产型", "anchor": "PB(净资产/家底)", "reason": f"利润不稳/为负但有净资产(PB {pb:.2f}),用市净率;跌破净资产常是底部信号", "computable": True}
