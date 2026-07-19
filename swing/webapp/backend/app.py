@@ -1018,6 +1018,29 @@ def stock_search(q: str = ""):
     return {"ok": True, "items": [{"code": c, "name": n} for c, n in rows]}
 
 
+@app.get("/api/peer_status")
+def peer_status(code: str = ""):
+    """查 peer_cache 是否已有该股同业估值缓存 + 是否含研报可比公司前瞻估值表(供分析弹窗标题tag)。"""
+    ts = _norm_code(code)
+    p = os.path.join(_ROOT, "peer_cache.duckdb")
+    if not ts or not os.path.exists(p):
+        return {"ok": True, "cached": False}
+    try:
+        import duckdb
+        con = duckdb.connect(p, read_only=True)
+        r = con.execute("SELECT val_table, source, report_date, peers FROM stock_peers WHERE ts_code=?", [ts]).fetchone()
+        con.close()
+    except Exception:
+        return {"ok": True, "cached": False}
+    if not r:
+        return {"ok": True, "cached": False}
+    vt = json.loads(r[0]) if r[0] else None
+    peers = json.loads(r[3] or "[]")
+    n_val = len(vt["rows"]) if (isinstance(vt, dict) and vt.get("rows")) else 0
+    return {"ok": True, "cached": True, "has_val_table": n_val > 0, "source": r[1],
+            "report_date": r[2], "n_peers": len(peers), "n_val": n_val}
+
+
 @app.get("/api/stock_info")
 def stock_info(code: str = ""):
     """个股悬浮卡数据:现价/涨跌/估值(PE/PB/市值/股息)/申万行业/最相关前2概念。"""

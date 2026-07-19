@@ -296,6 +296,13 @@ function AnaHost({ children }: { children: React.ReactNode }) {
   }, [ana?.market_report, ana?.news_report, (ana?.shownDlg || []).length, ana?.bizText, ana?.verText, ana?.phase, ana?.verdict, ana?.business])
   const up = (rid: string, patch: any) => setAna((a: any) => (a && a.rid === rid) ? { ...a, ...patch } : a)
 
+  React.useEffect(() => {   // 弹窗开/换股票时查同业估值缓存状态,供标题 tag
+    const code = ana?.code
+    if (!code) return
+    fetch(`/api/peer_status?code=${encodeURIComponent(code)}`).then(r => r.json())
+      .then((j: any) => setAna((a: any) => a && a.code === code ? { ...a, peer: j } : a)).catch(() => { })
+  }, [ana?.code])
+
   const _startStream = (rid: string, code: string, date: string) => {
     if (curRid.current !== rid) return
     const es = new EventSource(`/api/analyze/stream?rid=${rid}&code=${encodeURIComponent(code)}&date=${date}`)
@@ -336,7 +343,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
     timers.current.forEach(clearTimeout); timers.current = []
     curRid.current = rid
     setAna((a: any) => ({ ...(a || {}), open: true, rid, code, date, name, phase: 'starting', stage: '启动分析…', dates: a?.dates || [],
-      market_report: '', news_report: '', shownDlg: [], business: undefined, verdict: undefined, cached: false }))
+      market_report: '', news_report: '', shownDlg: [], business: undefined, verdict: undefined, bizText: '', verText: '', cached: false }))
     try {
       const r = await fetch('/api/analyze/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, date, force, rid }) })
@@ -424,6 +431,11 @@ function AnaHost({ children }: { children: React.ReactNode }) {
 
     <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
       title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code}{ana?.date ? ` @ ${ana.date}` : ''}
+        {ana?.peer && (ana.peer.has_val_table
+          ? <Tag color="green" style={{ marginLeft: 8 }} title={`研报可比公司估值表 · ${ana.peer.n_val}家 · ${ana.peer.report_date || ''}`}>同业估值·研报 {ana.peer.n_val}家</Tag>
+          : ana.peer.cached
+            ? <Tag color="default" style={{ marginLeft: 8 }} title={ana.peer.source || ''}>同业·申万 {ana.peer.n_peers || 0}家</Tag>
+            : <Tag color="orange" style={{ marginLeft: 8 }}>同业估值·未缓存</Tag>)}
         {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
         {ana?.phase === 'done' && <span className="ana-redo" onClick={() => runAnalysis(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
       </span>}>
