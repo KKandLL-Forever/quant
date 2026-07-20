@@ -1,8 +1,15 @@
 // 概念轮动:扩散指标 + RRG 四象限(复现「做量化的西蒙」框架)。RRG散点(X=RS强度,Y=RS动量,气泡=扩散度,色=象限)+主线候选表。数据走 /api/concept。
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Card, Table, Tag, Select, message } from 'antd'
+import { Button, Card, Table, Tag, Select, Tooltip, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle, SkelStatus, SkelChart, SkelTable } from '../../shell'
+
+// 带虚线下划线的表头,悬浮显示释义 + 好坏标准
+const Th = ({ t, tip }: { t: string; tip: any }) => (
+  <Tooltip title={<div style={{ fontSize: 12, lineHeight: 1.6, maxWidth: 300 }}>{tip}</div>}>
+    <span style={{ borderBottom: '1px dotted #999', cursor: 'help' }}>{t}</span>
+  </Tooltip>
+)
 
 interface Cpt { name: string; code: string; diffusion: number; diffusion_raw: number; mom20: number | null; rs_ratio: number; rs_momentum: number; chg: number | null; excess: number | null; quadrant: string; main: boolean; trail: number[][] }
 interface Payload { ok: boolean; error?: string; date: string; bench: string; concepts: Cpt[] }
@@ -84,12 +91,12 @@ export default function ConceptPage() {
     { title: '概念', dataIndex: 'name', render: (v: string, r: Cpt) => <span><b>{v}</b> <span style={{ opacity: .5, fontSize: 11 }}>{r.code}</span></span> },
     { title: '象限', dataIndex: 'quadrant', width: 80, filters: Object.keys(QC).map(q => ({ text: q, value: q })), onFilter: (v: any, r: Cpt) => r.quadrant === v, render: (v: string) => <Tag color={QC[v]} style={{ color: '#fff', border: 'none' }}>{v}</Tag> },
     { title: '当日涨跌', dataIndex: 'chg', width: 90, sorter: (a: Cpt, b: Cpt) => (a.chg ?? 0) - (b.chg ?? 0), render: (v: number | null) => v == null ? '—' : <b style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</b> },
-    { title: '超额(vs基准)', dataIndex: 'excess', width: 100, sorter: (a: Cpt, b: Cpt) => (a.excess ?? 0) - (b.excess ?? 0), render: (v: number | null, r: Cpt) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%{r.main && v <= -3 ? ' ⚠️' : ''}</span> },
-    { title: '扩散(MA20)', dataIndex: 'diffusion', defaultSortOrder: 'descend' as const, sorter: (a: Cpt, b: Cpt) => a.diffusion - b.diffusion, render: (v: number) => <b>{pct(v)}</b> },
-    { title: '当日原始', dataIndex: 'diffusion_raw', sorter: (a: Cpt, b: Cpt) => a.diffusion_raw - b.diffusion_raw, render: (v: number, r: Cpt) => <span style={{ color: r.diffusion_raw < r.diffusion - 0.15 ? '#1f8e5a' : '#5b554a' }}>{pct(v)}</span> },
-    { title: '20日扩散动量', dataIndex: 'mom20', sorter: (a: Cpt, b: Cpt) => (a.mom20 ?? -9) - (b.mom20 ?? -9), render: (v: number | null) => <span style={{ color: (v ?? 0) > 0 ? '#c0392b' : '#1f8e5a' }}>{v == null ? '—' : (v > 0 ? '+' : '') + pct(v)}</span> },
-    { title: 'RS强度', dataIndex: 'rs_ratio', sorter: (a: Cpt, b: Cpt) => a.rs_ratio - b.rs_ratio, render: (v: number) => v.toFixed(1) },
-    { title: 'RS动量', dataIndex: 'rs_momentum', sorter: (a: Cpt, b: Cpt) => a.rs_momentum - b.rs_momentum, render: (v: number) => v.toFixed(1) },
+    { title: '超额(vs基准)', dataIndex: 'excess', width: 122, sorter: (a: Cpt, b: Cpt) => (a.excess ?? 0) - (b.excess ?? 0), render: (v: number | null, r: Cpt) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%{r.main && v <= -3 ? ' ⚠️' : ''}</span> },
+    { title: <Th t="扩散(MA20)" tip={<><b>释义:</b>该概念成分股中「站上MA20(或当日上涨)」的自由流通市值占比,再用MA20平滑。衡量板块内部有多广的资金在往上走(走势广度)。<br /><b>好坏:</b>越高越强——&gt;70% 普涨强势、&lt;30% 普跌走弱;平滑后能滤掉单日噪声。</>} />, dataIndex: 'diffusion', defaultSortOrder: 'descend' as const, sorter: (a: Cpt, b: Cpt) => a.diffusion - b.diffusion, render: (v: number) => <b>{pct(v)}</b> },
+    { title: <Th t="当日原始" tip={<><b>释义:</b>未平滑的当日扩散值(当天成分股站上MA20的市值占比)。<br /><b>好坏:</b>和平滑值比看拐点——原始明显低于平滑值(显绿)= 当日转弱、可能见顶回落;原始高于平滑 = 当日转强。</>} />, dataIndex: 'diffusion_raw', sorter: (a: Cpt, b: Cpt) => a.diffusion_raw - b.diffusion_raw, render: (v: number, r: Cpt) => <span style={{ color: r.diffusion_raw < r.diffusion - 0.15 ? '#1f8e5a' : '#5b554a' }}>{pct(v)}</span> },
+    { title: <Th t="20日扩散动量" tip={<><b>释义:</b>扩散度相对20日前的变化量,看的是"变好还是变坏"的方向。<br /><b>好坏:</b>为正 = 扩散在上升(资金进场、变强);为负 = 在退潮/走弱。</>} />, dataIndex: 'mom20', sorter: (a: Cpt, b: Cpt) => (a.mom20 ?? -9) - (b.mom20 ?? -9), render: (v: number | null) => <span style={{ color: (v ?? 0) > 0 ? '#c0392b' : '#1f8e5a' }}>{v == null ? '—' : (v > 0 ? '+' : '') + pct(v)}</span> },
+    { title: <Th t="RS强度" tip={<><b>释义:</b>该概念相对基准(如中证1000)的相对强弱比值(RRG 横轴)。&gt;100 为中枢,越大越跑赢基准。<br /><b>好坏:</b>越大越强;位于右侧 = 领先/转弱区,左侧 = 改善/落后区。</>} />, dataIndex: 'rs_ratio', sorter: (a: Cpt, b: Cpt) => a.rs_ratio - b.rs_ratio, render: (v: number) => v.toFixed(1) },
+    { title: <Th t="RS动量" tip={<><b>释义:</b>RS强度自身的变化速度(相对强弱的动量,RRG 纵轴)。<br /><b>好坏:</b>为正/在上 = 相对强弱在改善;为负/在下 = 在走弱。右上=领先、左上=改善(强弱回升)、右下=转弱、左下=落后。</>} />, dataIndex: 'rs_momentum', sorter: (a: Cpt, b: Cpt) => a.rs_momentum - b.rs_momentum, render: (v: number) => v.toFixed(1) },
   ]
 
   return (
