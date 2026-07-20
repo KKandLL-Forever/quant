@@ -391,6 +391,15 @@ DDL = {
         PARTITION BY toYYYYMM(trade_date)
         ORDER BY (ts_code, trade_date)
     """,
+    "etf_share": """
+        CREATE TABLE IF NOT EXISTS etf_share (
+            ts_code     LowCardinality(String),
+            trade_date  Date,
+            total_share Float64,
+            total_size  Float64
+        ) ENGINE = ReplacingMergeTree
+        ORDER BY (ts_code, trade_date)
+    """,
     "st": """
         CREATE TABLE IF NOT EXISTS st (
             ts_code    LowCardinality(String),
@@ -583,6 +592,7 @@ COLUMNS = {
                     "cost_50pct","cost_85pct","cost_95pct","weight_avg","winner_rate"],
     "trade_cal":   ["exchange","cal_date","is_open","pretrade_date"],
     "stock_st":    ["ts_code","name","trade_date","st_type","type_name"],
+    "etf_share":   ["ts_code","trade_date","total_share","total_size"],
     "st":          ["ts_code","name","pub_date","imp_date","st_type","st_reason","st_explain"],
     "moneyflow":   ["ts_code","trade_date",
                     "buy_sm_vol","buy_sm_amount","sell_sm_vol","sell_sm_amount",
@@ -646,6 +656,7 @@ FLOAT_COLS = {
                          "buy_elg_amount","buy_elg_amount_rate","buy_lg_amount","buy_lg_amount_rate",
                          "buy_md_amount","buy_md_amount_rate","buy_sm_amount","buy_sm_amount_rate"],
     "limit_step":  [],
+    "etf_share":   ["total_share","total_size"],
     "cyq_perf":    ["his_low","his_high","cost_5pct","cost_15pct","cost_50pct",
                     "cost_85pct","cost_95pct","weight_avg","winner_rate"],
     "trade_cal":   [],
@@ -834,6 +845,11 @@ _DUCK_DDL = {
         CREATE TABLE IF NOT EXISTS stock_st (
             ts_code VARCHAR, name VARCHAR, trade_date DATE,
             st_type VARCHAR, type_name VARCHAR,
+            PRIMARY KEY (ts_code, trade_date)
+        )""",
+    "etf_share": """
+        CREATE TABLE IF NOT EXISTS etf_share (
+            ts_code VARCHAR, trade_date DATE, total_share DOUBLE, total_size DOUBLE,
             PRIMARY KEY (ts_code, trade_date)
         )""",
     "st": """
@@ -2360,6 +2376,35 @@ def fetch_and_write_st(pro, ck: Client, limiter, duck_writer=None) -> None:
     print(f"{n} 条")
 
 
+ETF_SHARE_LIST = ["588080.SH", "588000.SH", "510050.SH", "512100.SH", "560010.SH",
+                  "159845.SZ", "159915.SZ", "510300.SH", "510500.SH", "159919.SZ"]  # 与前端 EtfSharePage.tsx ETF_LIST 同步
+ETF_SHARE_START = "20150101"
+
+
+def fetch_and_write_etf_share(pro, ck: Client, limiter, duck_writer=None) -> None:
+    """拉宽基 ETF 份额/规模历史(etf_share_size)全量重拉写入(供 webapp「ETF份额」页)。"""
+    print("拉取 ETF 份额 etf_share_size...", end=" ", flush=True)
+    today = pd.Timestamp(datetime.today().date())
+    total = 0
+    for code in ETF_SHARE_LIST:
+        parts = []
+        s = pd.Timestamp(ETF_SHARE_START)
+        while s <= today:
+            e = min(s + pd.DateOffset(years=3) - pd.Timedelta(days=1), today)
+            d = _retry_call(pro.etf_share_size, limiter, f"etf_share_size {code}",
+                            ts_code=code, start_date=s.strftime("%Y%m%d"), end_date=e.strftime("%Y%m%d"))
+            if d is not None and len(d):
+                parts.append(d[["ts_code", "trade_date", "total_share", "total_size"]])
+            s = e + pd.Timedelta(days=1)
+        if parts:
+            df = pd.concat(parts).drop_duplicates(["ts_code", "trade_date"])
+            _bulk_write(ck, "etf_share", df)
+            if duck_writer is not None:
+                duck_writer.put("etf_share", df)
+            total += len(df)
+    print(f"{total} 条")
+
+
 def fetch_and_write_cb_basic(pro, ck: Client, limiter, duck_writer=None) -> None:
     """一次性拉取全市场可转债基础信息（含正股代码 stk_code 与上市/退市日），覆盖式写入。"""
     print("拉取可转债基础信息 cb_basic...", end=" ", flush=True)
@@ -2847,6 +2892,7 @@ def run_full(pro, ck: Client, start: str, workers: int, duck_writer=None) -> Non
     print()
     fetch_and_write_st(pro, ck, limiter, duck_writer)
     fetch_and_write_cb_basic(pro, ck, limiter, duck_writer)
+    fetch_and_write_etf_share(pro, ck, limiter, duck_writer)
 
     fina_plan = _fina_plan(ck, dates, full=True)
     print("\n[财务/参考数据] 全量 13 张表：")
@@ -2998,6 +3044,7 @@ def run_update(pro, ck: Client, date_arg: str | None, workers: int, duck_writer=
     fetch_and_write_trade_cal(pro, ck, limiter, DEFAULT_START, duck_writer)
     fetch_and_write_st(pro, ck, limiter, duck_writer)
     fetch_and_write_cb_basic(pro, ck, limiter, duck_writer)
+    fetch_and_write_etf_share(pro, ck, limiter, duck_writer)
 
     miss_top10 = _top10_missing_periods(ck)
     if miss_top10:

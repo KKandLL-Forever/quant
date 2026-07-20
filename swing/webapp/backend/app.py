@@ -743,22 +743,24 @@ class EtfShareReq(BaseModel):
 
 @app.post("/api/etfshare")
 def etfshare(req: EtfShareReq):
-    """ETF 份额时序:读本地 etf_cache.duckdb(total_share 万份→亿份),按代码返回。数据由 cache_etf_share.py 维护。"""
+    """ETF 份额时序:读主库 etf_share(total_share 万份→亿份),按代码返回。数据由 cache_tushare 维护。"""
     try:
         import datetime as dt
         import duckdb
-        etf_db = os.path.join(_ROOT, "etf_cache.duckdb")
-        if not os.path.exists(etf_db):
-            return {"ok": False, "error": "etf_cache.duckdb 不存在,请先运行:python cache_etf_share.py --full"}
+        from cache_tushare import DUCKDB_PATH
+        def _d(s):
+            return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if s and len(s) == 8 and s.isdigit() else s
         end = req.end or dt.date.today().strftime("%Y%m%d")
-        con = duckdb.connect(etf_db, read_only=True)
+        con = duckdb.connect(DUCKDB_PATH, read_only=True)
         series = {}
         try:
+            if con.execute("SELECT count(*) FROM information_schema.tables WHERE table_name='etf_share'").fetchone()[0] == 0:
+                return {"ok": False, "error": "主库无 etf_share 表,请先运行 cache_tushare 更新"}
             for c in req.codes:
                 rows = con.execute("""SELECT trade_date, total_share FROM etf_share
                     WHERE ts_code=? AND trade_date>=? AND trade_date<=? ORDER BY trade_date""",
-                    [c, req.start, end]).fetchall()
-                series[c] = [{"trade_date": td, "fdShare": round(float(tsh) / 10000, 2)} for td, tsh in rows if tsh is not None]
+                    [c, _d(req.start), _d(end)]).fetchall()
+                series[c] = [{"trade_date": str(td).replace("-", ""), "fdShare": round(float(tsh) / 10000, 2)} for td, tsh in rows if tsh is not None]
         finally:
             con.close()
         return {"ok": True, "series": series}
