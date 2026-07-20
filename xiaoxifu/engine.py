@@ -117,6 +117,31 @@ def perf(returns):
                 卡玛比率=round(ann / abs(mdd), 3) if mdd else None)
 
 
+EXCESS_BENCH = [("沪深300", "510300.SH"), ("创业50", "159949.SZ"), ("科创50", "588000.SH")]
+
+
+def excess_totals(dates, start, end):
+    """3 个对比指数(用跟踪 ETF 前复权)在展示区间 [start,end] 的累计收益%(对齐 dates 首末);缺数据返回 None。"""
+    out = {}
+    for nm, code in EXCESS_BENCH:
+        try:
+            b = load_fund_qfq([code], start, end)[code].reindex(dates).ffill().bfill().dropna()
+            out[nm] = round((b.iloc[-1] / b.iloc[0] - 1) * 100, 2) if len(b) >= 2 else None
+        except Exception:
+            out[nm] = None
+    return out
+
+
+def attach_excess(rows, dates, start, end):
+    """给每条绩效行(dict,含'累计收益')加 超额_沪深300/超额_创业50/超额_科创50 = 该行累计 − 指数累计;缺则 None。"""
+    ex = excess_totals(dates, start, end)
+    for r in rows:
+        base = r.get("累计收益")
+        for nm in ("沪深300", "创业50", "科创50"):
+            r[f"超额_{nm}"] = None if (ex[nm] is None or base is None) else round(float(base) - float(ex[nm]), 2)
+    return rows
+
+
 def _price(px, d, c):
     """取前复权价,缺失返回 None。"""
     try:
@@ -198,8 +223,9 @@ def to_payload(universe, loader, bench_code, bench_name, strat_name, n, k, l, st
         "ok": True,
         "params": {"N": n, "K": k, "L": l, "start": start, "end": end},
         "cols": list(cum.columns),
-        "summary": [{"策略": idx, **{c: (None if pd.isna(v) else v) for c, v in row.items()}}
-                    for idx, row in summary.iterrows()],
+        "summary": attach_excess(
+            [{"策略": idx, **{c: (None if pd.isna(v) else v) for c, v in row.items()}}
+             for idx, row in summary.iterrows()], cum.index, start, end),
         "equity": equity,
         "rebalances": [nxt] + list(reversed(actions)),
     }

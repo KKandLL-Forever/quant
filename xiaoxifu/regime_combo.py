@@ -101,7 +101,9 @@ def to_payload(start="2024-01-01", end=None, codes=None, l=5, k=5, **_):
     cum = growth - 1
     equity = [{"date": str(pd.Timestamp(d).date()),
                **{c: round(float(cum.loc[d, c]), 4) for c in cum.columns}} for d in cum.index]
-    summary = [_perf_row(STRAT_NAME, combo[m]), _perf_row(LEAD_NAME, lead[m]), _perf_row(ALLW_NAME, allw[m])]
+    summary = engine.attach_excess(
+        [_perf_row(STRAT_NAME, combo[m]), _perf_row(LEAD_NAME, lead[m]), _perf_row(ALLW_NAME, allw[m])],
+        cum.index, start, end)
 
     ap = applied[m]
     switches = []

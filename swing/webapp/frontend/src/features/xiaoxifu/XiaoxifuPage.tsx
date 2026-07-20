@@ -7,7 +7,7 @@ import { Header, PageTitle, SkelStatRow, SkelChart, SkelTable } from '../../shel
 
 interface Pick { code: string; name: string; weight: number; price?: number | null }
 interface Rebalance { date: string; picks: Pick[]; state?: string; next?: boolean }
-interface Perf { 策略: string; 累计收益?: number | null; 年化收益: number | null; 年化波动率: number | null; 最大回撤: number | null; 夏普比率: number | null; 卡玛比率: number | null }
+interface Perf { 策略: string; 累计收益?: number | null; 年化收益: number | null; 年化波动率: number | null; 最大回撤: number | null; 夏普比率: number | null; 卡玛比率: number | null; 超额_沪深300?: number | null; 超额_创业50?: number | null; 超额_科创50?: number | null }
 interface Payload {
   ok: boolean; error?: string
   params: { N: number; K: number; L: number; start: string; end: string }
@@ -176,6 +176,11 @@ function StrategyView({ cfg }: { cfg: StratCfg }) {
                     <Col span={8}><Statistic title="年化波动" value={s.年化波动率 ?? '—'} suffix="%" valueStyle={{ fontSize: 13 }} /></Col>
                     <Col span={8}><Statistic title="夏普" value={s.夏普比率 ?? '—'} valueStyle={{ fontSize: 13 }} /></Col>
                   </Row>
+                  <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px dashed #ece7db', fontSize: 12, color: 'var(--ink-soft)' }}>
+                    累计超额　{([['沪深300', s.超额_沪深300], ['创业50', s.超额_创业50], ['科创50', s.超额_科创50]] as const).map(([nm, v], i) => (
+                      <span key={nm} style={{ marginLeft: i ? 12 : 4 }}>{nm} <b style={{ color: v == null ? '#999' : v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v == null ? '--' : (v >= 0 ? '+' : '') + v + '%'}</b></span>
+                    ))}
+                  </div>
                 </Card>
               </Col>
             ))}
