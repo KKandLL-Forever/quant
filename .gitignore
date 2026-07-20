@@ -77,3 +77,4 @@ research/cn_regime.json
 # ETF 净申赎择时研究产物(可再生,不入库)
 research/etf_flow_timing.csv
 research/etf_flow_episodes.csv
+research/etf_flow_regime.csv
