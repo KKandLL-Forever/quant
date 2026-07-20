@@ -113,5 +113,20 @@
     "industry": "证券",
     "code": "600030.SH",
     "name": "中信证券"
+  },
+  {
+    "industry": "油气",
+    "code": "600938.SH",
+    "name": "中国海油"
+  },
+  {
+    "industry": "电力",
+    "code": "600900.SH",
+    "name": "长江电力"
+  },
+  {
+    "industry": "软件",
+    "code": "600536.SH",
+    "name": "中国软件"
   }
 ]
