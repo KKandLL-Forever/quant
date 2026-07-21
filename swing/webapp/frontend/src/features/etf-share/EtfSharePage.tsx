@@ -61,7 +61,19 @@ function computeFlow(chartData: Record<string, number | string>[], metas: { ts_c
   return out
 }
 
+const qtile = (sorted: number[], p: number) => {
+  if (!sorted.length) return 0
+  const i = (sorted.length - 1) * p, lo = Math.floor(i), hi = Math.ceil(i)
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo)
+}
+
 function flowOption(flowData: FlowRow[], metas: { ts_code: string; name: string; color: string }[]) {
+  const sortedFlow = flowData.map(f => f.flow).filter(v => Number.isFinite(v)).sort((a, b) => a - b)
+  const pctLines = [[0.8, '#c0392b'], [0.6, '#e08e5a'], [0.4, '#7aa88a'], [0.2, '#1f8e5a']].map(([p, c]) => {
+    const y = qtile(sortedFlow, p as number)
+    return { yAxis: Math.round(y * 100) / 100, lineStyle: { color: c as string, type: 'dashed' as const, width: 1 },
+      label: { formatter: `P${(p as number) * 100} ${y.toFixed(1)}`, fontSize: 9, color: c as string, position: 'insideEndTop' as const } }
+  })
   return {
     animation: false,
     grid: { left: 52, right: 20, top: 14, bottom: 28 },
@@ -86,7 +98,8 @@ function flowOption(flowData: FlowRow[], metas: { ts_code: string; name: string;
     yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
     dataZoom: [{ type: 'inside' }],
     series: [{ name: '净申赎', type: 'bar', data: flowData.map(f => f.flow),
-      itemStyle: { color: (p: any) => (p.value >= 0 ? '#c0392b' : '#1f8e5a') } }],
+      itemStyle: { color: (p: any) => (p.value >= 0 ? '#c0392b' : '#1f8e5a') },
+      markLine: { silent: true, symbol: 'none', data: pctLines } }],
   }
 }
 
