@@ -84,20 +84,22 @@ function EValuation({ data, danger, mid, opp }: { data: Val[]; danger: number; m
   return <ReactECharts option={option} notMerge style={{ height: 480 }} onChartReady={linkReady} />
 }
 
-// 两融拥挤度(双轴 % + 3% 预警线 + 牛市阴影)
-function EMargin({ data }: { data: { date: string; ratio: number | null; buyShare: number | null }[] }) {
+// 两融拥挤度(左%/右% 双轴 + 上证第三轴叠加 + 3% 预警线 + 牛市阴影)
+function EMargin({ data }: { data: { date: string; ratio: number | null; buyShare: number | null; sh: number | null }[] }) {
   const option = {
-    animation: false, grid: baseGrid, legend: baseLegend,
-    tooltip: { trigger: 'axis', valueFormatter: (v: any) => v == null ? '-' : v + '%' },
+    animation: false, grid: { ...baseGrid, right: (baseGrid as any).right != null ? (baseGrid as any).right + 40 : 88 }, legend: baseLegend,
+    tooltip: { trigger: 'axis', valueFormatter: (v: any) => v == null ? '-' : (v > 200 ? v : v + '%') },
     xAxis: { type: 'category', data: data.map(v => fmtDate(v.date)), boundaryGap: false, axisLabel: { fontSize: 10 } },
     yAxis: [{ type: 'value', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { lineStyle: { color: '#eee6d6', type: 'dashed' } } },
-      { type: 'value', position: 'right', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { show: false } }],
+      { type: 'value', position: 'right', axisLabel: { formatter: '{value}%', fontSize: 10 }, splitLine: { show: false } },
+      { type: 'value', position: 'right', offset: 44, scale: true, axisLabel: { fontSize: 10, color: '#9aa0a6' }, axisLine: { lineStyle: { color: '#9aa0a6' } }, splitLine: { show: false } }],
     dataZoom: [{ type: 'inside' }],
     series: [
       { name: '两融/流通市值', type: 'line', showSymbol: false, connectNulls: true, data: data.map(v => v.ratio), lineStyle: { width: 1.6 }, itemStyle: { color: '#8b5cf6' },
         markLine: { silent: true, symbol: 'none', lineStyle: { color: '#c0392b', type: 'dashed' }, data: [pctLine(0)] },
         markArea: { silent: true, data: areaData(data.map(v => v.date)) } },
       { name: '融资买入占成交', type: 'line', yAxisIndex: 1, showSymbol: false, connectNulls: true, data: data.map(v => v.buyShare), lineStyle: { width: 1.3 }, itemStyle: { color: '#e07b39' } },
+      { name: '上证指数', type: 'line', yAxisIndex: 2, showSymbol: false, connectNulls: true, data: data.map(v => v.sh), lineStyle: { width: 1, color: '#9aa0a6' }, itemStyle: { color: '#9aa0a6' } },
     ],
   }
   return <ReactECharts option={option} notMerge style={{ height: 320 }} onChartReady={linkReady} />
@@ -136,7 +138,7 @@ function EHolder({ data }: { data: Hld[] }) {
 }
 
 export default function BullTopPage() {
-  const [d, setD] = useState<{ valuation: Val[]; turnover: Tov[]; holder: Hld[]; margin: Mgn[] } | null>(null)
+  const [d, setD] = useState<{ valuation: Val[]; turnover: Tov[]; holder: Hld[]; margin: Mgn[]; index?: { date: string; close: number }[] } | null>(null)
   const [loading, setLoading] = useState(false)
   useEffect(() => {
     (async () => {
@@ -155,13 +157,15 @@ export default function BullTopPage() {
   const cur = d?.valuation.at(-1)
   const circByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.circMv])), [d])
   const amtByDate = useMemo(() => new Map((d?.valuation || []).map(v => [v.date, v.amountFull])), [d])
+  const idxByDate = useMemo(() => new Map((d?.index || []).map(i => [i.date, i.close])), [d])
 
   const mkMgn = (m: Mgn) => ({
     date: m.date,
     ratio: circByDate.get(m.date) ? +(m.rzye / circByDate.get(m.date)! * 100).toFixed(2) : null,
     buyShare: amtByDate.get(m.date) ? +(m.rzmre / amtByDate.get(m.date)! * 100).toFixed(2) : null,
+    sh: idxByDate.get(m.date) ?? null,
   })
-  const mgnData = useMemo(() => (d?.margin || []).map(mkMgn), [d, circByDate, amtByDate]) // eslint-disable-line react-hooks/exhaustive-deps
+  const mgnData = useMemo(() => (d?.margin || []).map(mkMgn), [d, circByDate, amtByDate, idxByDate]) // eslint-disable-line react-hooks/exhaustive-deps
   const curMgn = d?.margin.length ? mkMgn(d.margin[d.margin.length - 1]) : null
 
   if (loading) return (

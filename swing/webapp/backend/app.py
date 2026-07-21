@@ -796,7 +796,10 @@ def bulltop(req: BullTopReq):
             GROUP BY db.trade_date ORDER BY db.trade_date""", [sd]).fetch_df()
         hld = con.execute("""SELECT ann_date, in_de, change_vol, avg_price FROM stk_holdertrade
             WHERE ann_date>=? AND avg_price IS NOT NULL AND change_vol IS NOT NULL""", [s]).fetch_df()
+        idxrows = con.execute("""SELECT trade_date, close FROM index_daily
+            WHERE ts_code='000001.SH' AND trade_date>=? ORDER BY trade_date""", [sd]).fetchall()
         con.close()
+        index = [{"date": str(td).replace("-", ""), "close": round(float(c), 1)} for td, c in idxrows]
 
         val = val[val["earn"] > 0].copy()
         val["pe"] = val["tmv"] / val["earn"]
@@ -841,7 +844,7 @@ def bulltop(req: BullTopReq):
                           for idx, r in g.iterrows()]
         except Exception:
             margin = []
-        return {"ok": True, "valuation": valuation, "turnover": turnover, "holder": holder, "margin": margin}
+        return {"ok": True, "valuation": valuation, "turnover": turnover, "holder": holder, "margin": margin, "index": index}
     except Exception:
         import traceback
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
