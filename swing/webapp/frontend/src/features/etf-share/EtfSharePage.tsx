@@ -34,6 +34,62 @@ function presetStart(k: Preset): string {
 }
 const fmtDate = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
+// 长历史子集:2015-01 起就存在的 5 只宽基(不含 2020后上市的科创50/中证1000SZ/科创100)
+const LONG_CODES = ['510300.SH', '510500.SH', '510050.SH', '159915.SZ', '159919.SZ']
+const LONG_METAS = ETF_LIST.filter(e => LONG_CODES.includes(e.ts_code))
+
+type FlowRow = { date: string; flow: number; per: Record<string, number> }
+
+// 净申赎 = 篮子份额日间差分(各只前向填充、全员到齐才计入,避免新ETF纳入日假尖峰);per=各只拆分,其和严格等于合计
+function computeFlow(chartData: Record<string, number | string>[], metas: { ts_code: string; name: string; color: string }[]): FlowRow[] {
+  const last: Record<string, number> = {}
+  const ff: { date: string; vals: Record<string, number>; total: number }[] = []
+  for (const row of chartData) {
+    for (const e of metas) { const v = row[e.ts_code]; if (typeof v === 'number') last[e.ts_code] = v }
+    if (metas.every(e => typeof last[e.ts_code] === 'number')) {
+      let sum = 0; const vals: Record<string, number> = {}
+      for (const e of metas) { vals[e.ts_code] = last[e.ts_code]; sum += last[e.ts_code] }
+      ff.push({ date: row.date as string, vals, total: Math.round(sum * 100) / 100 })
+    }
+  }
+  const out: FlowRow[] = []
+  for (let i = 1; i < ff.length; i++) {
+    const per: Record<string, number> = {}
+    for (const e of metas) per[e.ts_code] = Math.round((ff[i].vals[e.ts_code] - ff[i - 1].vals[e.ts_code]) * 100) / 100
+    out.push({ date: ff[i].date, flow: Math.round((ff[i].total - ff[i - 1].total) * 100) / 100, per })
+  }
+  return out
+}
+
+function flowOption(flowData: FlowRow[], metas: { ts_code: string; name: string; color: string }[]) {
+  return {
+    animation: false,
+    grid: { left: 52, right: 20, top: 14, bottom: 28 },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: (ps: any) => {
+        const f = flowData[ps?.[0]?.dataIndex]
+        if (!f) return ''
+        const sgn = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
+        const col = (v: number) => (v >= 0 ? '#c0392b' : '#1f8e5a')
+        const head = `${fmtDate(f.date)}<br/><b style="color:${col(f.flow)}">合计 ${sgn(f.flow)} 亿份</b>`
+        const rows = metas.map(e => ({ e, v: f.per[e.ts_code] ?? 0 })).filter(r => Math.abs(r.v) >= 0.005)
+          .sort((a, b) => Math.abs(b.v) - Math.abs(a.v))
+        if (!rows.length) return `${head}<br/><span style="color:#999;font-size:11px">各 ETF 均无申赎变动</span>`
+        const body = rows.map(r =>
+          `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${r.e.color};margin-right:6px"></span>` +
+          `${r.e.name} <b style="color:${col(r.v)}">${sgn(r.v)}</b>`).join('<br/>')
+        return `${head}<hr style="margin:5px 0;border:none;border-top:1px solid #e4ddcf"/>${body}`
+      },
+    },
+    xAxis: { type: 'category', data: flowData.map(f => f.date), axisLabel: { fontSize: 10, formatter: fmtDate } },
+    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+    dataZoom: [{ type: 'inside' }],
+    series: [{ name: '净申赎', type: 'bar', data: flowData.map(f => f.flow),
+      itemStyle: { color: (p: any) => (p.value >= 0 ? '#c0392b' : '#1f8e5a') } }],
+  }
+}
+
 export default function EtfSharePage() {
   const [preset, setPreset] = useState<Preset | null>(null)
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(() => [dayjs('2015-01-01'), dayjs()])
@@ -93,42 +149,11 @@ export default function EtfSharePage() {
     return { date: last.date, total: last.total, delta: prev ? last.total - prev.total : null }
   }, [totalData])
 
-  // 净申赎 = 份额日间差分(份额增=净申购红、减=净赎回绿);tushare 无毛申购/赎回额,只能取净额。per=各只拆分(其和严格等于合计)
-  const flowData = useMemo(() => {
-    const out: { date: string; flow: number; per: Record<string, number> }[] = []
-    for (let i = 1; i < ffRows.length; i++) {
-      const per: Record<string, number> = {}
-      for (const e of ETF_LIST) per[e.ts_code] = Math.round((ffRows[i].vals[e.ts_code] - ffRows[i - 1].vals[e.ts_code]) * 100) / 100
-      out.push({ date: ffRows[i].date, flow: Math.round((ffRows[i].total - ffRows[i - 1].total) * 100) / 100, per })
-    }
-    return out
-  }, [ffRows])
-  const flowOpt = useMemo(() => ({
-    animation: false,
-    grid: { left: 52, right: 20, top: 14, bottom: 28 },
-    tooltip: {
-      trigger: 'axis', axisPointer: { type: 'shadow' },
-      formatter: (ps: any) => {
-        const f = flowData[ps?.[0]?.dataIndex]
-        if (!f) return ''
-        const sgn = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`
-        const col = (v: number) => (v >= 0 ? '#c0392b' : '#1f8e5a')
-        const head = `${fmtDate(f.date)}<br/><b style="color:${col(f.flow)}">合计 ${sgn(f.flow)} 亿份</b>`
-        const rows = ETF_LIST.map(e => ({ e, v: f.per[e.ts_code] ?? 0 })).filter(r => Math.abs(r.v) >= 0.005)
-          .sort((a, b) => Math.abs(b.v) - Math.abs(a.v))
-        if (!rows.length) return `${head}<br/><span style="color:#999;font-size:11px">各 ETF 均无申赎变动</span>`
-        const body = rows.map(r =>
-          `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${r.e.color};margin-right:6px"></span>` +
-          `${r.e.name} <b style="color:${col(r.v)}">${sgn(r.v)}</b>`).join('<br/>')
-        return `${head}<hr style="margin:5px 0;border:none;border-top:1px solid #e4ddcf"/>${body}`
-      },
-    },
-    xAxis: { type: 'category', data: flowData.map(f => f.date), axisLabel: { fontSize: 10, formatter: fmtDate } },
-    yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-    dataZoom: [{ type: 'inside' }],
-    series: [{ name: '净申赎', type: 'bar', data: flowData.map(f => f.flow),
-      itemStyle: { color: (p: any) => (p.value >= 0 ? '#c0392b' : '#1f8e5a') } }],
-  }), [flowData])
+  // 净申赎两口径:全部10只(含晚上市科创100→2022-08起) vs 长历史子集(2015起就有的5只宽基)
+  const flowAll = useMemo(() => computeFlow(chartData, ETF_LIST), [chartData])
+  const flowLong = useMemo(() => computeFlow(chartData, LONG_METAS), [chartData])
+  const optAll = useMemo(() => flowOption(flowAll, ETF_LIST), [flowAll])
+  const optLong = useMemo(() => flowOption(flowLong, LONG_METAS), [flowLong])
 
   const mainOpt = useMemo(() => ({
     animation: false,
@@ -171,12 +196,19 @@ export default function EtfSharePage() {
 
       {loading && <><SkelChart h={480} /><SkelChart h={480} title={false} /><SkelChart h={220} /></>}
 
-      {!loading && flowData.length > 0 && (
+      {!loading && (flowAll.length > 0 || flowLong.length > 0) && (
         <Card size="small"
           title={<span>全部 ETF 净申赎(份额日变动)
             <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>红=净申购(份额增) · 绿=净赎回(份额减) · 单位亿份 · tushare无毛申赎额,此为净额</span>
           </span>}>
-          <ReactECharts option={flowOpt} notMerge style={{ height: 480 }} />
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', margin: '0 0 2px 4px' }}>① 全部 10 只
+            <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}> ——含晚上市的科创100ETF,须全员到齐,故自 2022-08 起</span>
+          </div>
+          <ReactECharts option={optAll} notMerge style={{ height: 300 }} />
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', margin: '14px 0 2px 4px' }}>② 长历史子集(5 只宽基)
+            <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}> ——沪深300华泰/嘉实·中证500·上证50·创业板,2015 起就有,可看长周期</span>
+          </div>
+          <ReactECharts option={optLong} notMerge style={{ height: 300 }} />
         </Card>
       )}
 
