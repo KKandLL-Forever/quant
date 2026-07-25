@@ -90,7 +90,8 @@ def train(req: TrainReq):
     if req.train:
         cmd += ["--train"]
     try:
-        p = subprocess.run(cmd, cwd=SWING, capture_output=True, text=True, timeout=1800)
+        p = subprocess.run(cmd, cwd=SWING, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=1800)
         if not os.path.exists(out) or os.path.getsize(out) == 0:
             return {"ok": False, "error": "ML 未产出数据。stderr:\n" + (p.stderr or p.stdout or "")[-2000:]}
         with open(out, encoding="utf-8") as f:
@@ -1092,7 +1093,8 @@ def lianban_score(date: str = "", refresh: bool = False):
     if date:
         cmd += ["--date", date]
     try:
-        r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True, timeout=300)
+        r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=300)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "打分超时(>5分钟)"}
     if not os.path.exists(tmp):
@@ -1116,7 +1118,8 @@ def lianban_history(start: str = "20250101", tier: int = 10, refresh: bool = Fal
     cmd = [_lianban_py(), os.path.join(_FIRST10, "screen_2lb_top1_t7.py"), "--json-out", tmp,
            "--start", start, "--tier", str(tier), "--model-version", "v6"]
     try:
-        r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True, timeout=600)
+        r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=600)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "历史扫描超时(>10分钟)"}
     if not os.path.exists(tmp):
@@ -1140,7 +1143,7 @@ def lianban_retrain():
         eval_ran = True
         try:
             re = subprocess.run([py, os.path.join(_FIRST10, "ml_train_2lb_v6.py")],
-                                cwd=_FIRST10, capture_output=True, text=True, timeout=2400)
+                                cwd=_FIRST10, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=2400)
         except subprocess.TimeoutExpired:
             return {"ok": False, "error": "评估模型训练超时(>40分钟)"}
         log += "[评估 ml_train_2lb_v6]\n" + ((re.stdout or "") + (re.stderr or ""))[-1200:] + "\n\n"
@@ -1151,7 +1154,7 @@ def lianban_retrain():
         os.remove(metrics_tmp)
     try:
         r = subprocess.run([py, os.path.join(_FIRST10, "2lb_model_v6_deploy.py"), "--metrics-out", metrics_tmp],
-                           cwd=_FIRST10, capture_output=True, text=True, timeout=1800)
+                           cwd=_FIRST10, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=1800)
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "部署训练超时(>30分钟)", "log": log}
     log += "[部署 2lb_model_v6_deploy]\n" + ((r.stdout or "") + (r.stderr or ""))[-1500:]
