@@ -3,6 +3,9 @@
 做法:对收盘价做高斯核回归平滑(Nadaraya-Watson),带宽由 LOO-CV 最小化误差选出再 ×0.3
 (论文系数,避免过度平滑),在平滑曲线上取局部极值当枢轴。带宽=尺度旋钮,自适应每只股票。
 
+对外两个口:`_detect_kernel`(已突破事件,给模型训练/打分用)、`pending_breakouts_kernel`
+(尚未突破的「明日预判」),两者同枢轴同 lag 同 NEWHIGH 约束,保证预判与信号是一套形态定义。
+
 环境：.venv312。用法：python swing/kernel_pivots.py --ts 300903.SZ --start 2025-01-01
 产出:终端打印核平滑枢轴 vs 9%ZigZag 枢轴,并存对照图 kernel_pivots_<ts>.png。
 依赖：DuckDB(daily/adj_factor/stock_meta);matplotlib;复用 run_patterns。
@@ -98,6 +101,40 @@ def _detect_kernel(c, h, start_i):
                 if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] > pC and c[t - 1] <= pC and c[t] > c[max(0, t - NEWHIGH):t].max():
                     events.append(("W型", t, [pidx[lb], pidx[hc], pidx[ld]]))
     return events
+
+
+def pending_breakouts_kernel(c, h, near=0.05):
+    """核平滑枢轴版「明日预判」:形态已成型但尚未突破、现价距触发价≤near 的 setup。
+
+    与 _detect_kernel 同口径(同枢轴、同 lag 确认滞后、同 NEWHIGH 新高约束),故触发价
+    = max(颈线/高点B, 近 NEWHIGH 根收盘最高) —— 只越过颈线但没创10日新高不算突破。
+    返回 [(形态, 触发价, [piv idxs])]。"""
+    from run_patterns import W_TOL, NEWHIGH
+    pv, _ = _smoothed_pivots(c, h)
+    if len(pv) < 3:
+        return []
+    t = len(c) - 1
+    lag = int(np.ceil(3 * h))
+    pidx = [p[0] for p in pv]
+    prior = [k for k in range(len(pv)) if pidx[k] <= t - lag]
+    if len(prior) < 3:
+        return []
+    hi = float(c[max(0, t - NEWHIGH + 1):t + 1].max())
+    res = []
+    a, b, cc = prior[-3], prior[-2], prior[-1]
+    if pv[a][1] and (not pv[b][1]) and pv[cc][1]:
+        pa, pb, pcc = c[pidx[a]], c[pidx[b]], c[pidx[cc]]
+        trig = max(float(pb), hi)
+        if pa < pcc < pb and c[t] < trig and (trig - c[t]) / c[t] <= near:
+            res.append(("N字型", trig, [pidx[a], pidx[b], pidx[cc]]))
+    if len(prior) >= 4:
+        h0, lb, hc, ld = prior[-4], prior[-3], prior[-2], prior[-1]
+        if (not pv[h0][1]) and pv[lb][1] and (not pv[hc][1]) and pv[ld][1]:
+            pB, pC, pD = c[pidx[lb]], c[pidx[hc]], c[pidx[ld]]
+            trig = max(float(pC), hi)
+            if abs(pD - pB) / pB < W_TOL and pC > pB and pC > pD and c[t] < trig and (trig - c[t]) / c[t] <= near:
+                res.append(("W型", trig, [pidx[lb], pidx[hc], pidx[ld]]))
+    return res
 
 
 def main():

@@ -49,7 +49,7 @@ from sklearn.metrics import roc_auc_score
 
 from cache_tushare import DUCKDB_PATH
 from run_patterns import _detect, pending_breakouts
-from kernel_pivots import _detect_kernel
+from kernel_pivots import _detect_kernel, pending_breakouts_kernel
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
 EMBARGO_DAYS = 90  # ≈MW_DAYS(60交易日)的自然日数;train 末尾此窗内样本的label前瞻窗会探入val/test,须purge防泄露
@@ -834,7 +834,8 @@ def main():
             continue
         cc = g["c"].to_numpy(); craw = g["c_raw"].to_numpy()
         ratio = float(craw[-1]) / float(cc[-1])
-        pends = pending_breakouts(cc, args.thr)
+        pends = (pending_breakouts_kernel(cc, args.h) if args.pivot == "kernel"
+                 else pending_breakouts(cc, args.thr))
         if not pends:
             continue
         typ = "/".join(t for t, _, _ in pends)   # 同股 N/W 都成立则合并
