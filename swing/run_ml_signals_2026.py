@@ -18,6 +18,11 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
   --train 训练并存盘(模型/HTML 按 mode 分文件);--eval 跑 walk-forward 诚实评估(不出 HTML)
 依赖：DuckDB(daily/daily_basic/adj_factor/cyq_perf/moneyflow);lightgbm;复用 run_patterns。
 
+财务特征(roe/npyoy/fc_pos)口径:同一 ann_date 同一只票可能同时公告多份报告(如年报+一季报),
+  一律只取 end_date 最新的那份(SQL QUALIFY 去重)+ mergesort 稳定排序。否则取到哪份由 DuckDB
+  物理行序决定(实测 34% 的行落在重复组、53% 取到的不是最新报告、npyoy 中位差 66pct),
+  一次增量写库就可能静默改变历史特征值。
+
 关于 --start(训练/打分分界):训练用 date<start 的事件,打分用 >=start 的信号。
   · 回测/评价某段:把 start 设到那段开头(如 20260101,用 2021~2025 训、打分 2026)
   · 日常实盘:把 start 设到很近的日期(如今天),让训练吃满到当下、只打分最新信号
@@ -616,9 +621,11 @@ def main():
     lu = con.execute("SELECT ts_code, trade_date FROM limit_list_d WHERE limit_type='U' AND trade_date>=?",
                      ["2019-01-01"]).fetch_df()
     fi = con.execute("""SELECT ts_code, ann_date, roe, netprofit_yoy FROM fina_indicator
-        WHERE ann_date>='20200101' AND roe IS NOT NULL""").fetch_df()
+        WHERE ann_date>='20200101' AND roe IS NOT NULL
+        QUALIFY row_number() OVER (PARTITION BY ts_code, ann_date ORDER BY end_date DESC) = 1""").fetch_df()
     fc = con.execute("""SELECT ts_code, ann_date, type, p_change_min FROM forecast
-        WHERE ann_date>='20200101'""").fetch_df()
+        WHERE ann_date>='20200101'
+        QUALIFY row_number() OVER (PARTITION BY ts_code, ann_date ORDER BY end_date DESC) = 1""").fetch_df()
     con.close()
 
     env = os.path.join(_ROOT, ".pyenv.local")
@@ -663,13 +670,14 @@ def main():
     sheat = hr.reset_index().melt(id_vars="index", var_name="l1", value_name="sector_heat").rename(columns={"index": "trade_date"})
     px = px.merge(sheat, on=["l1", "trade_date"], how="left")
     px["trade_date"] = px["trade_date"].astype("datetime64[ns]")
-    fi["ann_date"] = pd.to_datetime(fi["ann_date"]).astype("datetime64[ns]"); fi = fi.sort_values("ann_date")
+    fi["ann_date"] = pd.to_datetime(fi["ann_date"]).astype("datetime64[ns]")
+    fi = fi.sort_values(["ann_date", "ts_code"], kind="mergesort")
     px = px.sort_values("trade_date")
     px = pd.merge_asof(px, fi.rename(columns={"netprofit_yoy": "npyoy"}), left_on="trade_date",
                        right_on="ann_date", by="ts_code", direction="backward")
     fc["ann_date"] = pd.to_datetime(fc["ann_date"]).astype("datetime64[ns]")
     fc["fc_good"] = (fc["type"].isin(["预增", "略增", "扭亏", "续盈"]) | (fc["p_change_min"] > 0)).astype(float)
-    fc = fc.sort_values("ann_date")
+    fc = fc.sort_values(["ann_date", "ts_code"], kind="mergesort")
     px = pd.merge_asof(px, fc[["ts_code", "ann_date", "fc_good"]].rename(columns={"ann_date": "fc_ann"}),
                        left_on="trade_date", right_on="fc_ann", by="ts_code", direction="backward")
     px["fc_pos"] = np.where((px["fc_good"] == 1.0) & ((px["trade_date"] - px["fc_ann"]).dt.days <= 90), 1.0, 0.0)
