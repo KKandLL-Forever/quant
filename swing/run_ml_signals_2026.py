@@ -433,6 +433,47 @@ def _evaluate_wf(df, seed, tier):
         print(f"    {k2:<10}{vv:8.1f}")
 
 
+def _stock_arrays(g, mf, ts):
+    """逐股预算「假设明日突破」所需的滚动量,供 _pre_feats 按下标取用。"""
+    c, h, l = g["c"], g["h"], g["l"]
+    _, atr = _adx(h, l, c)
+    try:
+        mfg = mf.loc[ts].reindex(g["trade_date"])
+        mfn = (mfg["net_lg"].rolling(20).sum() / mfg["tot"].rolling(20).sum().abs()).values
+    except KeyError:
+        mfn = np.full(len(c), np.nan)
+    return {"cc": c.to_numpy(), "hh": h.to_numpy(), "ll": l.to_numpy(),
+            "atr": atr.to_numpy(), "mfnet20": mfn, "rsturn": g["rsturn"].to_numpy(),
+            "sector_rs": g["sector_rs"].to_numpy(), "sector_heat": g["sector_heat"].to_numpy(),
+            "lianban60": g["lianban60"].to_numpy(), "npyoy": g["npyoy"].to_numpy()}
+
+
+def _pre_feats(A, i, trig, pv1, typ, dbr, cyr, mr):
+    """已知数据到第 i 日,假设第 i+1 日收在 trig 突破,推算那一日的特征向量。
+
+    价格类(brk/pos1y/basew/dma20/ret20/ret60/pe/pb/lnmv)代入 trig 精确算;
+    atrp/winrate/cyqconc/rsturn/mfnet20/板块/大盘/npyoy 只能用第 i 日值代理(真突破日通常更大,
+    故分数系统性偏低,见 --pendcheck)。"""
+    cc, hh, ll = A["cc"], A["hh"], A["ll"]
+    if i < 260 or trig <= 0 or cc[i] <= 0:
+        return None
+    k = float(trig / cc[i])
+    w250 = np.concatenate([cc[max(0, i - 248):i + 1], [trig]])
+    ma20p = (cc[i - 18:i + 1].sum() + trig) / 20.0
+    lo40 = float(ll[i - 39:i + 1].min())
+    return {"ptype": 0 if typ == "N字型" else 1, "brk": trig / cc[pv1] - 1,
+            "pos1y": (trig - w250.min()) / (w250.max() - w250.min()) if w250.max() > w250.min() else np.nan,
+            "basew": (float(hh[i - 39:i + 1].max()) - lo40) / lo40 if lo40 > 0 else np.nan,
+            "dma20": trig / ma20p - 1, "atrp": A["atr"][i] / trig,
+            "ret20": trig / cc[i - 19] - 1, "ret60": trig / cc[i - 59] - 1,
+            "winrate": cyr["winner_rate"], "cyqconc": cyr["cyqconc"], "mfnet20": A["mfnet20"][i],
+            "pe": dbr["pe_ttm"] * k, "pb": dbr["pb"] * k,
+            "lnmv": np.log(dbr["circ_mv"] * k) if dbr["circ_mv"] > 0 else np.nan,
+            "rsturn": A["rsturn"][i], "crowd": mr["crowd"], "idxdist": mr["idxdist"],
+            "sector_rs": A["sector_rs"][i], "sector_heat": A["sector_heat"][i],
+            "lianban60": A["lianban60"][i], "npyoy": A["npyoy"][i]}
+
+
 def _pend_feat_rows(px, db, cyq, mf, mkt, args):
     """对每个真实突破事件,出两份特征:real=突破当日(bo)、pre=前一日(bo-1)按「假设明日收在触发价」推算。
 
@@ -450,15 +491,12 @@ def _pend_feat_rows(px, db, cyq, mf, mkt, args):
         npyoya = g["npyoy"].to_numpy()
         if len(cc) < 320:
             continue
+        A = _stock_arrays(g, mf, ts)
         ma20 = c.rolling(20).mean()
         _, atr = _adx(h, l, c)
         pos1y = (c - c.rolling(250).min()) / (c.rolling(250).max() - c.rolling(250).min())
         basew = (h.rolling(40).max().shift(1) - l.rolling(40).min().shift(1)) / l.rolling(40).min().shift(1)
-        try:
-            mfg = mf.loc[ts].reindex(g["trade_date"])
-            mf_net20 = (mfg["net_lg"].rolling(20).sum() / mfg["tot"].rolling(20).sum().abs()).values
-        except KeyError:
-            mf_net20 = np.full(len(cc), np.nan)
+        mf_net20 = A["mfnet20"]
         dets = _detect_kernel(cc, args.h, 30) if args.pivot == "kernel" else _detect(cc, args.thr, 30)
         for typ, bo, pvs in dets:
             if bo < 300:
@@ -473,9 +511,9 @@ def _pend_feat_rows(px, db, cyq, mf, mkt, args):
             if d not in mkt.index or dp not in mkt.index:
                 continue
             mr, mp = mkt.loc[d], mkt.loc[dp]
-            k = float(trig / cc[bo - 1])
-            w250 = np.concatenate([cc[max(0, bo - 249):bo], [trig]])
-            ma20p = (cc[bo - 19:bo].sum() + trig) / 20.0
+            pf = _pre_feats(A, bo - 1, trig, pvs[1], typ, dbp, cyp, mp)
+            if pf is None:
+                continue
             real.append({"ts": ts, "date": d, "dist": trig / cc[bo - 1] - 1,
                 "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
                 "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo], "dma20": cc[bo] / ma20.iloc[bo] - 1,
@@ -485,17 +523,7 @@ def _pend_feat_rows(px, db, cyq, mf, mkt, args):
                 "lnmv": np.log(dbr["circ_mv"]) if dbr["circ_mv"] > 0 else np.nan,
                 "rsturn": rsturna[bo], "crowd": mr["crowd"], "idxdist": mr["idxdist"],
                 "sector_rs": srsa[bo], "sector_heat": sheata[bo], "lianban60": lb60a[bo], "npyoy": npyoya[bo]})
-            pre.append({"ts": ts, "date": d, "dist": trig / cc[bo - 1] - 1,
-                "ptype": 0 if typ == "N字型" else 1, "brk": trig / cc[pvs[1]] - 1,
-                "pos1y": (trig - w250.min()) / (w250.max() - w250.min()) if w250.max() > w250.min() else np.nan,
-                "basew": basew.iloc[bo], "dma20": trig / ma20p - 1,
-                "atrp": atr.iloc[bo - 1] / trig, "ret20": trig / cc[bo - 20] - 1,
-                "ret60": trig / cc[bo - 60] - 1, "winrate": cyp["winner_rate"], "cyqconc": cyp["cyqconc"],
-                "mfnet20": mf_net20[bo - 1], "pe": dbp["pe_ttm"] * k, "pb": dbp["pb"] * k,
-                "lnmv": np.log(dbp["circ_mv"] * k) if dbp["circ_mv"] > 0 else np.nan,
-                "rsturn": rsturna[bo - 1], "crowd": mp["crowd"], "idxdist": mp["idxdist"],
-                "sector_rs": srsa[bo - 1], "sector_heat": sheata[bo - 1],
-                "lianban60": lb60a[bo - 1], "npyoy": npyoya[bo - 1]})
+            pre.append({"ts": ts, "date": d, "dist": trig / cc[bo - 1] - 1, **pf})
     return pd.DataFrame(real), pd.DataFrame(pre)
 
 
@@ -931,6 +959,7 @@ def main():
     cal_js = [str(pd.Timestamp(d).date()) for d in sorted(_cal) if start_ts <= d <= _end]
     latest_px = px["trade_date"].max()
     ml_fc = []
+    nfc_low = nfc_skip = 0
     for ts, g in px.groupby("ts_code"):
         g = g.sort_values("trade_date")
         if g["trade_date"].iloc[-1] != latest_px or len(g) < 60:
@@ -942,12 +971,33 @@ def main():
         if not pends:
             continue
         typ = "/".join(t for t, _, _ in pends)   # 同股 N/W 都成立则合并
-        _, brk, _pv = min(pends, key=lambda p: p[1])   # 取最近的突破价(现价固定,brk 越小越近)
+        ptyp, brk, _pv = min(pends, key=lambda p: p[1])   # 取最近的突破价(现价固定,brk 越小越近)
+        i = len(cc) - 1
+        dlast = g["trade_date"].iloc[-1]
+        try:
+            pf = _pre_feats(_stock_arrays(g, mf, ts), i, float(brk), _pv[1], ptyp,
+                            db.loc[(ts, dlast)], cyq.loc[(ts, dlast)], mkt.loc[dlast])
+        except KeyError:
+            pf = None
+        if pf is None:
+            nfc_skip += 1
+            continue
+        psc = float(m.predict_proba(pd.DataFrame([pf])[FEATS])[:, 1][0])
+        if psc < cut(args.tier):
+            nfc_low += 1
+            continue
         ml_fc.append({"code": ts, "name": names.get(ts, ""), "typ": typ,
                       "price": round(float(craw[-1]), 2), "trig": round(float(brk) * ratio, 2),
                       "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1),
-                      "pct": round((float(cc[-1]) / float(cc[-2]) - 1) * 100, 1)})
-    ml_fc.sort(key=lambda x: x["dist"])
+                      "pct": round((float(cc[-1]) / float(cc[-2]) - 1) * 100, 1),
+                      "score": round(psc, 3),
+                      "tier": ("top1" if psc >= cut(1) else "top3" if psc >= cut(3) else
+                               "top5" if psc >= cut(5) else "top10" if psc >= cut(10) else
+                               "top20" if psc >= cut(20) else "top30" if psc >= cut(30) else "其他")})
+    ml_fc.sort(key=lambda x: -x["score"])
+    print(f"[明日预判] 待突破 {len(ml_fc)+nfc_low+nfc_skip} 只 → 过 top{args.tier}% 门槛"
+          f"({cut(args.tier):.4f}) {len(ml_fc)} 只(低于门槛 {nfc_low} 只,数据不足 {nfc_skip} 只);"
+          f"预判分按「假设明日收在触发价」推算,系统性偏保守(实测秩相关0.905/精确率~92%,--pendcheck)")
     if args.json:
         payload = {"mode": args.mode, "tier": args.tier, "score_cut": round(cut(args.tier), 4),
                    "start": args.start, "end": args.end or "",

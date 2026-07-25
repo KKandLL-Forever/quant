@@ -862,7 +862,7 @@ function MainPage() {
           (showKc || bd(r.code) !== '科创') && (showCy || bd(r.code) !== '创业') && (!only50 || r.price <= 50)
           && (r.pct == null || r.pct >= 0))
         return mlFc.length > 0 && (
-        <Card size="small" style={{ marginTop: 12 }} title={`明日预判 ${mlFc.length} 只(形态已成型、只差站上突破价;非实时,需明日收盘站上+放量+创新高)`}>
+        <Card size="small" style={{ marginTop: 12 }} title={`明日预判 ${mlFc.length} 只(形态已成型、只差站上突破价,且预判分已过 top${payload.tier}% 门槛;非实时,需明日收盘站上+放量+创新高)`}>
           <Table rowKey={(r: any) => r.code + r.typ} size="small" pagination={{ pageSize: 20 }}
             dataSource={mlFc}
             columns={[
@@ -872,11 +872,19 @@ function MainPage() {
               { title: '现价', dataIndex: 'price', render: (v: number) => `${v}元` },
               { title: '当日涨幅', dataIndex: 'pct', sorter: (a: any, b: any) => (a.pct ?? 0) - (b.pct ?? 0), render: (v: number) => v == null ? '—' : <span style={{ color: v >= 0 ? '#c0392b' : '#1f8e5a' }}>{v > 0 ? '+' : ''}{v}%</span> },
               { title: '突破价', dataIndex: 'trig', render: (v: number) => <b style={{ color: '#c0392b' }}>{v}元</b> },
-              { title: '距突破', dataIndex: 'dist', defaultSortOrder: 'ascend', sorter: (a: any, b: any) => a.dist - b.dist, render: (v: number) => <span style={{ color: v <= 1 ? '#c0392b' : '#5b554a' }}>+{v}%</span> },
+              { title: '距突破', dataIndex: 'dist', sorter: (a: any, b: any) => a.dist - b.dist, render: (v: number) => <span style={{ color: v <= 1 ? '#c0392b' : '#5b554a' }}>+{v}%</span> },
+              {
+                title: '预判档位/分', dataIndex: 'score', defaultSortOrder: 'descend',
+                sorter: (a: any, b: any) => (a.score ?? 0) - (b.score ?? 0),
+                render: (v: number, r: any) => v == null ? '—' : <span><b>{r.tier}</b> {v}</span>,
+              },
               { title: 'LLM分析', width: 80, render: (_: any, r: any) => <Button size="small" type="primary" ghost onClick={() => analyze(r.code, payload.latest ?? '', false, r.name)}>分析</Button> },
             ]} />
           <div style={{ fontSize: 12, color: '#999', marginTop: 6 }}>
-            预判=N字(站上高B)/W型(站上颈线C)形态已成型、现价在突破价下方 ≤5% 的票。<b>明日站上突破价 + 放量 + 创新高</b> 才算触发;且突破后还需 ML 打分进档才进上方信号表。非实时提示。
+            预判=N字(站上高B)/W型(站上颈线C)形态已成型、现价在突破价下方 ≤5% 的票。<b>明日站上突破价 + 放量 + 创新高</b> 才算触发。
+            <b>预判分</b>=假设明日恰好收在突破价,用模型对那一天打分,已滤掉低于 top{payload.tier}% 门槛的票。
+            价格类特征代入突破价精确算,波动率/获利盘/换手/筹码只能用今日值代理——真突破日这几项通常更大,故<b>预判分系统性偏低、偏保守</b>
+            (历史回放:与真实突破日分数秩相关 0.905,各档精确率 88~97%、召回 44~70%,即"少报不误报")。非实时提示。
           </div>
         </Card>
         )
