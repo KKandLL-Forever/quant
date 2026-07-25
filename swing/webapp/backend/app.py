@@ -1020,7 +1020,7 @@ def stock_search(q: str = ""):
 
 @app.get("/api/peer_status")
 def peer_status(code: str = ""):
-    """查 peer_cache 是否已有该股同业估值缓存 + 是否含研报可比公司前瞻估值表(供分析弹窗标题tag)。"""
+    """查 peer_cache 是否已有该股同业缓存,并按来源拆出「研报点名」与「申万三级」两组(供分析弹窗标题tag)。"""
     ts = _norm_code(code)
     p = os.path.join(_ROOT, "peer_cache.duckdb")
     if not ts or not os.path.exists(p):
@@ -1036,9 +1036,12 @@ def peer_status(code: str = ""):
         return {"ok": True, "cached": False}
     rp = json.loads(r[0]) if r[0] else []
     peers = json.loads(r[3] or "[]")
-    n_rp = len(rp) if isinstance(rp, list) else 0
+    rp = set(rp) if isinstance(rp, list) else set()
+    rp_peers = [p for p in peers if p.get("code") in rp]
+    sw_peers = [p for p in peers if p.get("code") not in rp]
     return {"ok": True, "cached": True, "source": r[1], "report_date": r[2],
-            "n_peers": len(peers), "n_report_peers": n_rp}
+            "n_peers": len(peers), "n_report_peers": len(rp_peers),
+            "report_peers": rp_peers, "sw_peers": sw_peers}
 
 
 @app.get("/api/stock_info")

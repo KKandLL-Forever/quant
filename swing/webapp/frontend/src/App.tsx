@@ -214,6 +214,38 @@ const HelpDot = ({ content }: { content: React.ReactNode }) => (
       color: '#8a8378', fontSize: 10, lineHeight: 1, alignItems: 'center', justifyContent: 'center', cursor: 'help', marginLeft: 4, verticalAlign: 'middle' }}>?</span>
   </Popover>
 )
+type PeerRow = { code?: string; name?: string }
+
+// 同业来源标签:有研报点名就只显示研报那组(机构分类比申万三级准),抽不到才退申万;悬浮列出具体公司
+const PeerTag = ({ peer }: { peer: any }) => {
+  const rp: PeerRow[] = peer.report_peers || []
+  const sw: PeerRow[] = peer.sw_peers || []
+  const useRp = rp.length > 0
+  const shown = useRp ? rp : sw
+  const list = (rows: PeerRow[]) => rows.length
+    ? <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 10px' }}>
+        {rows.map(r => <span key={r.code}>{r.name}<span style={{ color: '#999' }}>({(r.code || '').split('.')[0]})</span></span>)}
+      </div>
+    : <div style={{ color: '#999' }}>—</div>
+  return (
+    <Popover placement="bottom" content={
+      <div style={{ maxWidth: 520, fontSize: 12, lineHeight: 1.8 }}>
+        <div><b>研报点名可比公司</b>{peer.report_date ? <span style={{ color: '#999' }}> · {peer.report_date}</span> : null}
+          {useRp ? null : <span style={{ color: '#d46b08' }}>(未抽到,已退回申万三级)</span>}</div>
+        {list(rp)}
+        <div style={{ marginTop: 6 }}><b>申万三级同业</b><span style={{ color: '#999' }}> · 按流通市值取前10</span></div>
+        {list(sw)}
+        <div style={{ marginTop: 6, color: '#999' }}>
+          前瞻PE 由「总市值 ÷ 券商一致预测净利」自算,与本股同口径同日期;估值对比用上面<b>全部 {peer.n_peers} 家</b>。
+        </div>
+      </div>}>
+      <Tag color={useRp ? 'green' : 'default'} style={{ marginLeft: 8, cursor: 'help' }}>
+        {useRp ? `同业·研报 ${rp.length}家` : `同业·申万 ${sw.length}家`}
+      </Tag>
+    </Popover>
+  )
+}
+
 const HTAB: React.CSSProperties = { borderCollapse: 'collapse', marginTop: 4, width: '100%' }
 const HTD: React.CSSProperties = { border: '1px solid #e3ddd0', padding: '2px 6px', verticalAlign: 'top' }
 const HELP = {
@@ -437,11 +469,7 @@ function AnaHost({ children }: { children: React.ReactNode }) {
 
     <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
       title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code}{ana?.date ? ` @ ${ana.date}` : ''}
-        {ana?.peer && (ana.peer.cached
-          ? <Tag color={ana.peer.n_report_peers ? 'green' : 'default'} style={{ marginLeft: 8 }}
-              title={`${ana.peer.source || ''} · 研报点名 ${ana.peer.n_report_peers || 0} 家 · ${ana.peer.report_date || ''}；前瞻PE 由券商一致预测净利自算`}>
-              同业 {ana.peer.n_peers || 0}家{ana.peer.n_report_peers ? `(含研报${ana.peer.n_report_peers})` : ''}
-            </Tag>
+        {ana?.peer && (ana.peer.cached ? <PeerTag peer={ana.peer} />
           : <Tag color="orange" style={{ marginLeft: 8 }}>同业·未缓存</Tag>)}
         {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
         {ana?.phase === 'done' && <span className="ana-redo" onClick={() => runAnalysis(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
