@@ -36,6 +36,12 @@ Tier2 = sector_rs(行业20日动量分位)+ lianban60(60日涨停次数)+ sector
 原有保留:ptype, brk, pos1y, basew, dma20, atrp, ret20, ret60, winrate, cyqconc, mfnet20, pe, pb, lnmv
 新增有效:**rsturn**(换手截面分位)、**crowd**(抱团度)、**idxdist**(大盘距60日高)、**sector_rs**(行业动量分位)、**sector_heat**(行业涨停热度)、**lianban60**(连板基因)、**npyoy**(净利润同比)
 
+> **crowd 名字是反的(2026-07-25 查明)**:它=残差互信息 ΔI,实测与平均|rho| 全样本负相关 −0.60,
+> **ΔI 高 = 相关性低 = 分化市**,不是抱团。模型学到的其实是「分化/趋势 regime」,特征有效性不受影响
+> (事件驱动跨时间样本里市场级标量能区分好/坏时期,与 qlib 那次「横截面选股维度错位」不矛盾),
+> 但**读 SHAP / 解释模型时别按"抱团"理解**。另注意 2025 全年 ΔI 为负是真实水位漂移,模型跨了该断层训练。
+> 详见 `qlib_workflow/momentum/RESEARCH_NOTES.md` 第 2 节。
+
 剔除的死特征:dma60, adx, volr, rs20, rs60, bregnum, lb2rate, nlb, upratio, roe, fc_pos
 (都计算了但不入模,FEATS_ALL 里留着随时可加回试)
 

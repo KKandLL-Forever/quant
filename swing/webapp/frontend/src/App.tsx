@@ -217,6 +217,12 @@ const HelpDot = ({ content }: { content: React.ReactNode }) => (
 const HTAB: React.CSSProperties = { borderCollapse: 'collapse', marginTop: 4, width: '100%' }
 const HTD: React.CSSProperties = { border: '1px solid #e3ddd0', padding: '2px 6px', verticalAlign: 'top' }
 const HELP = {
+  crowd: <div><b>平均相关性 与 残差依赖ΔI</b>
+    <div style={{ marginTop: 3 }}><b>平均相关性</b>=沪深300 PIT成分近300日两两 |rho| 均值。高=齐涨齐跌(抱团/趋势市),低=分化。</div>
+    <div style={{ marginTop: 3 }}><b>残差依赖ΔI</b>=经验互信息 − 同ρ高斯基准,度量超出线性相关的额外(尾部/非线性)关联。</div>
+    <div style={{ marginTop: 3, color: '#c0392b' }}><b>⚠️ ΔI 高不等于抱团。</b>全样本 corr(ΔI, 平均|rho|) = −0.60:ΔI 是 MI(≈0.10) 与基准(≈0.09) 的小差值,|rho| &gt; 0.30 时去偏过度校正会让 ΔI 转负(2025 全年为负)。所以 ΔI 冲高往往对应<b>相关性下降</b>,须与平均相关性并看。</div>
+    <div style={{ marginTop: 3 }}>历史定位(2020起):平均相关性 0.19~0.42、中位 ~0.24;ΔI 在 |rho| 最低三档约 +0.008,|rho| &gt; 0.30 转负。</div>
+    <div style={{ color: '#999', marginTop: 3 }}>两者每 5 个交易日算一次后向前填充(只回看,无未来函数),故标注实际计算日,最多滞后 4 个交易日。研究记录见 qlib_workflow/momentum/RESEARCH_NOTES.md。</div></div>,
   valtype: <div><b>价值驱动原型</b>(按"钱从哪来"分,不按行业名):
     <table style={HTAB}><tbody>
       <tr><td style={HTD}><b>资产型</b></td><td style={HTD}>重资产、盈利均值回归、靠资产本身<br />(钢铁煤炭航运化工、银行地产)</td><td style={HTD}>主锚:PB历史分位+正常化PE</td></tr>
@@ -699,8 +705,20 @@ function MainPage() {
 
       {banner && <div style={{ background: '#fffdf8', border: '1px solid #e6e0d3', borderRadius: 8, padding: '8px 12px', marginBottom: 6 }}>
         {Object.entries(banner.indices).map(([nm, st]: [string, any]) => <span key={nm} style={{ marginRight: 16 }}><b>{nm}</b> <span style={{ color: st === '健康' ? '#c0392b' : '#27ae60' }}>{st}</span></span>)}
-        {(() => { const p = banner.crowd.pct; const col = p == null ? 'inherit' : p >= 0.8 ? '#c0392b' : p >= 0.6 ? '#e08a2f' : '#27ae60'
-          return <span style={{ color: col, fontWeight: p != null && p >= 0.8 ? 700 : 400 }}>抱团度 <b>{banner.crowd.value ?? '—'}</b>(分位{p != null ? (p * 100).toFixed(0) + '%' : '—'},{banner.crowd.label}){p != null && p >= 0.8 ? ' ⚠️' : ''}</span> })()}
+        {(() => {
+          const c = banner.crowd, rp = c.rho_pct, p = c.pct
+          const rcol = rp == null ? 'inherit' : rp >= 0.7 ? '#c0392b' : rp <= 0.3 ? '#27ae60' : '#e08a2f'
+          const pctTxt = (v: number | null) => v == null ? '—' : (v * 100).toFixed(1) + '%'
+          return <>
+            <span style={{ color: rcol, fontWeight: rp != null && (rp >= 0.7 || rp <= 0.3) ? 700 : 400 }}>
+              平均相关性 <b>{c.rho ?? '—'}</b>(分位{pctTxt(rp)},{c.label})
+            </span>
+            <span style={{ color: '#8a8578', marginLeft: 14 }}>
+              残差依赖ΔI {c.value ?? '—'}(分位{pctTxt(p)}){c.asof ? `,算至 ${c.asof}` : ''}
+              <HelpDot content={HELP.crowd} />
+            </span>
+          </>
+        })()}
       </div>}
       {loading && !payload && <MainPageSkeleton />}
 

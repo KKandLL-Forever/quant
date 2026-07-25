@@ -1177,7 +1177,11 @@ SELECT
   ix.market_idx_dist_h60,
   ix.market_idx_breakout,
   last_value(mc.crowding_di IGNORE NULLS)
-    OVER (ORDER BY m.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS market_crowding_di
+    OVER (ORDER BY m.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS market_crowding_di,
+  last_value(mc.avg_abs_rho IGNORE NULLS)
+    OVER (ORDER BY m.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS market_avg_abs_rho,
+  last_value(mc.trade_date IGNORE NULLS)
+    OVER (ORDER BY m.trade_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS market_crowding_asof
 FROM with_ma m
 LEFT JOIN idx_breakout ix ON ix.trade_date = m.trade_date
 LEFT JOIN market_crowding mc ON mc.trade_date = m.trade_date
@@ -1622,28 +1626,40 @@ def _crowd_gaussian_curve(n, bins, rng):
 
 
 def _crowd_value(ret, bins, curve):
-    """全市场抱团度 = 所有股票对残差互信息 ΔI(经验MI − 高斯基准)的平均。"""
+    """返回 (ΔI, 平均|rho|):ΔI=所有股票对残差互信息(经验MI − 同ρ高斯基准)的平均。
+
+    两者必须一起看:ΔI 是 MI 与基准的小差值(MI≈0.10、基准≈0.09、ΔI≈0.01),而基准由 |rho|
+    决定,故 ΔI 与平均|rho| 全样本负相关 -0.60 —— 单看 ΔI 会把「相关性下降」误读成「抱团上升」。"""
     n, N = ret.shape
     rho = np.corrcoef(ret, rowvar=False)
     cb = np.column_stack([_crowd_eqfreq(ret[:, k], bins) for k in range(N)])
     gx, gy = curve
-    total, cnt = 0.0, 0
+    total, cnt, rsum = 0.0, 0, 0.0
     for i in range(N):
         for j in range(i + 1, N):
             base = float(np.interp(abs(rho[i, j]), gx, gy))
             total += _crowd_mi(cb[:, i], cb[:, j], bins) - base
+            rsum += abs(rho[i, j])
             cnt += 1
-    return total / cnt if cnt else None
+    return (total / cnt, rsum / cnt) if cnt else (None, None)
 
 
 def _update_market_crowding(con) -> None:
     """增量计算全市场抱团度(PIT 沪深300成分的平均残差互信息 ΔI)写入 market_crowding。
 
-    regime/市场态信号(非横截面因子)：ΔI 高=全市场尾部同动(系统性应激)。每 _CROWD_STEP 交易日
-    采样(300日窗很平滑)，market_state 侧再向前填充成逐日。hs300_members 表为空则跳过。
-    去偏：经验 MI 减同 ρ 高斯 copula 基准(_crowd_gaussian_curve)，两者同套分箱、正偏同源抵消。"""
+    regime/市场态信号(非横截面因子)。每 _CROWD_STEP 交易日采样(300日窗很平滑)，market_state 侧
+    再向前填充成逐日(只回看，无未来函数)。hs300_members 表为空则跳过。
+    去偏：经验 MI 减同 ρ 高斯 copula 基准(_crowd_gaussian_curve)，两者同套分箱、正偏同源抵消。
+
+    ⚠️ ΔI 的方向与「抱团」直觉相反：全样本 corr(ΔI, 平均|rho|) = -0.60，|rho|>0.30 时去偏过度
+    校正致 ΔI 转负(2025 全年为负)。即 ΔI 高=相关性低=分化市，ΔI 低=相关性高=趋势/抱团市。
+    故同时落 avg_abs_rho(平均|rho|)，下游须两者并看，勿单看 ΔI 判断抱团。详见
+    qlib_workflow/momentum/RESEARCH_NOTES.md。"""
     con.execute("CREATE TABLE IF NOT EXISTS market_crowding "
                 "(trade_date DATE, crowding_di DOUBLE, n_stocks INTEGER, PRIMARY KEY (trade_date))")
+    cols = [r[0] for r in con.execute("DESCRIBE market_crowding").fetchall()]
+    if "avg_abs_rho" not in cols:
+        con.execute("ALTER TABLE market_crowding ADD COLUMN avg_abs_rho DOUBLE")
     has_members = con.execute(
         "SELECT COUNT(*) FROM information_schema.tables WHERE table_name='hs300_members'").fetchone()[0]
     if not has_members:
@@ -1656,7 +1672,9 @@ def _update_market_crowding(con) -> None:
                        [_CROWD_FIRST]).fetchall()
     dates = [r[0] for r in rows][::_CROWD_STEP]
     if after is not None:
-        dates = [d for d in dates if str(d) > str(after)]
+        stale = {str(r[0]) for r in con.execute(
+            "SELECT trade_date FROM market_crowding WHERE avg_abs_rho IS NULL").fetchall()}
+        dates = [d for d in dates if str(d) > str(after) or str(d) in stale]
     if not dates:
         return
     mdf["dt"] = pd.to_datetime(mdf["trade_date"], format="%Y%m%d")
@@ -1671,14 +1689,15 @@ def _update_market_crowding(con) -> None:
         ret, codes = _crowd_returns_matrix(con, members, str(d))
         if ret.shape[0] < _CROWD_WINDOW - 10 or len(codes) < _CROWD_MIN_STOCKS:
             continue
-        di = _crowd_value(ret, _CROWD_BINS, curve)
+        di, arho = _crowd_value(ret, _CROWD_BINS, curve)
         if di is None:
             continue
-        out.append((str(d), di, len(codes)))
+        out.append((str(d), di, len(codes), arho))
     if out:
-        cdf = pd.DataFrame(out, columns=["trade_date", "crowding_di", "n_stocks"])
+        cdf = pd.DataFrame(out, columns=["trade_date", "crowding_di", "n_stocks", "avg_abs_rho"])
         con.register("_crowd", cdf)
-        con.execute("INSERT OR REPLACE INTO market_crowding SELECT * FROM _crowd")
+        con.execute("INSERT OR REPLACE INTO market_crowding (trade_date, crowding_di, n_stocks, avg_abs_rho) "
+                    "SELECT trade_date, crowding_di, n_stocks, avg_abs_rho FROM _crowd")
         con.unregister("_crowd")
 
 
@@ -1787,7 +1806,8 @@ def rebuild_market_state(duck_path: str) -> None:
         except Exception as e:
             print(f"抱团度更新跳过({e}) ", end="")
             con.execute("CREATE TABLE IF NOT EXISTS market_crowding "
-                        "(trade_date DATE, crowding_di DOUBLE, n_stocks INTEGER, PRIMARY KEY (trade_date))")
+                        "(trade_date DATE, crowding_di DOUBLE, n_stocks INTEGER, avg_abs_rho DOUBLE, "
+                        "PRIMARY KEY (trade_date))")
         con.execute(_MARKET_STATE_SQL)
         n = con.execute("SELECT COUNT(*) FROM market_state").fetchone()[0]
     finally:

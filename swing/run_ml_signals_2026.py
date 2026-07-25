@@ -740,7 +740,11 @@ def main():
         buy_lg_amount+buy_elg_amount-sell_lg_amount-sell_elg_amount AS net_lg,
         buy_sm_amount+buy_md_amount+buy_lg_amount+buy_elg_amount+sell_sm_amount+sell_md_amount+sell_lg_amount+sell_elg_amount AS tot
         FROM moneyflow WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
-    cr = con.execute("SELECT trade_date, market_crowding_di FROM market_state WHERE market_crowding_di IS NOT NULL ORDER BY trade_date").fetch_df()
+    _rho_col = "market_avg_abs_rho" if "market_avg_abs_rho" in [
+        r[0] for r in con.execute("DESCRIBE market_state").fetchall()] else "NULL"
+    cr = con.execute(f"""SELECT trade_date, market_crowding_di, {_rho_col} AS avg_abs_rho,
+        {'market_crowding_asof' if _rho_col != 'NULL' else 'NULL'} AS asof
+        FROM market_state WHERE market_crowding_di IS NOT NULL ORDER BY trade_date""").fetch_df()
     ms = con.execute("""SELECT trade_date, market_idx_dist_h60 AS idxdist, market_2lb_rate_ma5 AS lb2rate,
         market_max_lianban AS nlb, market_crowding_di AS crowd FROM market_state ORDER BY trade_date""").fetch_df()
     breadth = con.execute("""SELECT trade_date, AVG(CASE WHEN pct_chg>0 THEN 1.0 ELSE 0.0 END) AS upratio
@@ -770,7 +774,12 @@ def main():
         regs[nm], curs[nm] = _idx_regime(pro, code)
     cur_cr = float(cr["market_crowding_di"].iloc[-1]) if len(cr) else float("nan")
     cr_pct = float((cr["market_crowding_di"] <= cur_cr).mean()) if len(cr) else float("nan")
-    cr_label = "高(风险大)" if cr_pct > 0.7 else "低(风险小)" if cr_pct < 0.3 else "中"
+    _rho = cr["avg_abs_rho"].dropna() if len(cr) else pd.Series(dtype=float)
+    cur_rho = float(_rho.iloc[-1]) if len(_rho) else float("nan")
+    rho_pct = float((_rho <= cur_rho).mean()) if len(_rho) else float("nan")
+    cr_asof = str(pd.Timestamp(cr["asof"].iloc[-1]).date()) if len(cr) and pd.notna(cr["asof"].iloc[-1]) else ""
+    cr_label = ("分化(相关性低)" if rho_pct < 0.3 else "抱团(相关性高)" if rho_pct > 0.7 else "中"
+                ) if rho_pct == rho_pct else "—"
 
     for d in (px, db, cyq, mf, ms, breadth):
         d["trade_date"] = pd.to_datetime(d["trade_date"])
@@ -1004,8 +1013,11 @@ def main():
                    "pivot": args.pivot, "latest": latest_td, "ntrade": ntrade, "cal": cal_js,
                    "signals": data, "ml_forecast": ml_fc, "metrics": train_metrics,
                    "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
-                              "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 3),
-                                        "pct": None if cr_pct != cr_pct else round(cr_pct, 2), "label": cr_label}}}
+                              "crowd": {"value": None if cur_cr != cur_cr else round(cur_cr, 4),
+                                        "pct": None if cr_pct != cr_pct else round(cr_pct, 4),
+                                        "rho": None if cur_rho != cur_rho else round(cur_rho, 4),
+                                        "rho_pct": None if rho_pct != rho_pct else round(rho_pct, 4),
+                                        "asof": cr_asof, "label": cr_label}}}
         with open(args.json, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
         print(f"JSON:{args.json}")
@@ -1020,8 +1032,11 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 <h1>ML 主升浪信号清单 — {args.start} ~ {args.end or '今'}(top{args.tier}%)</h1>
 <p style="font-size:15px;margin-bottom:4px">当前大盘状态:&nbsp;
 {''.join(f'<b>{nm}</b> <span style="color:{chr(35)+("c0392b" if curs[nm]=="健康" else "27ae60")}">{curs[nm]}</span>&nbsp;&nbsp;' for nm in INDEXES)}
-&nbsp;|&nbsp; 抱团度风险 <b>{cur_cr:.4f}</b> <span style="color:{'#c0392b' if cr_pct>0.7 else '#27ae60' if cr_pct<0.3 else '#888'}">{cr_label}</span>(历史分位 {cr_pct*100:.0f}%)</p>
-<p style="font-size:12px;color:#999;margin-top:0">健康/走坏=同小西西弗牛熊开关:走坏=MA30与MA60同时走坏(收盘&lt;均线且均线下行),至少一条多头即健康(走坏时突破成功率显著下降)。抱团度=残差互信息系统性风险因子,越高=资金越抱团/系统性风险越大。</p>
+&nbsp;|&nbsp; 平均相关性 <b>{('%.3f' % cur_rho) if cur_rho == cur_rho else '—'}</b>
+<span style="color:{'#c0392b' if rho_pct>0.7 else '#27ae60' if rho_pct<0.3 else '#888'}">{cr_label}</span>(分位 {rho_pct*100:.1f}%)
+&nbsp;·&nbsp; 残差依赖ΔI {cur_cr:.4f}(分位 {cr_pct*100:.1f}%){f'，算至 {cr_asof}' if cr_asof else ''}</p>
+<p style="font-size:12px;color:#999;margin-top:0">健康/走坏=同小西西弗牛熊开关:走坏=MA30与MA60同时走坏(收盘&lt;均线且均线下行),至少一条多头即健康(走坏时突破成功率显著下降)。平均相关性=沪深300成分近300日两两|rho|均值,高=齐涨齐跌抱团、低=分化。
+残差依赖ΔI=经验互信息减同ρ高斯基准,度量超出线性相关的额外(尾部/非线性)关联;<b>ΔI 高不等于抱团</b>——它与平均相关性全样本负相关-0.60(|rho|&gt;0.30 时去偏过度校正致 ΔI 转负,2025 全年为负),故须与相关性并看。两者每5个交易日算一次后向前填充,标注的日期为实际计算日。</p>
 <p style="font-size:12px;color:#999;margin-top:0"><b>出场口径</b>(均从突破日入场、扣双边费):
 <b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)即离场,否则一直持有(让利润奔跑);
 <b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。</p>
