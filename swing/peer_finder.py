@@ -1,7 +1,11 @@
 """peer_finder.py — 个股「同行业可比公司 + 行业/竞争定性」发现与缓存(供基本面 LLM 分析)。
 
 同行身份与行业定性都很稳、几乎一次确定长期不变,值得一次性抽好存库、以后直取。
-- 同行(peers):以申万三级同业为骨架(可靠、完整、可实时算 PE/PB),再并入研报中额外提到的可比公司。
+- 同行(peers):以申万三级同业为骨架(可靠、完整),再并入研报点名的可比公司 —— 机构对"谁算同行"的判断
+  比申万三级准(会跨三级把储能系统/变压器/电网设备纳进来),故名单要研报的。
+- 估值:**只用研报的名单,不用研报的 PE**。研报估值表常以图片嵌入 PDF(无文本层)、且是发布日快照;
+  改由 peer_snapshot 自算前瞻PE = 总市值 ÷ 券商一致预测净利(report_rc,同 ta_analyze 口径),
+  本股与同行同口径同日期,任意同行集都成立,还能覆盖当期亏损(TTM PE 为空)的公司。TTM PE/PB 仅作辅助。
 - 行业空间 / 竞争地位:读该股研报(skill_research_em 的 pdf_url,优先深度报告)全文,DeepSeek 抽取(temp 0)。
   研报 PDF 主机(东财 pdf.dfcfw.com)有反爬,urllib 直连拿不到 → 优先用 browser-harness(真 Chrome 过 JS 挑战、
   页内 fetch 拿真 PDF),失败退 urllib,再失败仅用申万同业。
@@ -27,7 +31,7 @@ import duckdb
 import cache_tushare as ct
 
 PEER_DB = os.path.join(_ROOT, "peer_cache.duckdb")
-PEER_VER = "2026-07-25a"   # 提版=作废旧缓存:旧版 PDF 正文截断致深度报告的可比公司估值表 100% 抽不到
+PEER_VER = "2026-07-25b"   # 提版=作废旧缓存:①旧版PDF正文截断致研报同行名单抽不全 ②val_table列改存rp_codes
 _DEEP_KWS = ("深度", "首次覆盖", "投资价值", "深度报告")
 _MAX_TXT = 20000
 
@@ -51,7 +55,9 @@ def _ord(d) -> int:
 
 
 def _cache_conn():
-    """打开(必要时建)独立同行缓存库,返回可读写连接;val_table 为研报可比公司前瞻估值表。"""
+    """打开(必要时建)独立同行缓存库,返回可读写连接。
+
+    val_table 列为历史遗留名,现存"研报点名的同行代码列表"(rp_codes);另有 fwd_np 表缓存券商预测净利。"""
     con = duckdb.connect(PEER_DB)
     con.execute("""CREATE TABLE IF NOT EXISTS stock_peers (
         ts_code VARCHAR PRIMARY KEY, name VARCHAR, peers VARCHAR,
@@ -71,7 +77,16 @@ def _read_cache(ts: str):
     if not r or r[5] != PEER_VER:
         return None
     return {"peers": json.loads(r[0] or "[]"), "industry_space": r[1], "competitive": r[2], "source": r[3],
-            "report_date": r[4], "val_table": json.loads(r[6] or "null"), "cached": True}
+            "report_date": r[4], "rp_codes": _as_list(r[6]), "cached": True}
+
+
+def _as_list(raw):
+    """缓存列反序列化成 list;旧版本该列存的是 val_table dict,一律当空。"""
+    try:
+        v = json.loads(raw or "[]")
+    except Exception:
+        return []
+    return v if isinstance(v, list) else []
 
 
 def _sw_peers(mcon, ts: str, limit: int = 10):
@@ -156,53 +171,26 @@ def _extract_input(txt: str) -> str:
 
 
 def _extract_llm(name: str, report_text: str):
-    """DeepSeek 从研报正文抽 行业空间 + 竞争地位 + 可比公司 + 可比公司前瞻估值表(temp 0,只输出 JSON)。"""
+    """DeepSeek 从研报正文抽 行业空间 + 竞争地位 + 可比公司名单(temp 0,只输出 JSON)。
+
+    只要名单不要研报里的 PE:机构对"谁算同行"的判断比申万三级准(会跨三级把储能系统/变压器/电网设备
+    纳进来),但它的估值表常是图片、且是发布日快照;PE 一律由 peer_snapshot 用 report_rc 自算。"""
     import ta_analyze
     ta_analyze._load_keys()
     schema = ('{"industry_space":"行业空间/市场规模一句话或空","competitive":"竞争地位一句话或空",'
-              '"peers":[{"name":"可比公司/竞争对手名","code":"6位A股代码或空"}],'
-              '"val_table":{"caliber":"口径如『前瞻P/E』或空","year1":"如2026E","year2":"如2027E",'
-              '"rows":[{"name":"公司名","code":"6位A股代码或空(境外留空)","pe1":0,"pe2":0}]},'
-              '"val_summary":{"caliber":"如动态PE","year1":"如2026E","year2":"如2027E",'
-              '"peer_avg1":0,"peer_avg2":0,"self_pe1":0,"self_pe2":0,'
-              '"peer_names":["可比公司名"]}}')
-    rules = ("要求:①peers 只填研报明确点名的同行(最多10家);"
-             "②val_table 只在**能逐行读到每家公司的前瞻PE数字**时填(pe1=近年如2026E、pe2=远年如2027E,"
-             "含境外龙头如美光/三星/海力士);读不到逐行数字就整个设为 null;"
-             "③val_summary 与 val_table **相互独立、各自判断**:只要正文写了『可比公司X年动态PE均值/中位为A』"
-             "或『本股X年对应PE为A』就填。**估值表常以图片嵌入PDF、文字层读不到,但正文往往给了这个结论,"
-             "此时 val_summary 是唯一可得的一致口径,务必填**;正文确实没有才设 null;"
-             "④不确定/读不到就留空或 null,不要编造。")
-    prompt = (f"下面是关于公司「{name}」的券商研报正文(含可能存在的『可比公司估值表』)。只抽客观信息,输出 JSON:\n"
+              '"peers":[{"name":"可比公司/竞争对手名","code":"6位A股代码或空"}]}')
+    rules = ("要求:①peers 只填研报明确点名为可比公司/竞争对手的同行(最多10家),优先取正文『我们选取以下N家"
+             "公司作为可比公司』那一句列出的;②境外公司(如美光/三星)code 留空;③不确定就留空,不要编造。")
+    prompt = (f"下面是关于公司「{name}」的券商研报正文。只抽客观信息,输出 JSON:\n"
               + schema + "\n" + rules + "\n\n研报正文:\n" + report_text)
     try:
         txt = ta_analyze._cli().chat.completions.create(
             model="deepseek-v4-flash", temperature=0, response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}]).choices[0].message.content
         d = json.loads(txt)
-        return (d.get("industry_space") or "", d.get("competitive") or "", d.get("peers") or [],
-                _merge_val(d.get("val_table"), d.get("val_summary")))
+        return d.get("industry_space") or "", d.get("competitive") or "", d.get("peers") or []
     except Exception:
-        return "", "", [], None
-
-
-def _merge_val(vt, vs):
-    """把逐行估值表与正文汇总结论合成一份;两者都拿不到数字则返回 None(避免把 None 塞进 prompt)。"""
-    rows = vt.get("rows") if isinstance(vt, dict) else None
-    has_row_pe = bool(rows) and any(r.get("pe1") or r.get("pe2") for r in rows)
-    vs = vs if isinstance(vs, dict) else {}
-    has_sum = bool(vs.get("peer_avg1") or vs.get("peer_avg2") or vs.get("self_pe1") or vs.get("self_pe2"))
-    if not (has_row_pe or has_sum):
-        return None
-    base = dict(vt) if isinstance(vt, dict) else {}
-    if not has_row_pe:
-        base["rows"] = [{"name": n} for n in (vs.get("peer_names") or [])] or (rows or [])
-    for k in ("caliber", "year1", "year2"):
-        base[k] = base.get(k) or vs.get(k)
-    for k in ("peer_avg1", "peer_avg2", "self_pe1", "self_pe2"):
-        base[k] = vs.get(k)
-    base["row_pe_ok"] = has_row_pe
-    return base
+        return "", "", []
 
 
 def _resolve_codes(mcon, peers):
@@ -239,79 +227,85 @@ def ensure_peers(code: str, force: bool = False) -> dict:
         reps = mcon.execute("""SELECT ann_date,title,pdf_url FROM skill_research_em
             WHERE ts_code=? AND pdf_url IS NOT NULL ORDER BY ann_date DESC LIMIT 12""", [ts]).fetchall()
         ranked = sorted(reps, key=lambda r: (0 if any(k in (r[1] or "") for k in _DEEP_KWS) else 1, -_ord(r[0])))
-        ispace, comp, rp_peers, val_table, src, rdate = "", "", [], None, "", ""
+        ispace, comp, rp_peers, src, rdate = "", "", [], "", ""
         for ann, _title, url in ranked[:3]:
             text = _pdf_text(_download_pdf(url))
             if len(text) < 300:
                 continue
-            i2, c2, raw, vt = _extract_llm(nm, _extract_input(text))
+            i2, c2, raw = _extract_llm(nm, _extract_input(text))
             ispace, comp = ispace or i2, comp or c2
             rp_peers = rp_peers or _resolve_codes(mcon, raw)
             if not src:
                 src, rdate = url, str(ann)
-            if vt:                       # 找到可比公司估值表就停(最有价值),否则继续翻下一篇
-                val_table = vt
+            if rp_peers and ispace and comp:     # 名单+定性都拿到就停,否则继续翻下一篇
                 src, rdate = url, str(ann)
                 break
         seen = {p["code"] for p in sw}
-        peers = sw + [p for p in rp_peers if p["code"] not in seen and p["code"] != ts]
+        rp_only = [p for p in rp_peers if p["code"] not in seen and p["code"] != ts]
+        peers = sw + rp_only
         source = ("研报+申万" if src else "申万三级同业")
     finally:
         mcon.close()
-    rec = {"peers": peers, "industry_space": ispace, "competitive": comp, "val_table": val_table,
-           "source": source, "report_date": rdate, "cached": False}
+    rec = {"peers": peers, "rp_codes": [p["code"] for p in rp_peers], "industry_space": ispace,
+           "competitive": comp, "source": source, "report_date": rdate, "cached": False}
     con = _cache_conn()
     try:
         con.execute("INSERT OR REPLACE INTO stock_peers (ts_code,name,peers,industry_space,competitive,val_table,source,report_date,model,ver,fetched_at) "
                     "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                     [ts, nm, json.dumps(peers, ensure_ascii=False), ispace, comp,
-                     json.dumps(val_table, ensure_ascii=False) if val_table else None,
+                     json.dumps(rec["rp_codes"], ensure_ascii=False),
                      source, rdate, "deepseek-v4-flash", PEER_VER, datetime.now()])
     finally:
         con.close()
     return rec
 
 
-def _valtable_text(ts: str, name: str, vt: dict) -> str:
-    """研报『可比公司估值表』(前瞻P/E)→ 文本:本股 vs 同业前瞻PE中位(境内/全部),口径一致、含境外龙头。"""
-    import statistics as st
-    rows = vt.get("rows") or []
-    y1, y2 = vt.get("year1") or "近年", vt.get("year2") or "远年"
-    cal = vt.get("caliber") or "前瞻P/E"
-    tgt = next((r for r in rows if (r.get("code") and _norm(r["code"]) == ts) or (name and r.get("name") and name in r["name"]) or (r.get("name") and r["name"] in name)), None)
-    peers = [r for r in rows if r is not tgt]
-    dom = [r for r in peers if r.get("code")]                    # 境内(有A股代码)
-    m = lambda rs, k: (round(st.median([r[k] for r in rs if r.get(k)]), 1) if [r for r in rs if r.get(k)] else None)
-    lines = [f"- {r.get('name','')}{('('+str(r['code'])+')') if r.get('code') else '(境外)'} {cal} {r.get('pe1','—')}/{r.get('pe2','—')}" for r in rows]
-    t1 = (tgt.get("pe1") if tgt else None) or vt.get("self_pe1")
-    t2 = (tgt.get("pe2") if tgt else None) or vt.get("self_pe2")
-    if not vt.get("row_pe_ok", True):
-        # WHY: 估值表常以图片嵌入 PDF、文字层读不到逐行 PE,此时只报正文给出的汇总,不列一串"—"
-        return (f"研报可比公司估值({cal} {y1}/{y2},口径一致、优先于自算TTM;原表为图片,仅取正文汇总结论):\n"
-                f"本股 {t1 or '—'}/{t2 or '—'};可比公司均值 {vt.get('peer_avg1') or '—'}/{vt.get('peer_avg2') or '—'}\n"
-                f"可比公司名单:{'、'.join(r.get('name', '') for r in rows) or '—'}")
-    head = (f"研报可比公司估值表({cal} {y1}/{y2},口径一致、优先于自算TTM):\n"
-            f"本股 {t1 or '—'}/{t2 or '—'};境内同业中位 {m(dom,'pe1')}/{m(dom,'pe2')};全部(含境外龙头)中位 {m(peers,'pe1')}/{m(peers,'pe2')}")
-    return head + "\n" + "\n".join(lines)
+def _fwd_np_many(codes, year: int, ttl_days: int = 20) -> dict:
+    """批量取各股 year 年券商一致预测归母净利(亿)与覆盖券商数,返回 {ts_code:(np亿, n家)}。
+
+    口径同 ta_analyze:只取近半年、每券商每年最新一份,取中位。预测本身月度级才变,故按 ttl_days
+    缓存在 peer_cache.duckdb(不写 7GB 主库);PE 每次用当日总市值现算,不缓存。"""
+    con = _cache_conn()
+    try:
+        con.execute("""CREATE TABLE IF NOT EXISTS fwd_np (
+            ts_code VARCHAR, year INTEGER, np_yi DOUBLE, n_org INTEGER, fetched_at TIMESTAMP,
+            PRIMARY KEY (ts_code, year))""")
+        rows = con.execute("SELECT ts_code,np_yi,n_org,fetched_at FROM fwd_np WHERE year=?", [year]).fetchall()
+        fresh = {r[0]: (r[1], r[2]) for r in rows
+                 if r[3] and (datetime.now() - r[3]).days < ttl_days}
+        miss = [c for c in codes if c not in fresh]
+        if miss:
+            import pandas as pd
+            import ta_analyze
+            ta_analyze._load_keys()
+            import tushare as tsapi
+            pro = tsapi.pro_api(os.environ.get("TUSHARE_TOKEN", ""))
+            got = []
+            for c in miss:
+                np_yi, n = None, 0
+                try:
+                    rc = pro.report_rc(ts_code=c, start_date=f"{year-1}0101", end_date=f"{year+2}1231")
+                    rc = rc[rc["quarter"].astype(str) == f"{year}Q4"].copy()
+                    rc["rd"] = pd.to_datetime(rc["report_date"])
+                    rc = rc[rc["rd"] >= rc["rd"].max() - pd.Timedelta(days=180)]
+                    rc = rc.sort_values("rd").groupby("org_name", as_index=False).tail(1)
+                    if rc["np"].notna().any():
+                        np_yi, n = float(rc["np"].median()) / 1e4, int(len(rc))
+                except Exception:
+                    pass
+                got.append((c, year, np_yi, n, datetime.now()))
+                fresh[c] = (np_yi, n)
+            con.executemany("INSERT OR REPLACE INTO fwd_np VALUES (?,?,?,?,?)", got)
+    finally:
+        con.close()
+    return {c: v for c, v in fresh.items() if v[0]}
 
 
 def peer_snapshot(code: str, force: bool = False) -> dict:
-    """同行 + 相对估值 + 行业定性:优先用研报可比公司估值表(前瞻P/E),没有再回退自算实时PE/PB。"""
+    """同行 + 相对估值 + 行业定性:主口径=自算前瞻PE(总市值÷券商一致预测净利),TTM PE/PB 作辅助。"""
     ts = _norm(code)
     info = ensure_peers(ts, force=force)
     peers = info["peers"]
-    vt = info.get("val_table")
-    if isinstance(vt, dict) and vt.get("rows"):
-        nm = ""
-        try:
-            _c = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
-            nm = (_c.execute("SELECT name FROM stock_meta WHERE ts_code=?", [ts]).fetchone() or [""])[0]; _c.close()
-        except Exception:
-            pass
-        vtext = _valtable_text(ts, nm, vt)
-        extra = ((f"\n行业空间:{info['industry_space']}" if info.get("industry_space") else "") +
-                 (f"\n竞争地位:{info['competitive']}" if info.get("competitive") else ""))
-        return {**info, "text": vtext + extra}
     if not peers:
         return {**info, "text": "同业:未找到可比公司", "peer_pe_med": None, "peer_pb_med": None}
     mcon = duckdb.connect(ct.DUCKDB_PATH, read_only=True)
@@ -319,28 +313,45 @@ def peer_snapshot(code: str, force: bool = False) -> dict:
         mx = mcon.execute("SELECT max(trade_date) FROM daily_basic").fetchone()[0]
         codes = [p["code"] for p in peers] + [ts]
         ph = ",".join(["?"] * len(codes))
-        vals = {r[0]: (r[1], r[2]) for r in mcon.execute(
-            f"SELECT ts_code,pe_ttm,pb FROM daily_basic WHERE trade_date=? AND ts_code IN ({ph})", [mx, *codes]).fetchall()}
+        vals = {r[0]: (r[1], r[2], r[3]) for r in mcon.execute(
+            f"SELECT ts_code,pe_ttm,pb,total_mv FROM daily_basic WHERE trade_date=? AND ts_code IN ({ph})",
+            [mx, *codes]).fetchall()}
     finally:
         mcon.close()
+    yr = datetime.now().year
+    fnp = _fwd_np_many(codes, yr)
+    fpe = {}
+    for c in codes:
+        v, np_ = vals.get(c), fnp.get(c)
+        if v and v[2] and np_ and np_[0] > 0:
+            fpe[c] = v[2] / 1e4 / np_[0]
     import statistics as st
+    pf = [fpe[p["code"]] for p in peers if p["code"] in fpe]
     pes = [vals[p["code"]][0] for p in peers if vals.get(p["code"]) and vals[p["code"]][0] and vals[p["code"]][0] > 0]
     pbs = [vals[p["code"]][1] for p in peers if vals.get(p["code"]) and vals[p["code"]][1] and vals[p["code"]][1] > 0]
+    fpe_med = round(st.median(pf), 1) if pf else None
     pe_med = round(st.median(pes), 1) if pes else None
     pb_med = round(st.median(pbs), 2) if pbs else None
-    self_pe, self_pb = vals.get(ts, (None, None))
+    self_fpe = round(fpe[ts], 1) if ts in fpe else None
+    self_pe, self_pb = (vals.get(ts) or (None, None, None))[:2]
     lines = []
     for p in peers:
-        v = vals.get(p["code"])
-        pe = round(v[0], 1) if v and v[0] else "—"
-        pb = round(v[1], 2) if v and v[1] else "—"
-        lines.append(f"- {p['name']}({p['code']}) PE {pe} / PB {pb}")
-    cmp = "高于" if (self_pe and pe_med and self_pe > pe_med) else "低于" if (self_pe and pe_med) else "—"
-    head = (f"同业可比({info['source']}):共{len(peers)}家;同业PE中位 {pe_med} / PB中位 {pb_med};"
-            f"本股 PE {round(self_pe,1) if self_pe else '—'} / PB {round(self_pb,2) if self_pb else '—'}({cmp}同业PE中位)")
+        v, f, np_ = vals.get(p["code"]), fpe.get(p["code"]), fnp.get(p["code"])
+        lines.append(f"- {p['name']}({p['code']}) 前瞻PE {round(f,1) if f else '—'}"
+                     f"(预测净利{round(np_[0],1)}亿/{np_[1]}家券商)" if f and np_ else
+                     f"- {p['name']}({p['code']}) 前瞻PE —(无券商覆盖)")
+        lines[-1] += f" | TTM PE {round(v[0],1) if v and v[0] else '—'} / PB {round(v[1],2) if v and v[1] else '—'}"
+    cmp = "高于" if (self_fpe and fpe_med and self_fpe > fpe_med) else "低于" if (self_fpe and fpe_med) else "—"
+    head = (f"同业可比({info['source']};名单含研报点名{len(info.get('rp_codes') or [])}家):共{len(peers)}家,"
+            f"其中{len(pf)}家有券商覆盖\n"
+            f"**前瞻PE({yr}E,主口径:总市值÷券商一致预测净利,与本股同口径同日期)**:"
+            f"同业中位 {fpe_med};本股 {self_fpe or '—'}({cmp}同业中位)\n"
+            f"辅助(TTM,口径不同勿与前瞻混用):同业PE中位 {pe_med} / PB中位 {pb_med};"
+            f"本股 PE {round(self_pe,1) if self_pe else '—'} / PB {round(self_pb,2) if self_pb else '—'}")
     extra = ((f"\n行业空间:{info['industry_space']}" if info.get("industry_space") else "") +
              (f"\n竞争地位:{info['competitive']}" if info.get("competitive") else ""))
-    return {**info, "peer_pe_med": pe_med, "peer_pb_med": pb_med, "self_pe": self_pe, "self_pb": self_pb,
+    return {**info, "peer_fpe_med": fpe_med, "self_fpe": self_fpe, "fwd_year": yr,
+            "peer_pe_med": pe_med, "peer_pb_med": pb_med, "self_pe": self_pe, "self_pb": self_pb,
             "text": head + "\n" + "\n".join(lines) + extra}
 
 

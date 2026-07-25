@@ -1034,11 +1034,11 @@ def peer_status(code: str = ""):
         return {"ok": True, "cached": False}
     if not r:
         return {"ok": True, "cached": False}
-    vt = json.loads(r[0]) if r[0] else None
+    rp = json.loads(r[0]) if r[0] else []
     peers = json.loads(r[3] or "[]")
-    n_val = len(vt["rows"]) if (isinstance(vt, dict) and vt.get("rows")) else 0
-    return {"ok": True, "cached": True, "has_val_table": n_val > 0, "source": r[1],
-            "report_date": r[2], "n_peers": len(peers), "n_val": n_val}
+    n_rp = len(rp) if isinstance(rp, list) else 0
+    return {"ok": True, "cached": True, "source": r[1], "report_date": r[2],
+            "n_peers": len(peers), "n_report_peers": n_rp}
 
 
 @app.get("/api/stock_info")

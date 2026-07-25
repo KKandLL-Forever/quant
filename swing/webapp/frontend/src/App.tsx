@@ -437,11 +437,12 @@ function AnaHost({ children }: { children: React.ReactNode }) {
 
     <Modal open={!!ana?.open} width={1200} footer={null} onCancel={closeAna}
       title={<span>LLM 分析 {ana?.name ? `${ana.name}(${ana.code})` : ana?.code}{ana?.date ? ` @ ${ana.date}` : ''}
-        {ana?.peer && (ana.peer.has_val_table
-          ? <Tag color="green" style={{ marginLeft: 8 }} title={`研报可比公司估值表 · ${ana.peer.n_val}家 · ${ana.peer.report_date || ''}`}>同业估值·研报 {ana.peer.n_val}家</Tag>
-          : ana.peer.cached
-            ? <Tag color="default" style={{ marginLeft: 8 }} title={ana.peer.source || ''}>同业·申万 {ana.peer.n_peers || 0}家</Tag>
-            : <Tag color="orange" style={{ marginLeft: 8 }}>同业估值·未缓存</Tag>)}
+        {ana?.peer && (ana.peer.cached
+          ? <Tag color={ana.peer.n_report_peers ? 'green' : 'default'} style={{ marginLeft: 8 }}
+              title={`${ana.peer.source || ''} · 研报点名 ${ana.peer.n_report_peers || 0} 家 · ${ana.peer.report_date || ''}；前瞻PE 由券商一致预测净利自算`}>
+              同业 {ana.peer.n_peers || 0}家{ana.peer.n_report_peers ? `(含研报${ana.peer.n_report_peers})` : ''}
+            </Tag>
+          : <Tag color="orange" style={{ marginLeft: 8 }}>同业·未缓存</Tag>)}
         {ana?.cached && <span className="ana-chip"><span className="ana-dot" />已缓存</span>}
         {ana?.phase === 'done' && <span className="ana-redo" onClick={() => runAnalysis(ana.code, ana.date, true, ana.name)}>↻ 重新分析</span>}
       </span>}>
