@@ -75,7 +75,7 @@ LGB_PARAMS = dict(learning_rate=0.02, num_leaves=15, min_child_samples=100,
 FEATS_ALL = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", "ret20", "ret60",
              "volr", "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv",
              "rs20", "rs60", "rsturn", "bregnum", "crowd", "idxdist", "lb2rate", "nlb", "upratio",
-             "sector_rs", "lianban60", "sector_heat", "roe", "npyoy", "fc_pos"]
+             "sector_rs", "lianban60", "sector_heat", "roe", "npyoy", "fc_pos", "arho"]
 FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "atrp", "ret20", "ret60",
          "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv", "rsturn",
          "crowd", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
@@ -86,7 +86,7 @@ FEAT_CN = {
     "winrate": "获利盘比例", "cyqconc": "筹码集中度", "mfnet20": "20日主力净额", "pe": "市盈率",
     "pb": "市净率", "lnmv": "对数流通市值", "rsturn": "换手率分位", "crowd": "抱团度",
     "idxdist": "指数距60日高", "sector_rs": "板块相对强度", "sector_heat": "板块热度",
-    "lianban60": "60日涨停数", "npyoy": "净利润同比",
+    "lianban60": "60日涨停数", "npyoy": "净利润同比", "arho": "平均相关性",
 }
 
 
@@ -469,7 +469,7 @@ def _pre_feats(A, i, trig, pv1, typ, dbr, cyr, mr):
             "winrate": cyr["winner_rate"], "cyqconc": cyr["cyqconc"], "mfnet20": A["mfnet20"][i],
             "pe": dbr["pe_ttm"] * k, "pb": dbr["pb"] * k,
             "lnmv": np.log(dbr["circ_mv"] * k) if dbr["circ_mv"] > 0 else np.nan,
-            "rsturn": A["rsturn"][i], "crowd": mr["crowd"], "idxdist": mr["idxdist"],
+            "rsturn": A["rsturn"][i], "crowd": mr["crowd"], "arho": mr["arho"], "idxdist": mr["idxdist"],
             "sector_rs": A["sector_rs"][i], "sector_heat": A["sector_heat"][i],
             "lianban60": A["lianban60"][i], "npyoy": A["npyoy"][i]}
 
@@ -521,7 +521,7 @@ def _pend_feat_rows(px, db, cyq, mf, mkt, args):
                 "ret60": cc[bo] / cc[bo - 60] - 1, "winrate": cyr["winner_rate"], "cyqconc": cyr["cyqconc"],
                 "mfnet20": mf_net20[bo], "pe": dbr["pe_ttm"], "pb": dbr["pb"],
                 "lnmv": np.log(dbr["circ_mv"]) if dbr["circ_mv"] > 0 else np.nan,
-                "rsturn": rsturna[bo], "crowd": mr["crowd"], "idxdist": mr["idxdist"],
+                "rsturn": rsturna[bo], "crowd": mr["crowd"], "arho": mr["arho"], "idxdist": mr["idxdist"],
                 "sector_rs": srsa[bo], "sector_heat": sheata[bo], "lianban60": lb60a[bo], "npyoy": npyoya[bo]})
             pre.append({"ts": ts, "date": d, "dist": trig / cc[bo - 1] - 1, **pf})
     return pd.DataFrame(real), pd.DataFrame(pre)
@@ -639,6 +639,7 @@ def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
                 "rs20": rs20a[bo], "rs60": rs60a[bo], "rsturn": rsturna[bo],
                 "bregnum": 1.0 if breg.get(d, False) else 0.0,
                 "crowd": mr["crowd"] if mr is not None else np.nan,
+                "arho": mr["arho"] if mr is not None else np.nan,
                 "idxdist": mr["idxdist"] if mr is not None else np.nan,
                 "lb2rate": mr["lb2rate"] if mr is not None else np.nan,
                 "nlb": mr["nlb"] if mr is not None else np.nan,
@@ -697,6 +698,9 @@ def main():
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
+    ap.add_argument("--crowdvar", choices=["di", "rho", "both"], default="di",
+                    help="regime特征用哪个:di=残差依赖ΔI(现状)/rho=平均相关性/both=两者都要。"
+                         "改此项等于改FEATS,必须先清 swing/.evcache 再跑")
     ap.add_argument("--pendcheck", action="store_true",
                     help="T-1 回放:量化「明日预判」若打分,相对真实信号分的偏差/排序保真度,不出 HTML")
     ap.add_argument("--pivot", choices=["zigzag", "kernel"], default="kernel",
@@ -707,8 +711,11 @@ def main():
     ap.add_argument("--mode", choices=["quick", "long"], default="quick",
                     help="主升浪判定模式:quick=高胜率小赚(k=0.06,默认)、long=低胜率大赚(k=0.09)")
     args = ap.parse_args()
-    global MW_HURDLE_K, MODEL_PATH, OUT
+    global MW_HURDLE_K, MODEL_PATH, OUT, FEATS
     MW_HURDLE_K = {"quick": 0.06, "long": 0.09}[args.mode]
+    if args.crowdvar != "di":
+        FEATS = [f for f in FEATS if f != "crowd"] + (["arho"] if args.crowdvar == "rho" else ["crowd", "arho"])
+        print(f"[特征] regime 特征={args.crowdvar} → {len(FEATS)}特征(crowd={'crowd' in FEATS}, arho={'arho' in FEATS})")
     MODEL_PATH = os.path.join(_ROOT, f"swing/ml_signals_2026_model_{args.mode}_{args.pivot}.pkl")
     OUT = os.path.join(_ROOT, f"swing/ml_signals_2026_{args.mode}_{args.pivot}.html")
     start_ts = pd.Timestamp(args.start)
@@ -745,8 +752,9 @@ def main():
     cr = con.execute(f"""SELECT trade_date, market_crowding_di, {_rho_col} AS avg_abs_rho,
         {'market_crowding_asof' if _rho_col != 'NULL' else 'NULL'} AS asof
         FROM market_state WHERE market_crowding_di IS NOT NULL ORDER BY trade_date""").fetch_df()
-    ms = con.execute("""SELECT trade_date, market_idx_dist_h60 AS idxdist, market_2lb_rate_ma5 AS lb2rate,
-        market_max_lianban AS nlb, market_crowding_di AS crowd FROM market_state ORDER BY trade_date""").fetch_df()
+    ms = con.execute(f"""SELECT trade_date, market_idx_dist_h60 AS idxdist, market_2lb_rate_ma5 AS lb2rate,
+        market_max_lianban AS nlb, market_crowding_di AS crowd,
+        {_rho_col} AS arho FROM market_state ORDER BY trade_date""").fetch_df()
     breadth = con.execute("""SELECT trade_date, AVG(CASE WHEN pct_chg>0 THEN 1.0 ELSE 0.0 END) AS upratio
         FROM daily WHERE trade_date>=? GROUP BY trade_date""", ["2019-01-01"]).fetch_df()
     sw = dict(con.execute("SELECT ts_code, l1_name FROM sw_member").fetchall())
