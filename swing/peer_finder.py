@@ -27,7 +27,7 @@ import duckdb
 import cache_tushare as ct
 
 PEER_DB = os.path.join(_ROOT, "peer_cache.duckdb")
-PEER_VER = "2026-07-19a"
+PEER_VER = "2026-07-25a"   # 提版=作废旧缓存:旧版 PDF 正文截断致深度报告的可比公司估值表 100% 抽不到
 _DEEP_KWS = ("深度", "首次覆盖", "投资价值", "深度报告")
 _MAX_TXT = 20000
 
@@ -130,22 +130,27 @@ def _via_browser(url: str) -> bytes:
 
 
 def _pdf_text(data: bytes) -> str:
-    """从 PDF 字节抽正文(截断);失败空串。"""
+    """从 PDF 字节抽全文;失败空串。"""
     try:
         import fitz
         doc = fitz.open(stream=data, filetype="pdf")
-        return ("\n".join(doc[i].get_text() for i in range(doc.page_count)))[:_MAX_TXT]
+        return "\n".join(doc[i].get_text() for i in range(doc.page_count))
     except Exception:
         return ""
 
 
 def _extract_input(txt: str) -> str:
-    """给抽取用的正文:开头(公司/行业/竞争)+ 定位「可比公司估值表」那一段(常在后段)。"""
+    """给抽取用的正文:开头(公司/行业/竞争)+「可比公司估值表」那一段,再裁到 LLM 输入预算。
+
+    表几乎总在深度报告末尾几页,故须在**全文**里定位、且取最后一次出现。
+    # WHY: 曾在 _pdf_text 里先截断到 20000 再找表,而 49 页研报的表在第 58k 字符,
+    # 导致所有深度报告的可比公司估值表 100% 抽不到(只抽到前段顺带提及的"可比公司")。
+    """
     base = txt[:9000]
-    for kw in ("可比公司估值", "可比公司", "估值比较", "可比"):
-        i = txt.find(kw)
+    for kw in ("可比公司估值", "估值比较", "可比公司", "可比"):
+        i = txt.rfind(kw)
         if i > 9000:
-            base += "\n……\n" + txt[i - 120:i + 1200]
+            base += "\n……\n" + txt[max(0, i - 200):i + 1800]
             break
     return base[:_MAX_TXT]
 
@@ -157,10 +162,17 @@ def _extract_llm(name: str, report_text: str):
     schema = ('{"industry_space":"行业空间/市场规模一句话或空","competitive":"竞争地位一句话或空",'
               '"peers":[{"name":"可比公司/竞争对手名","code":"6位A股代码或空"}],'
               '"val_table":{"caliber":"口径如『前瞻P/E』或空","year1":"如2026E","year2":"如2027E",'
-              '"rows":[{"name":"公司名","code":"6位A股代码或空(境外留空)","pe1":0,"pe2":0}]}}')
-    rules = ("要求:①peers 只填研报明确点名的同行(最多10家);②val_table 只在研报**确有可比公司估值表**时填,"
-             "rows 逐行填该表的公司与其前瞻市盈率(pe1=近年如2026E、pe2=远年如2027E,含境外龙头如美光/三星/海力士);"
-             "**没有该表就把 val_table 设为 null**;③不确定/读不到就留空或 null,不要编造。")
+              '"rows":[{"name":"公司名","code":"6位A股代码或空(境外留空)","pe1":0,"pe2":0}]},'
+              '"val_summary":{"caliber":"如动态PE","year1":"如2026E","year2":"如2027E",'
+              '"peer_avg1":0,"peer_avg2":0,"self_pe1":0,"self_pe2":0,'
+              '"peer_names":["可比公司名"]}}')
+    rules = ("要求:①peers 只填研报明确点名的同行(最多10家);"
+             "②val_table 只在**能逐行读到每家公司的前瞻PE数字**时填(pe1=近年如2026E、pe2=远年如2027E,"
+             "含境外龙头如美光/三星/海力士);读不到逐行数字就整个设为 null;"
+             "③val_summary 与 val_table **相互独立、各自判断**:只要正文写了『可比公司X年动态PE均值/中位为A』"
+             "或『本股X年对应PE为A』就填。**估值表常以图片嵌入PDF、文字层读不到,但正文往往给了这个结论,"
+             "此时 val_summary 是唯一可得的一致口径,务必填**;正文确实没有才设 null;"
+             "④不确定/读不到就留空或 null,不要编造。")
     prompt = (f"下面是关于公司「{name}」的券商研报正文(含可能存在的『可比公司估值表』)。只抽客观信息,输出 JSON:\n"
               + schema + "\n" + rules + "\n\n研报正文:\n" + report_text)
     try:
@@ -168,12 +180,29 @@ def _extract_llm(name: str, report_text: str):
             model="deepseek-v4-flash", temperature=0, response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}]).choices[0].message.content
         d = json.loads(txt)
-        vt = d.get("val_table")
-        if not (isinstance(vt, dict) and vt.get("rows")):
-            vt = None
-        return d.get("industry_space") or "", d.get("competitive") or "", d.get("peers") or [], vt
+        return (d.get("industry_space") or "", d.get("competitive") or "", d.get("peers") or [],
+                _merge_val(d.get("val_table"), d.get("val_summary")))
     except Exception:
         return "", "", [], None
+
+
+def _merge_val(vt, vs):
+    """把逐行估值表与正文汇总结论合成一份;两者都拿不到数字则返回 None(避免把 None 塞进 prompt)。"""
+    rows = vt.get("rows") if isinstance(vt, dict) else None
+    has_row_pe = bool(rows) and any(r.get("pe1") or r.get("pe2") for r in rows)
+    vs = vs if isinstance(vs, dict) else {}
+    has_sum = bool(vs.get("peer_avg1") or vs.get("peer_avg2") or vs.get("self_pe1") or vs.get("self_pe2"))
+    if not (has_row_pe or has_sum):
+        return None
+    base = dict(vt) if isinstance(vt, dict) else {}
+    if not has_row_pe:
+        base["rows"] = [{"name": n} for n in (vs.get("peer_names") or [])] or (rows or [])
+    for k in ("caliber", "year1", "year2"):
+        base[k] = base.get(k) or vs.get(k)
+    for k in ("peer_avg1", "peer_avg2", "self_pe1", "self_pe2"):
+        base[k] = vs.get(k)
+    base["row_pe_ok"] = has_row_pe
+    return base
 
 
 def _resolve_codes(mcon, peers):
@@ -254,7 +283,13 @@ def _valtable_text(ts: str, name: str, vt: dict) -> str:
     dom = [r for r in peers if r.get("code")]                    # 境内(有A股代码)
     m = lambda rs, k: (round(st.median([r[k] for r in rs if r.get(k)]), 1) if [r for r in rs if r.get(k)] else None)
     lines = [f"- {r.get('name','')}{('('+str(r['code'])+')') if r.get('code') else '(境外)'} {cal} {r.get('pe1','—')}/{r.get('pe2','—')}" for r in rows]
-    t1, t2 = (tgt.get("pe1"), tgt.get("pe2")) if tgt else (None, None)
+    t1 = (tgt.get("pe1") if tgt else None) or vt.get("self_pe1")
+    t2 = (tgt.get("pe2") if tgt else None) or vt.get("self_pe2")
+    if not vt.get("row_pe_ok", True):
+        # WHY: 估值表常以图片嵌入 PDF、文字层读不到逐行 PE,此时只报正文给出的汇总,不列一串"—"
+        return (f"研报可比公司估值({cal} {y1}/{y2},口径一致、优先于自算TTM;原表为图片,仅取正文汇总结论):\n"
+                f"本股 {t1 or '—'}/{t2 or '—'};可比公司均值 {vt.get('peer_avg1') or '—'}/{vt.get('peer_avg2') or '—'}\n"
+                f"可比公司名单:{'、'.join(r.get('name', '') for r in rows) or '—'}")
     head = (f"研报可比公司估值表({cal} {y1}/{y2},口径一致、优先于自算TTM):\n"
             f"本股 {t1 or '—'}/{t2 or '—'};境内同业中位 {m(dom,'pe1')}/{m(dom,'pe2')};全部(含境外龙头)中位 {m(peers,'pe1')}/{m(peers,'pe2')}")
     return head + "\n" + "\n".join(lines)
