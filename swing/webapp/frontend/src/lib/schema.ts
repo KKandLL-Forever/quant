@@ -21,6 +21,7 @@ export const TrainPayloadSchema = z.object({
   ntrade: z.number().optional(),
   cal: z.array(z.string()).optional(),
   tier: z.number().optional(),
+  score_cut: z.number().optional(),
   mode: z.string().optional(),
   start: z.string().optional(),
   pivot: z.string().optional(),

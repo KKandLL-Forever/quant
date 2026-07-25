@@ -10,6 +10,9 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
 
 环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
   --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
+  档位门槛(top1/3/5/10/20/30)是**绝对分数阈值**,取自模型训练期事件的分数分布并随模型一起存盘
+  (score_ref),只有 --train 重训才会变。故刷新数据/新增信号不会改变历史信号的入榜与否——
+  旧版按信号区间内相对分位排名会导致老信号被回溯追加进榜(实盘当日看不到),已修。
   --pivot kernel/zigzag 枢轴检测(kernel=核平滑LMW默认,识别更干净更准 / zigzag=固定9%阈值);--h 核带宽默认4
   --mode quick/long 主升浪判定(quick=k0.06默认高胜率小赚 / long=k0.09低胜率大赚)
   --train 训练并存盘(模型/HTML 按 mode 分文件);--eval 跑 walk-forward 诚实评估(不出 HTML)
@@ -523,6 +526,13 @@ def _label_by_mode(df):
     return df
 
 
+def _score_ref(m, tr):
+    """训练期事件的模型分数(升序 float32),存进模型 pkl 作为冻结档位门槛的参考分布。"""
+    if not len(tr):
+        return np.array([0.0], dtype="float32")
+    return np.sort(m.predict_proba(tr[FEATS])[:, 1]).astype("float32")
+
+
 def _build_events_parallel(px, db, cyq, mf, mkt, regs, BOARD_IDX, args, workers):
     """按股票分块并行跑 _build_event_rows(macOS spawn:每块只 pickle 该块的数据);workers<=1 退串行。"""
     codes = list(px["ts_code"].unique())
@@ -552,7 +562,7 @@ def main():
     ap.add_argument("--n", type=int, default=800)
     ap.add_argument("--start", default="20250101", help="信号起始日 YYYYMMDD")
     ap.add_argument("--end", default=None, help="信号结束日 YYYYMMDD,默认到最新")
-    ap.add_argument("--tier", type=int, default=5, help="只显示 ML 评分前百分之几(如 5=top5%%、10=top10%%、100=全部)")
+    ap.add_argument("--tier", type=int, default=5, help="按模型训练期分数分布的前百分之几筛信号(如 5=top5%%、100=全部);阈值冻结在模型里,不随信号区间变化")
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
@@ -718,7 +728,8 @@ def main():
         if args.train:
             with open(MODEL_PATH, "wb") as f:
                 pickle.dump({"model": m, "train_cutoff": args.start, "n_train": len(trf),
-                             "seed": args.seed, "feats": FEATS, "best_iter": bi}, f)
+                             "seed": args.seed, "feats": FEATS, "best_iter": bi,
+                             "score_ref": _score_ref(m, trf)}, f)
             print(f"[模型] 已训练并存盘 → {MODEL_PATH}(训练截止 {args.start}, 训练样本 {len(trf)})")
             try:
                 shap_path = MODEL_PATH.replace(".pkl", "_shap.png")
@@ -728,16 +739,24 @@ def main():
                 print(f"[模型] SHAP 出图失败(跳过):{e}")
         else:
             print(f"[模型] 无存盘模型,本次现训现用(未存盘);加 --train 可存盘复用")
+    ref = saved.get("score_ref") if saved is not None else None
+    if ref is None:
+        ref = _score_ref(m, tr)
+        if saved is not None:
+            print(f"  ⚠️ 该存盘模型无冻结门槛(旧版pkl),本次按训练期({args.start}前)分数分布现算;建议 --train 重训固化")
     te["score"] = m.predict_proba(te[FEATS])[:, 1]
-    pct = te["score"].rank(pct=True)
-    te["tier"] = np.where(pct >= 0.99, "top1", np.where(pct >= 0.97, "top3",
-                 np.where(pct >= 0.95, "top5", np.where(pct >= 0.90, "top10",
-                 np.where(pct >= 0.80, "top20", np.where(pct >= 0.70, "top30", "其他"))))))
-    top = te[pct >= 1 - args.tier / 100].sort_values("score", ascending=False)
+    cut = lambda t: float(np.quantile(ref, 1 - t / 100))
+    s = te["score"].values
+    te["tier"] = np.where(s >= cut(1), "top1", np.where(s >= cut(3), "top3",
+                 np.where(s >= cut(5), "top5", np.where(s >= cut(10), "top10",
+                 np.where(s >= cut(20), "top20", np.where(s >= cut(30), "top30", "其他"))))))
+    top = te[s >= cut(args.tier)].sort_values("score", ascending=False)
+    print(f"[门槛] 冻结阈值取自模型训练期分数分布:top{args.tier}% ≥ {cut(args.tier):.4f}"
+          f"(参考样本{len(ref)}条);阈值只随重训变化,历史信号不会被回溯追加/挤出")
 
     done = top[top["done"]]
     hit = (done["label"] == 1).mean() if len(done) else float("nan")
-    print(f"信号 {args.start}~{args.end or '今'} 共{len(te)}条 | top{args.tier}% = {len(top)}条 | "
+    print(f"信号 {args.start}~{args.end or '今'} 共{len(te)}条 | 过top{args.tier}%门槛 {len(top)}条 | "
           f"已满60日{len(done)}条 走出主升浪 {hit*100:.0f}%")
 
     def _hold(opencol, exitcol):
@@ -818,7 +837,8 @@ def main():
                       "pct": round((float(cc[-1]) / float(cc[-2]) - 1) * 100, 1)})
     ml_fc.sort(key=lambda x: x["dist"])
     if args.json:
-        payload = {"mode": args.mode, "tier": args.tier, "start": args.start, "end": args.end or "",
+        payload = {"mode": args.mode, "tier": args.tier, "score_cut": round(cut(args.tier), 4),
+                   "start": args.start, "end": args.end or "",
                    "pivot": args.pivot, "latest": latest_td, "ntrade": ntrade, "cal": cal_js,
                    "signals": data, "ml_forecast": ml_fc, "metrics": train_metrics,
                    "banner": {"indices": {nm: curs[nm] for nm in INDEXES},
@@ -843,7 +863,7 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 <p style="font-size:12px;color:#999;margin-top:0"><b>出场口径</b>(均从突破日入场、扣双边费):
 <b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)即离场,否则一直持有(让利润奔跑);
 <b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。</p>
-<p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,列出 top{args.tier}% = {len(top)} 条 |
+<p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,过 top{args.tier}% 冻结门槛(score≥{cut(args.tier):.4f},取自训练期分数分布,只随重训变化){len(top)} 条 |
 已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top5/top10/top20/top30</p>
 <div class=note><b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈;"持仓时间"=唐奇安出场口径下从突破日到离场日的交易日数(仍持仓算到最新交易日);
 "进行中"=该出场口径下尚未离场(仍持仓)的条数。点表头可排序。模型严格用2026前数据训练,无未来函数。</div>

@@ -712,7 +712,7 @@ function MainPage() {
       </p>}
       {payload && stats && <p style={{ fontSize: 13, margin: '4px 0' }}>
         模型用 {payload.start} 之前数据训练({payload.pivot}枢轴/{payload.mode}),打分该区间信号 |
-        列出 top{payload.tier}% = {payload.signals.length} 条 | 已满60日的 {stats.doneN} 条中走出主升浪 {stats.succ} | 档位:top1/3/5/10/20/30
+        过 top{payload.tier}% 冻结门槛{payload.score_cut != null ? `(ML分≥${payload.score_cut})` : ''} {payload.signals.length} 条 | 已满60日的 {stats.doneN} 条中走出主升浪 {stats.succ} | 档位:top1/3/5/10/20/30
       </p>}
 
       {today && <div className="tday">
