@@ -183,14 +183,24 @@ def _extract_llm(name: str, report_text: str):
              "公司作为可比公司』那一句列出的;②境外公司(如美光/三星)code 留空;③不确定就留空,不要编造。")
     prompt = (f"下面是关于公司「{name}」的券商研报正文。只抽客观信息,输出 JSON:\n"
               + schema + "\n" + rules + "\n\n研报正文:\n" + report_text)
-    try:
-        txt = ta_analyze._cli().chat.completions.create(
-            model="deepseek-v4-flash", temperature=0, response_format={"type": "json_object"},
-            messages=[{"role": "user", "content": prompt}]).choices[0].message.content
-        d = json.loads(txt)
-        return d.get("industry_space") or "", d.get("competitive") or "", d.get("peers") or []
-    except Exception:
-        return "", "", []
+    has_sec = any(k in report_text for k in ("可比公司", "估值比较"))
+    ispace = comp = ""
+    # WHY: temp=0 也不保证稳定,实测同一篇研报有时返回 peers 有时返回空;空结果会被缓存下来长期生效,
+    #      故正文里明明有可比公司段落却抽到空时,重试一次(不同 seed 走一遍)再认输。
+    for attempt in range(2):
+        try:
+            txt = ta_analyze._cli().chat.completions.create(
+                model="deepseek-v4-flash", temperature=0, response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt}]).choices[0].message.content
+            d = json.loads(txt)
+            ispace = ispace or (d.get("industry_space") or "")
+            comp = comp or (d.get("competitive") or "")
+            peers = d.get("peers") or []
+        except Exception:
+            peers = []
+        if peers or not has_sec:
+            return ispace, comp, peers
+    return ispace, comp, []
 
 
 def _resolve_codes(mcon, peers):
