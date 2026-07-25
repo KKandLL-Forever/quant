@@ -78,7 +78,7 @@ FEATS_ALL = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", 
              "sector_rs", "lianban60", "sector_heat", "roe", "npyoy", "fc_pos", "arho"]
 FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "atrp", "ret20", "ret60",
          "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv", "rsturn",
-         "crowd", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
+         "arho", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
 OUT = os.path.join(_ROOT, "swing/ml_signals_2026.html")
 FEAT_CN = {
     "ptype": "形态类型", "brk": "突破强度", "pos1y": "一年价格位置", "basew": "底部宽度",
@@ -698,9 +698,6 @@ def main():
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
-    ap.add_argument("--crowdvar", choices=["di", "rho", "both"], default="di",
-                    help="regime特征用哪个:di=残差依赖ΔI(现状)/rho=平均相关性/both=两者都要。"
-                         "改此项等于改FEATS,必须先清 swing/.evcache 再跑")
     ap.add_argument("--pendcheck", action="store_true",
                     help="T-1 回放:量化「明日预判」若打分,相对真实信号分的偏差/排序保真度,不出 HTML")
     ap.add_argument("--pivot", choices=["zigzag", "kernel"], default="kernel",
@@ -711,11 +708,8 @@ def main():
     ap.add_argument("--mode", choices=["quick", "long"], default="quick",
                     help="主升浪判定模式:quick=高胜率小赚(k=0.06,默认)、long=低胜率大赚(k=0.09)")
     args = ap.parse_args()
-    global MW_HURDLE_K, MODEL_PATH, OUT, FEATS
+    global MW_HURDLE_K, MODEL_PATH, OUT
     MW_HURDLE_K = {"quick": 0.06, "long": 0.09}[args.mode]
-    if args.crowdvar != "di":
-        FEATS = [f for f in FEATS if f != "crowd"] + (["arho"] if args.crowdvar == "rho" else ["crowd", "arho"])
-        print(f"[特征] regime 特征={args.crowdvar} → {len(FEATS)}特征(crowd={'crowd' in FEATS}, arho={'arho' in FEATS})")
     MODEL_PATH = os.path.join(_ROOT, f"swing/ml_signals_2026_model_{args.mode}_{args.pivot}.pkl")
     OUT = os.path.join(_ROOT, f"swing/ml_signals_2026_{args.mode}_{args.pivot}.html")
     start_ts = pd.Timestamp(args.start)
@@ -863,6 +857,10 @@ def main():
         if saved["train_cutoff"] != args.start:
             print(f"  ⚠️ 该模型训练截止={saved['train_cutoff']} ≠ 当前 --start={args.start};"
                   f"若信号区间早于训练截止会有未来信息泄露,建议 --train 重训")
+        if list(saved.get("feats") or []) != FEATS:
+            raise SystemExit(f"存盘模型的特征集与当前 FEATS 不一致,打分会错位。\n"
+                             f"  模型: {saved.get('feats')}\n  当前: {FEATS}\n"
+                             f"  → 清空 swing/.evcache 后加 --train 重训")
     else:
         val_cut = start_ts - pd.DateOffset(months=VAL_MONTHS)
         trf = tr[tr["date"] < val_cut - pd.Timedelta(days=EMBARGO_DAYS)]; vaf = tr[tr["date"] >= val_cut]
