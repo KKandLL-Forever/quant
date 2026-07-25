@@ -118,7 +118,8 @@ def _via_browser(url: str) -> bytes:
         "print('DONE')",
     ])
     try:
-        subprocess.run([exe], input=driver, text=True, capture_output=True, timeout=120)
+        subprocess.run([exe], input=driver, text=True, encoding="utf-8", errors="replace",
+                       capture_output=True, timeout=120)
         if os.path.exists(out) and os.path.getsize(out) > 10000:
             data = open(out, "rb").read()
             os.remove(out)

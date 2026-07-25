@@ -30,7 +30,7 @@ def _ensure_duckdb_unlocked(db_path: str) -> None:
     result = subprocess.run(
         [sys.executable, "-c",
          f"import duckdb; duckdb.connect(r'{db_path}').close()"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     if result.returncode == 0:
         return
@@ -72,6 +72,8 @@ def main():
         cwd=PROJ_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     if result.returncode != 0:

@@ -39,7 +39,7 @@ def _fetch_index_tushare(code, start):
     """库里没有该指数时,从 tushare index_daily 拉(读 .pyenv.local 的 token),分年拉避免8000行上限。"""
     env = os.path.join(_ROOT, ".pyenv.local")
     if os.path.exists(env):
-        for line in open(env):
+        for line in open(env, encoding="utf-8"):
             if line.strip().startswith("TUSHARE_TOKEN") and "=" in line:
                 os.environ["TUSHARE_TOKEN"] = line.split("=", 1)[1].strip().strip('"').strip("'")
     import tushare as ts
@@ -184,7 +184,7 @@ th{{background:#f7f7f7}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 实时检测器(下一步)的目标是逼近这个上限,差距=进出场滞后+假信号的代价。</div>
 </body></html>"""
     out = OUT.replace("segment_report.html", f"segment_{args.code.replace('.', '_')}.html")
-    with open(out, "w") as f:
+    with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"报告:{out}")
     print(f"{args.code} {dates[0].date()}~{dates[-1].date()} | 上升段{len(ups)}/下降段{len(downs)} | "

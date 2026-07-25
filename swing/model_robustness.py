@@ -89,7 +89,7 @@ def deflated_sharpe(M):
 
 def main():
     jf = sys.argv[1] if len(sys.argv) > 1 else "/tmp/rb.json"
-    sig = json.load(open(jf))["signals"]
+    sig = json.load(open(jf, encoding="utf-8"))["signals"]
     M = _config_month_matrix(sig)
     print(f"配置网格 {len(M)} 个 × 月度切片 {M.shape[1]} 个(信号 {len(sig)} 条)")
     pbo, ncomb = pbo_cscv(M)

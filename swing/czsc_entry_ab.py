@@ -185,7 +185,7 @@ def _ride_roundtrip(bo, buyset, sellset, cc, ma60):
 
 def main():
     jf = sys.argv[1] if len(sys.argv) > 1 else "/tmp/long_ab.json"
-    sig = json.load(open(jf))["signals"]
+    sig = json.load(open(jf, encoding="utf-8"))["signals"]
     pool = {}
     for s in sig:
         pool.setdefault(s["ts"], []).append(s["date"])

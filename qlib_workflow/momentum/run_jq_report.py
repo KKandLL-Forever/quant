@@ -190,7 +190,7 @@ summary{{cursor:pointer}} table.inner{{font-size:13px}}
 区间样本短(2026年起仅数期),数字波动大,仅供直观感受,<b>不构成投资建议</b>。残差为该期横截面 SVR 拟合残差(真实对数市值−拟合值),越小越"便宜"。</div>
 </body></html>"""
 
-    with open(OUT, "w") as f:
+    with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"报告已生成:{OUT}")
     print(f"区间 {start_dash}~{dates[-1].date() if dates else '?'} | {len(periods)}期 | "

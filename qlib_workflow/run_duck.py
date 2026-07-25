@@ -69,7 +69,7 @@ def _build_pit_instruments(n, start, end):
             spans.setdefault(_to_qlib(ts), []).append((rs, nxt.strftime("%Y-%m-%d")))
     con.close()
     path = os.path.join(PROVIDER_URI, "instruments", f"{PIT_NAME}.txt")
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         for code in sorted(spans):
             for s, e in spans[code]:
                 f.write(f"{code}\t{s}\t{e}\n")

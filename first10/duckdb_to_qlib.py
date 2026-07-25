@@ -99,7 +99,7 @@ def _write_calendar(out, cal):
     """写 calendars/day.txt。"""
     p = os.path.join(out, "calendars")
     os.makedirs(p, exist_ok=True)
-    with open(os.path.join(p, "day.txt"), "w") as fh:
+    with open(os.path.join(p, "day.txt"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(cal) + "\n")
 
 
@@ -107,7 +107,7 @@ def _write_instruments(out, ranges):
     """写 instruments/all.txt：symbol\\tstart\\tend。ranges={symbol:(start,end)}。"""
     p = os.path.join(out, "instruments")
     os.makedirs(p, exist_ok=True)
-    with open(os.path.join(p, "all.txt"), "w") as fh:
+    with open(os.path.join(p, "all.txt"), "w", encoding="utf-8") as fh:
         for sym in sorted(ranges):
             s, e = ranges[sym]
             fh.write(f"{sym}\t{s}\t{e}\n")
@@ -134,7 +134,7 @@ def _read_calendar(out):
     p = os.path.join(out, "calendars", "day.txt")
     if not os.path.exists(p):
         return []
-    with open(p) as fh:
+    with open(p, encoding="utf-8") as fh:
         return [ln.strip() for ln in fh if ln.strip()]
 
 
@@ -191,7 +191,7 @@ def run_update(out):
     ranges = {}
     p = os.path.join(out, "instruments", "all.txt")
     if os.path.exists(p):
-        with open(p) as fh:
+        with open(p, encoding="utf-8") as fh:
             for ln in fh:
                 parts = ln.strip().split("\t")
                 if len(parts) == 3:

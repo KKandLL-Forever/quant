@@ -184,7 +184,7 @@ th,td{{border:1px solid #ddd;padding:5px 8px;text-align:center}} th{{background:
 <div class=note>N字型=低A→高B→抬高低C→破B;W型=低B→颈线C→低D(双底)→破C。
 看★突破后是否真的走出主升浪——这决定形态作为"埋伏信号"的有效性,下一步可统计突破后N日收益分布。</div>
 </body></html>"""
-    with open(OUT, "w") as f:
+    with open(OUT, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"报告:{OUT}")
     for a, b, c, d in table:

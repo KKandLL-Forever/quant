@@ -26,7 +26,7 @@ def _deepseek_key():
     for path in (os.path.join(root, ".pyenv.local"), os.path.expanduser("~/.claude/skills/x2strategy/.env")):
         if not os.path.exists(path):
             continue
-        for line in open(path):
+        for line in open(path, encoding="utf-8"):
             if line.strip().startswith("DEEPSEEK_API_KEY") and "=" in line:
                 return line.split("=", 1)[1].strip().strip('"').strip("'")
     raise RuntimeError("未找到 DEEPSEEK_API_KEY(请在 .pyenv.local 配置)")
