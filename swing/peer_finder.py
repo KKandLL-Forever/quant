@@ -326,33 +326,41 @@ def peer_snapshot(code: str, force: bool = False) -> dict:
         if v and v[2] and np_ and np_[0] > 0:
             fpe[c] = v[2] / 1e4 / np_[0]
     import statistics as st
-    pf = [fpe[p["code"]] for p in peers if p["code"] in fpe]
-    pes = [vals[p["code"]][0] for p in peers if vals.get(p["code"]) and vals[p["code"]][0] and vals[p["code"]][0] > 0]
-    pbs = [vals[p["code"]][1] for p in peers if vals.get(p["code"]) and vals[p["code"]][1] and vals[p["code"]][1] > 0]
+    rp = set(info.get("rp_codes") or [])
+    cmp_peers = [p for p in peers if p["code"] in rp] or peers      # 有研报点名就只用研报那组
+    ref_peers = [p for p in peers if p not in cmp_peers]
+    grp = "研报点名" if cmp_peers is not peers else "申万三级"
+    pf = [fpe[p["code"]] for p in cmp_peers if p["code"] in fpe]
+    pes = [vals[p["code"]][0] for p in cmp_peers if vals.get(p["code"]) and vals[p["code"]][0] and vals[p["code"]][0] > 0]
+    pbs = [vals[p["code"]][1] for p in cmp_peers if vals.get(p["code"]) and vals[p["code"]][1] and vals[p["code"]][1] > 0]
     fpe_med = round(st.median(pf), 1) if pf else None
     pe_med = round(st.median(pes), 1) if pes else None
     pb_med = round(st.median(pbs), 2) if pbs else None
     self_fpe = round(fpe[ts], 1) if ts in fpe else None
     self_pe, self_pb = (vals.get(ts) or (None, None, None))[:2]
-    lines = []
-    for p in peers:
+    def _line(p):
         v, f, np_ = vals.get(p["code"]), fpe.get(p["code"]), fnp.get(p["code"])
-        lines.append(f"- {p['name']}({p['code']}) 前瞻PE {round(f,1) if f else '—'}"
-                     f"(预测净利{round(np_[0],1)}亿/{np_[1]}家券商)" if f and np_ else
-                     f"- {p['name']}({p['code']}) 前瞻PE —(无券商覆盖)")
-        lines[-1] += f" | TTM PE {round(v[0],1) if v and v[0] else '—'} / PB {round(v[1],2) if v and v[1] else '—'}"
+        s = (f"- {p['name']}({p['code']}) 前瞻PE {round(f,1)}(预测净利{round(np_[0],1)}亿/{np_[1]}家券商)"
+             if f and np_ else f"- {p['name']}({p['code']}) 前瞻PE —(无券商覆盖)")
+        return s + f" | TTM PE {round(v[0],1) if v and v[0] else '—'} / PB {round(v[1],2) if v and v[1] else '—'}"
+
     cmp = "高于" if (self_fpe and fpe_med and self_fpe > fpe_med) else "低于" if (self_fpe and fpe_med) else "—"
-    head = (f"同业可比({info['source']};名单含研报点名{len(info.get('rp_codes') or [])}家):共{len(peers)}家,"
-            f"其中{len(pf)}家有券商覆盖\n"
+    head = (f"同业可比:估值对比只用**{grp}的 {len(cmp_peers)} 家**({info['source']};其中{len(pf)}家有券商覆盖)"
+            + ("" if grp == "研报点名" else ";研报未点名或抽取失败,退回申万三级") + "\n"
             f"**前瞻PE({yr}E,主口径:总市值÷券商一致预测净利,与本股同口径同日期)**:"
             f"同业中位 {fpe_med};本股 {self_fpe or '—'}({cmp}同业中位)\n"
             f"辅助(TTM,口径不同勿与前瞻混用):同业PE中位 {pe_med} / PB中位 {pb_med};"
             f"本股 PE {round(self_pe,1) if self_pe else '—'} / PB {round(self_pb,2) if self_pb else '—'}")
+    body = "\n".join(_line(p) for p in cmp_peers)
+    if ref_peers:
+        body += (f"\n〔以下{len(ref_peers)}家为申万三级同业,**未计入上面的中位**,仅供参照〕\n"
+                 + "\n".join(_line(p) for p in ref_peers))
     extra = ((f"\n行业空间:{info['industry_space']}" if info.get("industry_space") else "") +
              (f"\n竞争地位:{info['competitive']}" if info.get("competitive") else ""))
-    return {**info, "peer_fpe_med": fpe_med, "self_fpe": self_fpe, "fwd_year": yr,
+    return {**info, "peer_fpe_med": fpe_med, "self_fpe": self_fpe, "fwd_year": yr, "cmp_group": grp,
+            "cmp_codes": [p["code"] for p in cmp_peers],
             "peer_pe_med": pe_med, "peer_pb_med": pb_med, "self_pe": self_pe, "self_pb": self_pb,
-            "text": head + "\n" + "\n".join(lines) + extra}
+            "text": head + "\n" + body + extra}
 
 
 def main():

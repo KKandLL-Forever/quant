@@ -233,10 +233,13 @@ const PeerTag = ({ peer }: { peer: any }) => {
         <div><b>研报点名可比公司</b>{peer.report_date ? <span style={{ color: '#999' }}> · {peer.report_date}</span> : null}
           {useRp ? null : <span style={{ color: '#d46b08' }}>(未抽到,已退回申万三级)</span>}</div>
         {list(rp)}
-        <div style={{ marginTop: 6 }}><b>申万三级同业</b><span style={{ color: '#999' }}> · 按流通市值取前10</span></div>
+        <div style={{ marginTop: 6 }}><b>申万三级同业</b>
+          <span style={{ color: '#999' }}> · 按流通市值取前10{useRp ? '、仅供参照' : ''}</span></div>
         {list(sw)}
         <div style={{ marginTop: 6, color: '#999' }}>
-          前瞻PE 由「总市值 ÷ 券商一致预测净利」自算,与本股同口径同日期;估值对比用上面<b>全部 {peer.n_peers} 家</b>。
+          前瞻PE 由「总市值 ÷ 券商一致预测净利」自算,与本股同口径同日期;
+          <b>估值中位只用{useRp ? `研报点名这 ${rp.length} 家` : `申万这 ${sw.length} 家`}</b>
+          {useRp ? ',申万那组不计入。' : '。'}
         </div>
       </div>}>
       <Tag color={useRp ? 'green' : 'default'} style={{ marginLeft: 8, cursor: 'help' }}>
