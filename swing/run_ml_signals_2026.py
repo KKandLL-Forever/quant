@@ -433,6 +433,104 @@ def _evaluate_wf(df, seed, tier):
         print(f"    {k2:<10}{vv:8.1f}")
 
 
+def _pend_feat_rows(px, db, cyq, mf, mkt, args):
+    """对每个真实突破事件,出两份特征:real=突破当日(bo)、pre=前一日(bo-1)按「假设明日收在触发价」推算。
+
+    pre 的价格类特征(brk/dma20/ret20/ret60/pos1y/pe/pb/lnmv)代入触发价精确算,
+    其余(atrp/winrate/cyqconc/rsturn/mfnet20/板块/大盘/npyoy)只能用 bo-1 当日值代理。
+    用于量化「明日预判分」相对真实信号分的偏差与排序保真度。"""
+    from run_patterns import NEWHIGH
+    real, pre = [], []
+    for ts, g in px.groupby("ts_code"):
+        g = g.sort_values("trade_date").reset_index(drop=True)
+        c, h, l = g["c"], g["h"], g["l"]
+        cc = c.to_numpy(); gd = g["trade_date"].to_numpy()
+        rsturna = g["rsturn"].to_numpy(); srsa = g["sector_rs"].to_numpy()
+        lb60a = g["lianban60"].to_numpy(); sheata = g["sector_heat"].to_numpy()
+        npyoya = g["npyoy"].to_numpy()
+        if len(cc) < 320:
+            continue
+        ma20 = c.rolling(20).mean()
+        _, atr = _adx(h, l, c)
+        pos1y = (c - c.rolling(250).min()) / (c.rolling(250).max() - c.rolling(250).min())
+        basew = (h.rolling(40).max().shift(1) - l.rolling(40).min().shift(1)) / l.rolling(40).min().shift(1)
+        try:
+            mfg = mf.loc[ts].reindex(g["trade_date"])
+            mf_net20 = (mfg["net_lg"].rolling(20).sum() / mfg["tot"].rolling(20).sum().abs()).values
+        except KeyError:
+            mf_net20 = np.full(len(cc), np.nan)
+        dets = _detect_kernel(cc, args.h, 30) if args.pivot == "kernel" else _detect(cc, args.thr, 30)
+        for typ, bo, pvs in dets:
+            if bo < 300:
+                continue
+            d, dp = pd.Timestamp(gd[bo]), pd.Timestamp(gd[bo - 1])
+            trig = max(float(cc[pvs[1]]), float(cc[max(0, bo - NEWHIGH):bo].max()))
+            try:
+                dbr, cyr = db.loc[(ts, d)], cyq.loc[(ts, d)]
+                dbp, cyp = db.loc[(ts, dp)], cyq.loc[(ts, dp)]
+            except KeyError:
+                continue
+            if d not in mkt.index or dp not in mkt.index:
+                continue
+            mr, mp = mkt.loc[d], mkt.loc[dp]
+            k = float(trig / cc[bo - 1])
+            w250 = np.concatenate([cc[max(0, bo - 249):bo], [trig]])
+            ma20p = (cc[bo - 19:bo].sum() + trig) / 20.0
+            real.append({"ts": ts, "date": d, "dist": trig / cc[bo - 1] - 1,
+                "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
+                "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo], "dma20": cc[bo] / ma20.iloc[bo] - 1,
+                "atrp": atr.iloc[bo] / cc[bo], "ret20": cc[bo] / cc[bo - 20] - 1,
+                "ret60": cc[bo] / cc[bo - 60] - 1, "winrate": cyr["winner_rate"], "cyqconc": cyr["cyqconc"],
+                "mfnet20": mf_net20[bo], "pe": dbr["pe_ttm"], "pb": dbr["pb"],
+                "lnmv": np.log(dbr["circ_mv"]) if dbr["circ_mv"] > 0 else np.nan,
+                "rsturn": rsturna[bo], "crowd": mr["crowd"], "idxdist": mr["idxdist"],
+                "sector_rs": srsa[bo], "sector_heat": sheata[bo], "lianban60": lb60a[bo], "npyoy": npyoya[bo]})
+            pre.append({"ts": ts, "date": d, "dist": trig / cc[bo - 1] - 1,
+                "ptype": 0 if typ == "N字型" else 1, "brk": trig / cc[pvs[1]] - 1,
+                "pos1y": (trig - w250.min()) / (w250.max() - w250.min()) if w250.max() > w250.min() else np.nan,
+                "basew": basew.iloc[bo], "dma20": trig / ma20p - 1,
+                "atrp": atr.iloc[bo - 1] / trig, "ret20": trig / cc[bo - 20] - 1,
+                "ret60": trig / cc[bo - 60] - 1, "winrate": cyp["winner_rate"], "cyqconc": cyp["cyqconc"],
+                "mfnet20": mf_net20[bo - 1], "pe": dbp["pe_ttm"] * k, "pb": dbp["pb"] * k,
+                "lnmv": np.log(dbp["circ_mv"] * k) if dbp["circ_mv"] > 0 else np.nan,
+                "rsturn": rsturna[bo - 1], "crowd": mp["crowd"], "idxdist": mp["idxdist"],
+                "sector_rs": srsa[bo - 1], "sector_heat": sheata[bo - 1],
+                "lianban60": lb60a[bo - 1], "npyoy": npyoya[bo - 1]})
+    return pd.DataFrame(real), pd.DataFrame(pre)
+
+
+def _pending_score_check(px, db, cyq, mf, mkt, args, m, cut, near=0.05):
+    """量化「明日预判分」相对真实信号分的偏差/排序保真度/档位一致率,决定该分数值不值得上前端。"""
+    rl, pr = _pend_feat_rows(px, db, cyq, mf, mkt, args)
+    if not len(rl):
+        print("无可用事件"); return
+    rl["score"] = m.predict_proba(rl[FEATS])[:, 1]
+    pr["score"] = m.predict_proba(pr[FEATS])[:, 1]
+    j = rl[["ts", "date", "dist", "score"]].merge(
+        pr[["ts", "date", "score"]], on=["ts", "date"], suffixes=("_real", "_pre"))
+    shown = j[j["dist"] <= near]
+    print(f"\n=== 明日预判打分保真度({len(j)}个真实突破事件,其中前一日距触发价≤{near:.0%} 的 {len(shown)} 个"
+          f"才会真出现在预判名单)===")
+    for nm, s in (("全部事件", j), (f"预判名单内(dist≤{near:.0%})", shown)):
+        if len(s) < 20:
+            print(f"  {nm}: 样本不足({len(s)})"); continue
+        d = s["score_pre"] - s["score_real"]
+        ic = s["score_pre"].corr(s["score_real"], method="spearman")
+        pear = s["score_pre"].corr(s["score_real"])
+        print(f"  {nm}: n={len(s)}  秩相关={ic:.3f}  线性相关={pear:.3f}  "
+              f"偏差(预判-真实) 中位={d.median():+.4f} 均值={d.mean():+.4f} 标准差={d.std():.4f}")
+    if len(shown) >= 20:
+        for t in (1, 3, 5, 10, 20, 30):
+            ct = cut(t)
+            a, b = shown["score_real"] >= ct, shown["score_pre"] >= ct
+            if a.sum() == 0:
+                continue
+            print(f"    top{t}%门槛{ct:.4f}: 真实入榜{int(a.sum())} 预判入榜{int(b.sum())}  "
+                  f"召回={float((a & b).sum() / a.sum()):.1%}  精确={float((a & b).sum() / max(1, b.sum())):.1%}")
+        dd = (shown["score_pre"] - shown["score_real"])
+        print(f"    偏差分位: 10%={dd.quantile(.1):+.4f} 50%={dd.median():+.4f} 90%={dd.quantile(.9):+.4f}")
+
+
 def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
     """逐股检测突破事件并算全部特征/出场模拟(mode/tier 无关的重活,可缓存);存 kstar/full 供按模式重算标签。"""
     rows = []
@@ -571,6 +669,8 @@ def main():
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
+    ap.add_argument("--pendcheck", action="store_true",
+                    help="T-1 回放:量化「明日预判」若打分,相对真实信号分的偏差/排序保真度,不出 HTML")
     ap.add_argument("--pivot", choices=["zigzag", "kernel"], default="kernel",
                     help="枢轴检测:kernel=核平滑(LMW,带因果滞后,默认)、zigzag=固定%%阈值")
     ap.add_argument("--h", type=float, default=4.0, help="核平滑带宽(仅 --pivot kernel,默认4)")
@@ -752,8 +852,11 @@ def main():
         ref = _score_ref(m, tr)
         if saved is not None:
             print(f"  ⚠️ 该存盘模型无冻结门槛(旧版pkl),本次按训练期({args.start}前)分数分布现算;建议 --train 重训固化")
-    te["score"] = m.predict_proba(te[FEATS])[:, 1]
     cut = lambda t: float(np.quantile(ref, 1 - t / 100))
+    if args.pendcheck:
+        _pending_score_check(px, db, cyq, mf, mkt, args, m, cut)
+        return
+    te["score"] = m.predict_proba(te[FEATS])[:, 1]
     s = te["score"].values
     te["tier"] = np.where(s >= cut(1), "top1", np.where(s >= cut(3), "top3",
                  np.where(s >= cut(5), "top5", np.where(s >= cut(10), "top10",
