@@ -85,7 +85,7 @@ FEATS_ALL = ["ptype", "brk", "pos1y", "basew", "dma20", "dma60", "atrp", "adx", 
              "sector_rs", "lianban60", "sector_heat", "roe", "npyoy", "fc_pos", "arho"]
 FEATS = ["ptype", "brk", "pos1y", "basew", "dma20", "atrp", "ret20", "ret60",
          "winrate", "cyqconc", "mfnet20", "pe", "pb", "lnmv", "rsturn",
-         "arho", "idxdist", "sector_rs", "sector_heat", "lianban60", "npyoy"]
+         "sector_rs", "sector_heat", "lianban60", "npyoy"]
 OUT = os.path.join(_ROOT, "swing/ml_signals_2026.html")
 FEAT_CN = {
     "ptype": "形态类型", "brk": "突破强度", "pos1y": "一年价格位置", "basew": "底部宽度",
