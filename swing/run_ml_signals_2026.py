@@ -16,9 +16,12 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
 
 环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
   --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
-  档位门槛(top1/3/5/10/20/30)是**绝对分数阈值**,取自模型训练期事件的分数分布并随模型一起存盘
-  (score_ref),只有 --train 重训才会变。故刷新数据/新增信号不会改变历史信号的入榜与否——
-  旧版按信号区间内相对分位排名会导致老信号被回溯追加进榜(实盘当日看不到),已修。
+  档位门槛(top3/5/10/20/30)是**绝对分数阈值**,取自上线模型在验证段(训练截止前12个月,未参与
+  训练)的样本外分数分布,随模型一起存盘(score_ref),只有 --train 重训才会变。故刷新数据/新增
+  信号不会改变历史信号的入榜与否——旧版按信号区间内相对分位排名会导致老信号被回溯追加进榜
+  (实盘当日看不到),已修。参考分布须由上线模型本身产出:换成 walk-forward 各折模型的分数会
+  引入尺度错位(折模型训练样本少、预测更极端,尾部被撑大,top1% 门槛高到上线模型打不出来),
+  故 top1% 档已取消,最细到 top3%(验证段 1272 条,再细分位不可靠)。
   --pivot kernel/zigzag 枢轴检测(kernel=核平滑LMW默认,识别更干净更准 / zigzag=固定9%阈值);--h 核带宽默认4
   --mode quick/long 主升浪判定(quick=k0.06默认高胜率小赚 / long=k0.09低胜率大赚)
   --train 训练并存盘(模型/HTML 按 mode 分文件);--eval 跑 walk-forward 诚实评估(不出 HTML)
@@ -713,7 +716,7 @@ def main():
     ap.add_argument("--n", type=int, default=800)
     ap.add_argument("--start", default="20250101", help="信号起始日 YYYYMMDD")
     ap.add_argument("--end", default=None, help="信号结束日 YYYYMMDD,默认到最新")
-    ap.add_argument("--tier", type=int, default=5, help="按模型训练期分数分布的前百分之几筛信号(如 5=top5%%、100=全部);阈值冻结在模型里,不随信号区间变化")
+    ap.add_argument("--tier", type=int, default=5, help="按上线模型验证段样本外分数分布的前百分之几筛信号(如 5=top5%%、100=全部);阈值冻结在模型里,不随信号区间变化")
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
@@ -864,7 +867,7 @@ def main():
     if end_ts is not None:
         te = te[te["date"] <= end_ts].copy()
     import pickle
-    saved = None
+    saved = None; newref = None
     if not args.train and os.path.exists(MODEL_PATH):
         with open(MODEL_PATH, "rb") as f:
             saved = pickle.load(f)
@@ -896,11 +899,17 @@ def main():
                   f"训练AUC={tr_auc:.4f} valAUC={va_auc:.4f} gap={tr_auc-va_auc:+.4f}")
         else:
             print(f"[模型] val样本不足,退回固定{bi}轮无早停(训练{len(trf)})")
+        if len(vaf) >= 200:
+            newref = _score_ref(m, vaf)
+            print(f"[门槛] 冻结门槛参考分布取自上线模型在验证段({len(vaf)}条,未参与训练)的分数")
+        else:
+            newref = _score_ref(m, trf)
+            print(f"[门槛] ⚠️ 验证段样本不足({len(vaf)}条),冻结门槛退回样本内分数分布(尾部分位会偏高)")
         if args.train:
             with open(MODEL_PATH, "wb") as f:
                 pickle.dump({"model": m, "train_cutoff": args.start, "n_train": len(trf),
                              "seed": args.seed, "feats": FEATS, "best_iter": bi,
-                             "score_ref": _score_ref(m, trf)}, f)
+                             "score_ref": newref}, f)
             print(f"[模型] 已训练并存盘 → {MODEL_PATH}(训练截止 {args.start}, 训练样本 {len(trf)})")
             try:
                 shap_path = MODEL_PATH.replace(".pkl", "_shap.png")
@@ -912,20 +921,20 @@ def main():
             print(f"[模型] 无存盘模型,本次现训现用(未存盘);加 --train 可存盘复用")
     ref = saved.get("score_ref") if saved is not None else None
     if ref is None:
-        ref = _score_ref(m, tr)
+        ref = newref if newref is not None else _score_ref(m, tr)
         if saved is not None:
-            print(f"  ⚠️ 该存盘模型无冻结门槛(旧版pkl),本次按训练期({args.start}前)分数分布现算;建议 --train 重训固化")
+            print(f"  ⚠️ 该存盘模型无冻结门槛(旧版pkl),本次按训练期分数分布现算;建议 --train 重训固化")
     cut = lambda t: float(np.quantile(ref, 1 - t / 100))
     if args.pendcheck:
         _pending_score_check(px, db, cyq, mf, mkt, args, m, cut)
         return
     te["score"] = m.predict_proba(te[FEATS])[:, 1]
     s = te["score"].values
-    te["tier"] = np.where(s >= cut(1), "top1", np.where(s >= cut(3), "top3",
+    te["tier"] = np.where(s >= cut(3), "top3",
                  np.where(s >= cut(5), "top5", np.where(s >= cut(10), "top10",
-                 np.where(s >= cut(20), "top20", np.where(s >= cut(30), "top30", "其他"))))))
+                 np.where(s >= cut(20), "top20", np.where(s >= cut(30), "top30", "其他")))))
     top = te[s >= cut(args.tier)].sort_values("score", ascending=False)
-    print(f"[门槛] 冻结阈值取自模型训练期分数分布:top{args.tier}% ≥ {cut(args.tier):.4f}"
+    print(f"[门槛] 冻结阈值取自上线模型在验证段的样本外分数分布:top{args.tier}% ≥ {cut(args.tier):.4f}"
           f"(参考样本{len(ref)}条);阈值只随重训变化,历史信号不会被回溯追加/挤出")
 
     done = top[top["done"]]
@@ -1026,7 +1035,7 @@ def main():
                       "dist": round((float(brk) / float(cc[-1]) - 1) * 100, 1),
                       "pct": round((float(cc[-1]) / float(cc[-2]) - 1) * 100, 1),
                       "score": round(psc, 3),
-                      "tier": ("top1" if psc >= cut(1) else "top3" if psc >= cut(3) else
+                      "tier": ("top3" if psc >= cut(3) else
                                "top5" if psc >= cut(5) else "top10" if psc >= cut(10) else
                                "top20" if psc >= cut(20) else "top30" if psc >= cut(30) else "其他")})
     ml_fc.sort(key=lambda x: -x["score"])
@@ -1066,8 +1075,8 @@ h1{{font-size:20px}} .pos{{color:#c0392b}} .neg{{color:#27ae60}}
 <p style="font-size:12px;color:#999;margin-top:0"><b>出场口径</b>(均从突破日入场、扣双边费):
 <b>唐奇安</b>=持有至跌破唐奇安20日下轨(过去20日最低)即离场,否则一直持有(让利润奔跑);
 <b>波段止盈止损</b>=四开关任一触发:①硬止损 跌破 入场×0.9 与 入场−1×ATR 取更低;②涨到 入场×1.1 与 入场+2×ATR 取更低 时平50%(部分止盈);③涨过+3%激活、从最高点回落5%的跟踪止损;④持满20日超时平仓。</p>
-<p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,过 top{args.tier}% 冻结门槛(score≥{cut(args.tier):.4f},取自训练期分数分布,只随重训变化){len(top)} 条 |
-已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top5/top10/top20/top30</p>
+<p>模型用 {args.start} 之前数据训练,打分该区间信号 | 共 {len(te)} 条,过 top{args.tier}% 冻结门槛(score≥{cut(args.tier):.4f},取自上线模型验证段样本外分数分布,只随重训变化){len(top)} 条 |
+已满60日的 {len(done)} 条中走出主升浪(≥50%) {hit*100:.0f}% | 档位列: top3/top5/top10/top20/top30</p>
 <div class=note><b>⚠️</b> "至今最大涨幅"=突破日到现在(或满60日)的最高浮盈;"持仓时间"=唐奇安出场口径下从突破日到离场日的交易日数(仍持仓算到最新交易日);
 "进行中"=该出场口径下尚未离场(仍持仓)的条数。点表头可排序。模型严格用2026前数据训练,无未来函数。</div>
 <div id=root></div>
@@ -1132,7 +1141,7 @@ var cols=[
  {{title:'突破日板块大盘',dataIndex:'mkt',filters:[{{text:'健康',value:'健康'}},{{text:'走坏',value:'走坏'}}],onFilter:function(v,r){{return r.mkt===v;}},
    render:function(v){{return e('span',{{className:v==='健康'?'pos':'neg'}},v);}}}},
  {{title:'档位/ML分',dataIndex:'score',defaultSortOrder:'descend',sorter:function(a,b){{return a.score-b.score;}},
-   filters:[{{text:'top1',value:'top1'}},{{text:'top3',value:'top3'}},{{text:'top5',value:'top5'}},{{text:'top10',value:'top10'}},{{text:'top20',value:'top20'}},{{text:'top30',value:'top30'}}],onFilter:function(v,r){{return r.tier===v;}},
+   filters:[{{text:'top3',value:'top3'}},{{text:'top5',value:'top5'}},{{text:'top10',value:'top10'}},{{text:'top20',value:'top20'}},{{text:'top30',value:'top30'}}],onFilter:function(v,r){{return r.tier===v;}},
    render:function(v,r){{return e('span',null,e('b',null,r.tier),' '+v);}}}},
  {{title:'代码',dataIndex:'ts'}},
  {{title:'名称',dataIndex:'name'}},
