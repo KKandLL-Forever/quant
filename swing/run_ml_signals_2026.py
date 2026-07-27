@@ -5,8 +5,14 @@ run_ml_signals_2026.py — 模型 top5% 信号清单(2026-01-01 之后,不管仓
 top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/ML分/至今最大涨幅/状态
 (已走出主升浪 / 进行中 / 未达)。产出 HTML 清单。
 
-主升浪判定为时间加权动态门槛:60日内任意一天 t,累计涨幅≥MW_HURDLE_K×√t 即达标
-(快涨低门槛、慢涨高门槛,体现持仓时间成本);赢家可提前确认,输家需满60日才判负。
+入场价一律取**信号次日开盘价**(突破要收盘才确认,当日收盘价实盘拿不到)。主升浪标签、
+唐奇安/波段/缠论/5%硬止损四套出场的盈亏,全部以该价为基准。信号出在数据最后一根K线上时
+次日尚未开盘,该条只打分、不计盈亏(donret/swret/czret 均为空,状态仍为「进行中」)。
+
+主升浪判定为时间加权动态门槛:60日内任意一天 t,累计涨幅≥MW_HURDLE_K×√max(t, MW_MINDAYS)
+即达标(快涨低门槛、慢涨高门槛,体现持仓时间成本)。√ 内对 t 取 MW_MINDAYS=5 的下限,等价于
+一条绝对涨幅地板(long 模式 0.09×√5≈20.1%,quick 模式 0.06×√5≈13.4%):否则 t=1 时门槛只有
+一个涨停(9%),一日脉冲会被标成主升浪,污染正样本。赢家可提前确认,输家需满60日才判负。
 
 环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
   --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
@@ -54,6 +60,7 @@ from kernel_pivots import _detect_kernel, pending_breakouts_kernel
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
 EMBARGO_DAYS = 90  # ≈MW_DAYS(60交易日)的自然日数;train 末尾此窗内样本的label前瞻窗会探入val/test,须purge防泄露
 MW_HURDLE_K = 0.090
+MW_MINDAYS = 5
 DON_EXIT, COST = 20, 0.0006
 SW_FIXSTOP, SW_ATRSTOP = 0.10, 1.0
 SW_FIXTP, SW_ATRTP, SW_TPFRAC = 0.10, 2.0, 0.50
@@ -154,9 +161,8 @@ def _adx(h, l, c, n=14):
     return dx.ewm(alpha=1 / n, adjust=False).mean(), atr
 
 
-def _swing_exit(cc, gd, bo, atr_e, tpfrac):
-    """论文出场(硬/ATR止损+跟踪止损+部分止盈+超时)模拟,返回(盈亏,是否持仓中,清仓日,部分止盈日)。"""
-    ep = cc[bo]
+def _swing_exit(cc, gd, bo, atr_e, ep, tpfrac):
+    """论文出场(硬/ATR止损+跟踪止损+部分止盈+超时)模拟,ep=次日开盘入场价,返回(盈亏,是否持仓中,清仓日,部分止盈日)。"""
     stop_lv = min(ep * (1 - SW_FIXSTOP), ep - SW_ATRSTOP * atr_e)
     tp_lv = min(ep * (1 + SW_FIXTP), ep + SW_ATRTP * atr_e)
     tp_done = False; remaining = 1.0; realized = 0.0; tract = False; hsince = 0.0; tp_dt = None
@@ -176,8 +182,8 @@ def _swing_exit(cc, gd, bo, atr_e, tpfrac):
 
 def _czsc_one(job):
     """单股缠论出场 M3(供并行调用):缠论卖点止盈→回调缠论买点回补,跌破MA60或入场价85%终止,复利。
-    job=(ts, gd, cc, hh, ll, vv, dates, sel)。worker 内 import czsc;czsc 缺失或异常返回 []。"""
-    ts, gd, cc, hh, ll, vv, dates, sel = job
+    job=(ts, gd, cc, hh, ll, oo, vv, dates, sel)。worker 内 import czsc;czsc 缺失或异常返回 []。"""
+    ts, gd, cc, hh, ll, oo, vv, dates, sel = job
     try:
         from czsc import CZSC, RawBar, Freq
         import czsc.signals as CS
@@ -243,15 +249,18 @@ def _czsc_one(job):
     ma60 = pd.Series(cc).rolling(60).mean().to_numpy()
 
     def _m3(bo):
-        mult, en, t = 1.0, bo, bo + 1
-        legs = [(bo, "买")]
+        ei = bo + 1
+        if ei >= len(cc):
+            return None, None, True, []
+        mult, enp, t = 1.0, float(oo[ei]), ei
+        legs = [(ei, "买", float(oo[ei]))]
         while t < len(cc):
-            if (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= cc[en] * 0.85:
-                legs.append((t, "止"))
-                return mult * (cc[t] / cc[en]) * (1 - 2 * COST) - 1, t, False, legs
+            if (ma60[t] == ma60[t] and cc[t] < ma60[t]) or cc[t] <= enp * 0.85:
+                legs.append((t, "止", float(cc[t])))
+                return mult * (cc[t] / enp) * (1 - 2 * COST) - 1, t, False, legs
             if t in sd:
-                mult *= (cc[t] / cc[en]) * (1 - 2 * COST)
-                legs.append((t, "缠"))
+                mult *= (cc[t] / enp) * (1 - 2 * COST)
+                legs.append((t, "缠", float(cc[t])))
                 re = None
                 for t2 in range(t + 1, len(cc)):
                     if ma60[t2] == ma60[t2] and cc[t2] < ma60[t2]:
@@ -260,24 +269,30 @@ def _czsc_one(job):
                         re = t2; break
                 if re is None:
                     return mult - 1, t, False, legs
-                en = re; legs.append((re, "补")); t = re + 1; continue
+                enp = float(cc[re]); legs.append((re, "补", float(cc[re]))); t = re + 1; continue
             t += 1
-        return mult * (cc[-1] / cc[en]) * (1 - 2 * COST) - 1, None, True, legs
+        return mult * (cc[-1] / enp) * (1 - 2 * COST) - 1, None, True, legs
 
     def _slr(bo):   # 5%硬止损口径:利润奔跑不封顶,唯一卖出=收盘跌破入场价-5%即清仓;任何情况都不回补,单腿结束
-        legs = [(bo, "买")]
-        for t in range(bo + 1, len(cc)):
-            if cc[t] <= cc[bo] * 0.95:
-                legs.append((t, "止5"))
-                return (cc[t] / cc[bo]) * (1 - 2 * COST) - 1, t, False, legs
-        return (cc[-1] / cc[bo]) * (1 - 2 * COST) - 1, None, True, legs
+        ei = bo + 1
+        if ei >= len(cc):
+            return None, None, True, []
+        ep = float(oo[ei])
+        legs = [(ei, "买", ep)]
+        for t in range(ei, len(cc)):
+            if cc[t] <= ep * 0.95:
+                legs.append((t, "止5", float(cc[t])))
+                return (cc[t] / ep) * (1 - 2 * COST) - 1, t, False, legs
+        return (cc[-1] / ep) * (1 - 2 * COST) - 1, None, True, legs
 
     def _pack(fn, bo, d):
         ret, exi, opn, legs = fn(bo)
+        if ret is None or ret != ret:
+            return (None, None, None, True, 0, False, [])
         exd = None if exi is None else pd.Timestamp(gd[exi])
         hold = int(np.busday_count(pd.Timestamp(d).date(), (exd or pd.Timestamp(sel)).date()))
-        rebought = any(k == "补" for _, k in legs)
-        legdates = [[str(pd.Timestamp(gd[i]).date()), k, round(float(cc[i]), 3)] for i, k in legs]
+        rebought = any(k == "补" for _, k, _p in legs)
+        legdates = [[str(pd.Timestamp(gd[i]).date()), k, round(p, 3)] for i, k, p in legs]
         return (round(ret * 100, 0), round(ret, 4),
                 None if exd is None else str(exd.date()), opn, hold, rebought, legdates)
 
@@ -303,7 +318,7 @@ def _czsc_exits(px, top, sel, workers=1):
             continue
         g = g.iloc[max(0, min(bos) - 300):].reset_index(drop=True)
         jobs.append((ts, g["trade_date"].to_numpy(), g["c"].to_numpy(), g["h"].to_numpy(),
-                     g["l"].to_numpy(), g["v"].to_numpy(),
+                     g["l"].to_numpy(), g["o"].to_numpy(), g["v"].to_numpy(),
                      list(top[top["ts"] == ts]["date"]), sel))
     out = {}
     if workers <= 1 or len(jobs) < 4:
@@ -566,6 +581,7 @@ def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
         g = g.sort_values("trade_date").reset_index(drop=True)
         c, h, l, v = g["c"], g["h"], g["l"], g["v"]
         cc = c.to_numpy(); gd = g["trade_date"].to_numpy(); craw = g["c_raw"].to_numpy()
+        oo = g["o"].to_numpy(); oraw = g["o_raw"].to_numpy()
         rs20a = g["rs20"].to_numpy(); rs60a = g["rs60"].to_numpy(); rsturna = g["rsturn"].to_numpy()
         srsa = g["sector_rs"].to_numpy(); lb60a = g["lianban60"].to_numpy(); sheata = g["sector_heat"].to_numpy()
         roea = g["roe"].to_numpy(); npyoya = g["npyoy"].to_numpy(); fcposa = g["fc_pos"].to_numpy()
@@ -590,27 +606,30 @@ def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
             d = pd.Timestamp(gd[bo])
             if d.year < 2020:
                 continue
+            ei = bo + 1
+            ep = float(oo[ei]) if ei < len(cc) else np.nan
             endi = min(bo + MW_DAYS, len(cc) - 1)
-            fwd = cc[bo + 1:endi + 1] / cc[bo] - 1
+            fwd = cc[ei:endi + 1] / ep - 1
             maxfwd = fwd.max() if len(fwd) else np.nan
-            kstar = float(np.max(fwd / np.sqrt(np.arange(1, len(fwd) + 1)))) if len(fwd) else np.nan
+            rt = np.sqrt(np.maximum(np.arange(1, len(fwd) + 1), MW_MINDAYS))
+            kstar = float(np.max(fwd / rt)) if len(fwd) else np.nan
             full = bo + MW_DAYS < len(cc)
-            crossed = (fwd >= MW_HURDLE_K * np.sqrt(np.arange(1, len(fwd) + 1))) if len(fwd) else np.array([False])
+            crossed = (fwd >= MW_HURDLE_K * rt) if len(fwd) else np.array([False])
             cidx = int(np.argmax(crossed)) if crossed.any() else -1
             cross_day = cidx + 1 if crossed.any() else np.nan
             gain_at_cross = float(fwd[cidx]) if crossed.any() else np.nan
             seg = cc[bo:endi + 1]
             peak_off = int(seg.argmax())
             launch = int(seg[:peak_off + 1].argmin()) if peak_off > 0 else None
-            ep = cc[bo]; donret = None; donopen = True; donexit = None
-            for t2 in range(bo + 1, len(cc)):
+            donret = None; donopen = True; donexit = None
+            for t2 in range(ei, len(cc)):
                 if not np.isnan(dlow[t2]) and cc[t2] < dlow[t2]:
                     donret = cc[t2] / ep - 1 - 2 * COST; donopen = False; donexit = pd.Timestamp(gd[t2]); break
             if donret is None:
                 donret = cc[-1] / ep - 1 - 2 * COST
             atr_e = atr.iloc[bo]
-            swret, swopen, swexit, swtp = _swing_exit(cc, gd, bo, atr_e, SW_TPFRAC)
-            swsweep = {fr: _swing_exit(cc, gd, bo, atr_e, fr)[0] for fr in SW_TPFRAC_SWEEP}
+            swret, swopen, swexit, swtp = _swing_exit(cc, gd, bo, atr_e, ep, SW_TPFRAC)
+            swsweep = {fr: _swing_exit(cc, gd, bo, atr_e, ep, fr)[0] for fr in SW_TPFRAC_SWEEP}
             try:
                 dbr = db.loc[(ts, d)]; cyr = cyq.loc[(ts, d)]
             except KeyError:
@@ -623,7 +642,7 @@ def _build_event_rows(px, db, cyq, mf, mkt, regs, BOARD_IDX, args):
                 "donret": donret, "donopen": donopen, "donexit": donexit,
                 "swret": swret, "swopen": swopen, "swexit": swexit, "swtp": swtp,
                 **{f"sw{int(fr*100)}": swsweep[fr] for fr in SW_TPFRAC_SWEEP},
-                "price": craw[bo],
+                "price": float(oraw[ei]) if ei < len(cc) else float(craw[bo]),
                 "ptype": 0 if typ == "N字型" else 1, "brk": cc[bo] / cc[pvs[1]] - 1,
                 "pos1y": pos1y.iloc[bo], "basew": basew.iloc[bo],
                 "dma20": cc[bo] / ma20.iloc[bo] - 1, "dma60": cc[bo] / ma60.iloc[bo] - 1,
@@ -731,7 +750,8 @@ def main():
         liquid = list(dict.fromkeys(liquid + hot))
     names = dict(con.execute("SELECT ts_code,name FROM stock_meta").fetchall())
     px = con.execute("""SELECT d.ts_code,d.trade_date,d.high*a.adj_factor h,d.low*a.adj_factor l,
-        d.close*a.adj_factor c,d.close c_raw,d.vol v FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
+        d.close*a.adj_factor c,d.close c_raw,d.open*a.adj_factor o,d.open o_raw,d.vol v
+        FROM daily d JOIN adj_factor a ON a.ts_code=d.ts_code AND a.trade_date=d.trade_date
         WHERE d.trade_date>=? AND d.ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
     db = con.execute("""SELECT ts_code,trade_date,pe_ttm,pb,circ_mv,turnover_rate FROM daily_basic
         WHERE trade_date>=? AND ts_code IN (SELECT UNNEST(?))""", ["2019-01-01", liquid]).fetch_df()
@@ -828,7 +848,7 @@ def main():
 
     import pickle
     _evdir = os.path.join(_ROOT, "swing/.evcache")
-    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_hot{HOT_TOP}_don2_u{uni_str}_{sel}.pkl")
+    _evkey = os.path.join(_evdir, f"{args.n}_{args.pivot}_{args.h}_hot{HOT_TOP}_don2_openentry_mw{MW_MINDAYS}_u{uni_str}_{sel}.pkl")
     if (not args.eval) and os.path.exists(_evkey):
         df = pd.read_pickle(_evkey)
     else:
