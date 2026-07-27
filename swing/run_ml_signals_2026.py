@@ -953,7 +953,12 @@ def main():
         val_cut = tr_end + pd.Timedelta(days=1) - pd.DateOffset(months=VAL_MONTHS)
         trf = tr[tr["date"] <= _purge_cut(cal, val_cut)]; vaf = tr[tr["date"] >= val_cut]
         wend = _label_window_end(cal, tr_end)
-        if wend is not None and wend >= start_ts:
+        if wend is None:
+            raise SystemExit(
+                f"验证段末端({tr_end.date()})的{MW_DAYS}交易日标签窗超出数据末端({pd.Timestamp(cal[-1]).date()}),"
+                f"验证段尾部根本走不完窗、只有已达标的赢家被定标(右删失),门槛与早停都会失真。\n"
+                f"  → 把 --valend 提前到 {pd.Timestamp(cal[-MW_DAYS - 1]).date()} 或更早")
+        if wend >= start_ts:
             raise SystemExit(
                 f"验证段末端({tr_end.date()})的{MW_DAYS}交易日标签窗结算于 {wend.date()},"
                 f"已越过打分起点 --start={start_ts.date()},验证段会看到打分区的行情。\n"
