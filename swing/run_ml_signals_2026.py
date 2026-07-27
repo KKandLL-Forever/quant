@@ -14,8 +14,18 @@ top10% 全部列出(不做仓位管理)。每条标:日期/代码/名称/形态/
 一条绝对涨幅地板(long 模式 0.09×√5≈20.1%,quick 模式 0.06×√5≈13.4%):否则 t=1 时门槛只有
 一个涨停(9%),一日脉冲会被标成主升浪,污染正样本。赢家可提前确认,输家需满60日才判负。
 
+切分为 train / 隔离带 / val / 隔离带 / 打分区。隔离带按**交易日**算(MW_DAYS=60),不再用 90 自然日
+近似——标签窗本就按交易日定义,而 60 个交易日跨多少自然日随长假浮动(2024Q4 只跨 88 天,2025-12-31
+往后因春节跨到 97 天),固定 90 天在跨春节时不足以隔离,会让 val 的标签窗探进打分区。`--valend`
+显式指定验证段末日后,若 `--start` 落在其标签窗结算之前会直接报错并给出最早可用日期。
+
+打分区是"还没走完的未来":赢家一达标就记账、输家要等满 60 个交易日才判负,故越靠近今天的月份
+已定标样本越是清一色正例(实测 2026-05 起定标率 20~25%、正例率 100%)。定标率低于 80% 时报告会
+打右删失警告,此时的命中率/盈亏系统性偏高,不能当验证结论。
+
 环境：.venv312。用法：python swing/run_ml_signals_2026.py --start 20260101 --tier 5
-  --start/--end 信号时间范围(YYYYMMDD);--tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
+  --start/--end 信号时间范围(YYYYMMDD);--valend 验证段末日(不传则取 --start,行为同旧版)
+  --tier 只显示 ML 评分前百分之几(5=top5%,100=全部)
   档位门槛(top3/5/10/20/30)是**绝对分数阈值**,取自上线模型在验证段(训练截止前12个月,未参与
   训练)的样本外分数分布,随模型一起存盘(score_ref),只有 --train 重训才会变。故刷新数据/新增
   信号不会改变历史信号的入榜与否——旧版按信号区间内相对分位排名会导致老信号被回溯追加进榜
@@ -61,7 +71,7 @@ from run_patterns import _detect, pending_breakouts
 from kernel_pivots import _detect_kernel, pending_breakouts_kernel
 
 THR, MW_GAIN, MW_DAYS = 0.09, 0.50, 60
-EMBARGO_DAYS = 90  # ≈MW_DAYS(60交易日)的自然日数;train 末尾此窗内样本的label前瞻窗会探入val/test,须purge防泄露
+EMBARGO_DAYS = 90  # 已弃用(仅 research/val_months_probe.py 还在引);隔离带改按交易日算,见 _purge_cut
 MW_HURDLE_K = 0.090
 MW_MINDAYS = 5
 DON_EXIT, COST = 20, 0.0006
@@ -71,14 +81,21 @@ SW_TRAILACT, SW_TRAILDIST, SW_STALE = 0.03, 0.05, 20
 SW_TPFRAC_SWEEP = (0.30, 0.40, 0.50, 0.75)
 HOT_TOP, HOT_MV_FLOOR = 20, 2_000_000  # 同花顺热股榜并入池子前20;只滤流通市值<200亿的小盘妖股(circ_mv单位万元),不滤连板
 VAL_MONTHS = 12
+EVAL_MIN_VAL_POS = 30
+EVAL_FIXED_ROUNDS = 200
+EVAL_VAL_MONTHS = 9
 EVAL_FOLDS = [
-    {"train_end": "2020-06-30", "val": ("2020-07-01", "2020-12-31"), "test": ("2021-01-01", "2021-12-31")},
-    {"train_end": "2021-06-30", "val": ("2021-07-01", "2021-12-31"), "test": ("2022-01-01", "2022-12-31")},
-    {"train_end": "2022-06-30", "val": ("2022-07-01", "2022-12-31"), "test": ("2023-01-01", "2023-12-31")},
-    {"train_end": "2023-06-30", "val": ("2023-07-01", "2023-12-31"), "test": ("2024-01-01", "2024-12-31")},
-    {"train_end": "2024-06-30", "val": ("2024-07-01", "2024-12-31"), "test": ("2025-01-01", "2025-12-31")},
+    {"test": ("2022-01-01", "2022-06-30")},
+    {"test": ("2022-07-01", "2022-12-31")},
+    {"test": ("2023-01-01", "2023-06-30")},
+    {"test": ("2023-07-01", "2023-12-31")},
+    {"test": ("2024-01-01", "2024-06-30")},
+    {"test": ("2024-07-01", "2024-12-31")},
+    {"test": ("2025-01-01", "2025-06-30")},
+    {"test": ("2025-07-01", "2025-12-31")},
+    {"test": ("2026-01-01", "2026-03-31")},
 ]
-LGB_PARAMS = dict(learning_rate=0.02, num_leaves=15, min_child_samples=100,
+LGB_PARAMS = dict(learning_rate=0.02, num_leaves=5, min_child_samples=100,
                   subsample=0.7, colsample_bytree=0.6, reg_alpha=0.5, reg_lambda=5.0,
                   min_split_gain=0.0, verbosity=-1,
                   deterministic=True, force_row_wise=True, n_jobs=1)   # 逐次可复现:单线程+确定性直方图(否则多线程浮点求和顺序不定,同种子也出不同树)
@@ -364,12 +381,29 @@ def _tag_states(out):
     return final
 
 
-def _fit_lgb(trf, vaf, seed):
-    """用 val 早停训练 LGB,返回(模型, best_iter, 训练AUC, valAUC);val 太小则退回固定200轮无早停。"""
-    if len(vaf) < 200 or vaf["label"].nunique() < 2:
-        m = lgb.LGBMClassifier(n_estimators=200, random_state=seed, **LGB_PARAMS)
+def _label_window_end(cal, d):
+    """返回 d 当日事件的 MW_DAYS 交易日标签窗结算日;日历不够长则 None。"""
+    i = int(np.searchsorted(cal, np.datetime64(pd.Timestamp(d)), side="right"))
+    k = i + MW_DAYS - 1
+    return pd.Timestamp(cal[k]) if k < len(cal) else None
+
+
+def _purge_cut(cal, d):
+    """返回 d 之前那段可安全保留的最后日期:该日事件的标签窗须在 d 之前结算完(交易日口径隔离带)。"""
+    j = int(np.searchsorted(cal, np.datetime64(pd.Timestamp(d)), side="left"))
+    k = j - MW_DAYS - 1
+    return pd.Timestamp(cal[k]) if k >= 0 else pd.Timestamp(cal[0]) - pd.Timedelta(days=1)
+
+
+def _fit_lgb(trf, vaf, seed, fixed=False):
+    """用 val 早停训练 LGB,返回(模型, best_iter, 训练AUC, valAUC);
+    fixed=True 或 val 太小/正例太少则退回固定 EVAL_FIXED_ROUNDS 轮无早停。"""
+    if fixed or len(vaf) < 200 or vaf["label"].nunique() < 2 or vaf["label"].sum() < EVAL_MIN_VAL_POS:
+        m = lgb.LGBMClassifier(n_estimators=EVAL_FIXED_ROUNDS, random_state=seed, **LGB_PARAMS)
         m.fit(trf[FEATS], trf["label"])
-        return m, 200, None, None
+        va = roc_auc_score(vaf["label"], m.predict_proba(vaf[FEATS])[:, 1]) if (
+            len(vaf) and vaf["label"].nunique() > 1) else None
+        return m, EVAL_FIXED_ROUNDS, roc_auc_score(trf["label"], m.predict_proba(trf[FEATS])[:, 1]), va
     m = lgb.LGBMClassifier(n_estimators=2000, random_state=seed, **LGB_PARAMS)
     m.fit(trf[FEATS], trf["label"], eval_set=[(vaf[FEATS], vaf["label"])], eval_metric="auc",
           callbacks=[lgb.early_stopping(80, verbose=False)])
@@ -379,23 +413,36 @@ def _fit_lgb(trf, vaf, seed):
     return m, bi, tr_auc, va_auc
 
 
-def _evaluate_wf(df, seed, tier):
-    """照 v6 的多折 train/val/test 逐年前推评估,打印各折 AUC + OOS 汇总 + 过拟合体检 + top档 lift。"""
+def _evaluate_wf(df, seed, tier, cal, fixed=False):
+    """多折 train/val/test 前推评估,打印各折 AUC + OOS 汇总 + 过拟合体检 + top档 lift。
+    fixed=True 则全折固定 EVAL_FIXED_ROUNDS 轮不早停,使各折口径一致(val 落进死区时早停会退化成树桩)。"""
     lab = df[df["label"] >= 0].copy()
     lab["d"] = lab["date"]
     oos, metas, imps = [], [], []
-    print(f"\n=== walk-forward 逐折评估({len(FEATS)}特征,train/val/test 逐年前推)===")
+    print(f"\n=== walk-forward 逐折评估({len(FEATS)}特征,{len(EVAL_FOLDS)}折,"
+          f"{'全折固定'+str(EVAL_FIXED_ROUNDS)+'轮' if fixed else 'val早停'},"
+          f"train尾/val尾各隔{MW_DAYS}个交易日)===")
     for i, fd in enumerate(EVAL_FOLDS, 1):
-        te = pd.Timestamp(fd["train_end"])
-        v0, v1 = pd.Timestamp(fd["val"][0]), pd.Timestamp(fd["val"][1])
         t0, t1 = pd.Timestamp(fd["test"][0]), pd.Timestamp(fd["test"][1])
-        trf = lab[lab["d"] <= te - pd.Timedelta(days=EMBARGO_DAYS)]
+        v1 = _purge_cut(cal, t0)
+        v0 = (pd.Timestamp(fd["val"]) if fd.get("val") else
+              v1 - pd.DateOffset(months=EVAL_VAL_MONTHS) + pd.Timedelta(days=1))
+        trf = lab[lab["d"] <= _purge_cut(cal, v0)]
         vaf = lab[(lab["d"] >= v0) & (lab["d"] <= v1)]
         tef = lab[(lab["d"] >= t0) & (lab["d"] <= t1)]
         if len(trf) < 500 or len(tef) < 50:
             print(f"  折{i} 跳过(样本不足):train={len(trf)} val={len(vaf)} test={len(tef)}")
             continue
-        m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, seed)
+        npos = int(vaf["label"].sum()); tpos = int(tef["label"].sum())
+        warn = ""
+        if not fixed and npos < EVAL_MIN_VAL_POS:
+            warn += f"  ⚠️ val正例仅{npos}<{EVAL_MIN_VAL_POS},本折不早停、固定{EVAL_FIXED_ROUNDS}轮,gap不可比"
+        if tpos < EVAL_MIN_VAL_POS:
+            warn += f"  ⚠️ test正例仅{tpos},基础率{tef['label'].mean():.1%},lift 噪声极大不可读"
+        print(f"  折{i} 切分: train ≤{trf['d'].max().date()}({len(trf)},正例{int(trf['label'].sum())}) | "
+              f"val {v0.date()}~{v1.date()}({len(vaf)},正例{npos}) | "
+              f"test {t0.date()}~{t1.date()}({len(tef)},正例{tpos})" + warn)
+        m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, seed, fixed)
         sc = m.predict_proba(tef[FEATS])[:, 1]
         te_auc = roc_auc_score(tef["label"], sc)
         base_f = tef["label"].mean()
@@ -406,29 +453,38 @@ def _evaluate_wf(df, seed, tier):
         win = picks[picks["label"] == 1]
         med_day = win["cross_day"].median(); med_gain = win["gain_at_cross"].median()
         part = tef[["date", "ts", "label", "maxfwd"]].copy(); part["score"] = sc; part["fold"] = i
+        part["pick"] = part.index.isin(picks.index)
         oos.append(part)
         metas.append({"fold": i, "tr_auc": tr_auc, "te_auc": te_auc, "lift": lift_f,
-                      "base": base_f, "tophit": tophit_f, "med_day": med_day, "med_gain": med_gain})
+                      "base": base_f, "tophit": tophit_f, "med_day": med_day, "med_gain": med_gain,
+                      "n": len(tef), "npick": len(picks), "nhit": int(picks["label"].sum()),
+                      "npos": int(tef["label"].sum())})
         imps.append(pd.Series(m.feature_importances_, index=FEATS))
         gap = "" if tr_auc is None else f"  train_AUC={tr_auc:.4f} gap={tr_auc-te_auc:+.4f}"
-        print(f"  折{i}: train≤{fd['train_end']}({len(trf)}) test {fd['test'][0][:4]}({len(tef)})  "
-              f"best_iter={bi}  test_AUC={te_auc:.4f}  lift={lift_f:.2f}x{gap}")
+        print(f"       结果: best_iter={bi}  test_AUC={te_auc:.4f}  基础率={base_f:.1%}  "
+              f"top{tier}%命中={tophit_f:.1%}  lift={lift_f:.2f}x{gap}")
     if not oos:
         print("  无可用折,评估终止"); return
     oo = pd.concat(oos, ignore_index=True)
     pooled = roc_auc_score(oo["label"], oo["score"])
     mean_auc = np.mean([x["te_auc"] for x in metas])
     mean_lift = np.nanmean([x["lift"] for x in metas])
-    mtr = np.mean([x["tr_auc"] for x in metas if x["tr_auc"] is not None]) if any(x["tr_auc"] for x in metas) else None
+    gaps = [(x["tr_auc"], x["te_auc"]) for x in metas if x["tr_auc"] is not None]
     print(f"\n=== 样本外汇总({len(oo)} 样本,{len(metas)} 折)===")
     mean_base = np.mean([x["base"] for x in metas]); mean_top = np.mean([x["tophit"] for x in metas])
     print(f"  ★逐折均值: test_AUC={mean_auc:.4f}  基础率={mean_base:.1%}  top{tier}%命中={mean_top:.1%}  "
           f"lift={mean_lift:.2f}x   (pooled AUC={pooled:.4f})")
+    tn = sum(x["n"] for x in metas); tpk = sum(x["npick"] for x in metas)
+    th = sum(x["nhit"] for x in metas); tp = sum(x["npos"] for x in metas)
+    wbase = tp / tn; whit = th / tpk if tpk else np.nan
+    print(f"  ★样本加权(不受小折主导):基础率={wbase:.1%}({tp}/{tn})  top{tier}%命中={whit:.1%}({th}/{tpk})  "
+          f"lift={whit/wbase:.2f}x")
     mday = np.nanmean([x["med_day"] for x in metas]); mgain = np.nanmean([x["med_gain"] for x in metas])
     print(f"  ★精选赢家:中位达标用时={mday:.0f}个交易日  中位兑现幅度={mgain:.1%}")
-    if mtr is not None:
-        print(f"  过拟合体检:训练AUC均值 {mtr:.4f} vs 逐折测试 {mean_auc:.4f}  gap={mtr-mean_auc:+.4f}"
-              f"(<0.05健康 / 0.05~0.10可接受 / >0.15警惕)")
+    if gaps:
+        mtr = np.mean([a for a, _ in gaps]); mte = np.mean([b for _, b in gaps])
+        print(f"  过拟合体检({len(gaps)}/{len(metas)}折):训练AUC均值 {mtr:.4f} vs 同口径测试 {mte:.4f}  "
+              f"gap={mtr-mte:+.4f}(<0.05健康 / 0.05~0.10可接受 / >0.15警惕)")
     from scipy.stats import spearmanr
     icf = [spearmanr(g["score"], g["maxfwd"], nan_policy="omit").correlation for _, g in oo.groupby("fold")]
     ic_pool = spearmanr(oo["score"], oo["maxfwd"], nan_policy="omit").correlation
@@ -716,10 +772,17 @@ def main():
     ap.add_argument("--n", type=int, default=800)
     ap.add_argument("--start", default="20250101", help="信号起始日 YYYYMMDD")
     ap.add_argument("--end", default=None, help="信号结束日 YYYYMMDD,默认到最新")
+    ap.add_argument("--valend", default=None,
+                    help="验证段末日 YYYYMMDD(含);val=[valend-VAL_MONTHS+1d, valend],train 到 val 起点前"
+                         "60个交易日为止。不传则取 --start,行为与旧版一致。传了就必须让 --start 落在"
+                         "valend 的标签窗结算之后,否则报错")
     ap.add_argument("--tier", type=int, default=5, help="按上线模型验证段样本外分数分布的前百分之几筛信号(如 5=top5%%、100=全部);阈值冻结在模型里,不随信号区间变化")
     ap.add_argument("--train", action="store_true", help="重新训练并存盘到 MODEL_PATH;不加则优先加载已存盘模型")
     ap.add_argument("--seed", type=int, default=42, help="训练随机种子(保证可复现)")
     ap.add_argument("--eval", action="store_true", help="跑 walk-forward 多折评估(诚实 OOS),不出 HTML")
+    ap.add_argument("--evalfixed", action="store_true",
+                    help=f"配合 --eval:全折固定 {EVAL_FIXED_ROUNDS} 轮不早停。val 落进标签死区(基础率2%%)时早停会把"
+                         f"模型选成树桩、折间口径不可比,此开关消除该噪声源")
     ap.add_argument("--pendcheck", action="store_true",
                     help="T-1 回放:量化「明日预判」若打分,相对真实信号分的偏差/排序保真度,不出 HTML")
     ap.add_argument("--pivot", choices=["zigzag", "kernel"], default="kernel",
@@ -859,10 +922,12 @@ def main():
         if not args.eval:
             os.makedirs(_evdir, exist_ok=True); df.to_pickle(_evkey)
     df = _label_by_mode(df)
+    cal = np.sort(px["trade_date"].unique())
     if args.eval:
-        _evaluate_wf(df, args.seed, args.tier)
+        _evaluate_wf(df, args.seed, args.tier, cal, args.evalfixed)
         return
-    tr = df[(df["date"] < start_ts) & (df["label"] >= 0)]
+    tr_end = pd.Timestamp(args.valend) if args.valend else start_ts - pd.Timedelta(days=1)
+    tr = df[(df["date"] <= tr_end) & (df["label"] >= 0)]
     te = df[df["date"] >= start_ts].copy()
     if end_ts is not None:
         te = te[te["date"] <= end_ts].copy()
@@ -885,8 +950,20 @@ def main():
                              f"  模型: {saved.get('feats')}\n  当前: {FEATS}\n"
                              f"  → 清空 swing/.evcache 后加 --train 重训")
     else:
-        val_cut = start_ts - pd.DateOffset(months=VAL_MONTHS)
-        trf = tr[tr["date"] < val_cut - pd.Timedelta(days=EMBARGO_DAYS)]; vaf = tr[tr["date"] >= val_cut]
+        val_cut = tr_end + pd.Timedelta(days=1) - pd.DateOffset(months=VAL_MONTHS)
+        trf = tr[tr["date"] <= _purge_cut(cal, val_cut)]; vaf = tr[tr["date"] >= val_cut]
+        wend = _label_window_end(cal, tr_end)
+        if wend is not None and wend >= start_ts:
+            raise SystemExit(
+                f"验证段末端({tr_end.date()})的{MW_DAYS}交易日标签窗结算于 {wend.date()},"
+                f"已越过打分起点 --start={start_ts.date()},验证段会看到打分区的行情。\n"
+                f"  → 把 --start 推到 {(wend + pd.Timedelta(days=1)).date()} 之后,或把 --valend 提前")
+        if len(trf) and len(vaf):
+            print(f"[切分] train {trf['date'].min().date()}~{trf['date'].max().date()}"
+                  f"({len(trf)}条,正例{int(trf['label'].sum())}) | 隔离{MW_DAYS}个交易日 | "
+                  f"val {vaf['date'].min().date()}~{vaf['date'].max().date()}"
+                  f"({len(vaf)}条,正例{int(vaf['label'].sum())}) | 隔离到 {start_ts.date()} | "
+                  f"打分区 {len(te)}条")
         if len(trf) < 500:
             trf, vaf = tr, tr.iloc[0:0]
         m, bi, tr_auc, va_auc = _fit_lgb(trf, vaf, args.seed)
@@ -941,6 +1018,10 @@ def main():
     hit = (done["label"] == 1).mean() if len(done) else float("nan")
     print(f"信号 {args.start}~{args.end or '今'} 共{len(te)}条 | 过top{args.tier}%门槛 {len(top)}条 | "
           f"已满60日{len(done)}条 走出主升浪 {hit*100:.0f}%")
+    if len(top) and len(done) / len(top) < 0.8:
+        print(f"  ⚠️ 打分区仅 {len(done)}/{len(top)} 条走完{MW_DAYS}交易日。未定标的绝大多数是尚未证伪的"
+              f"输家(赢家一达标就记账、输家要等满窗),故上面的命中率与下面的盈亏均为右删失结果,"
+              f"系统性偏高,不可当作验证结论")
 
     def _hold(opencol, exitcol):
         days = []
