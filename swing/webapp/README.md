@@ -12,15 +12,35 @@ webapp/
 
 ## 运行(开两个终端)
 
+> 仓库根目录:macOS 是 `~/AI/quart`,Windows 是 `D:\code\quart`。
+> Python 环境:macOS 用 venv `.venv312`;Windows 直接用系统 Python `C:\Python312`(依赖用 `pip install --user` 装,无 venv)。
+
 **① 后端**
+
+macOS / Linux:
 ```bash
 cd ~/AI/quart && source .venv312/bin/activate
 cd swing/webapp/backend && uvicorn app:app --reload --port 8000
 ```
 
+Windows(PowerShell):
+```powershell
+cd D:\code\quart\swing\webapp\backend
+python -m uvicorn app:app --reload --port 8000
+```
+
 **② 前端**
+
+macOS / Linux:
 ```bash
 cd ~/AI/quart/swing/webapp/frontend && npm run dev
+# 打开 http://localhost:5173
+```
+
+Windows(PowerShell):
+```powershell
+cd D:\code\quart\swing\webapp\frontend
+npm run dev
 # 打开 http://localhost:5173
 ```
 
