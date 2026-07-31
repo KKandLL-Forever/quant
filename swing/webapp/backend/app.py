@@ -3,7 +3,8 @@
 前端"训练模型"按钮 → POST /api/train → 后端子进程跑 run_ml_signals_2026.py --json → 回结构化数据;
 前端某行点"LLM分析" → POST /api/analyze → 后端跑 ta_analyze(技术+消息面)→ 回报告 + 分析师层判断。
 
-环境：.venv312。用法:cd swing/webapp/backend && uvicorn app:app --reload --port 8000
+环境:macOS 用 .venv312,Windows 用系统 Python(见 swing/webapp/README.md)。
+用法:cd swing/webapp/backend && uvicorn app:app --reload --port 18000(端口须与 frontend/vite.config.js 代理一致)
 依赖:fastapi/uvicorn;复用 swing/run_ml_signals_2026.py(--json)、swing/ta_analyze.py。
 """
 
