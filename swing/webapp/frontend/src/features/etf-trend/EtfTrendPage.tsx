@@ -91,6 +91,14 @@ export default function EtfTrendPage() {
       <Header />
       <PageTitle kicker="American Trend-Following · 离散进出(Sepp & Lucic 2026,研究:etf_trend)">ETF 趋势跟踪</PageTitle>
 
+      <div style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '-12px 0 16px', lineHeight: 1.7 }}>
+        策略复现自 Artur Sepp, Vladimir Lucic (2026).{' '}
+        <i>The Science and Practice of Trend-Following Systems.</i> arXiv:2607.19497 · 买卖规则见论文式 A.5–A.13 ·{' '}
+        <a href="https://arxiv.org/abs/2607.19497" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>arxiv.org/abs/2607.19497</a>
+        {' · '}
+        <a href="https://github.com/ArturSepp/TrendFollowingSystems" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>官方代码</a>
+      </div>
+
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
         <span>总资金</span>
         <InputNumber value={capital} onChange={v => setCapital(v || 200000)} size="small" step={10000} min={10000}
