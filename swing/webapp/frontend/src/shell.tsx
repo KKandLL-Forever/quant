@@ -10,6 +10,7 @@ export const NAV_ITEMS = [
   { key: '/etfshare', label: 'ETF份额' },
   { key: '/bulltop', label: '牛市逃顶' },
   { key: '/xiaoxifu', label: '小西西弗' },
+  { key: '/etftrend', label: 'ETF趋势跟踪' },
   { key: '/boll', label: 'BOLL突破信号' },
   { key: '/concept', label: '概念轮动' },
   { key: '/oversold', label: '超跌反弹' },

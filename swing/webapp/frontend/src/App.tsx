@@ -85,6 +85,7 @@ import LimitUpPage from './features/limitup/LimitUpPage'
 import EtfSharePage from './features/etf-share/EtfSharePage'
 import BullTopPage from './features/bull-top/BullTopPage'
 import XiaoxifuPage from './features/xiaoxifu/XiaoxifuPage'
+import EtfTrendPage from './features/etf-trend/EtfTrendPage'
 import BollPage from './features/boll/BollPage'
 import ConceptPage from './features/concept/ConceptPage'
 import OversoldPage from './features/oversold/OversoldPage'
@@ -1067,6 +1068,7 @@ export default function App() {
           if (r === '/etfshare') return <EtfSharePage />
           if (r === '/bulltop') return <BullTopPage />
           if (r === '/xiaoxifu') return <XiaoxifuPage />
+          if (r === '/etftrend') return <EtfTrendPage />
           if (r === '/boll') return <BollPage />
           if (r === '/concept') return <ConceptPage />
           if (r === '/oversold') return <OversoldPage />

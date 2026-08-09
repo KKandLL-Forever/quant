@@ -1000,6 +1000,22 @@ def concept(req: ConceptReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class EtfTrendReq(BaseModel):
+    capital: float = 200000.0
+
+
+@app.post("/api/etftrend")
+def etftrend(req: EtfTrendReq):
+    """ETF趋势跟踪(American 250/20 离散进出):当日买卖点 + 历史交易 + 组合净值。"""
+    import traceback
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, "etf_trend"))
+        import trend_signal
+        return {"ok": True, **trend_signal.to_payload(capital=req.capital)}
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/stock_search")
 def stock_search(q: str = ""):
     """按代码或名称模糊搜股票(供全站LLM分析悬浮框),返回 [{code,name}]。"""

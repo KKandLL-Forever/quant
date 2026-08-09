@@ -1,0 +1,5 @@
+# 论文原文 8.6MB,不入库。重新下载:
+#   curl -L -o sepp_lucic_2026_trend_following.pdf https://arxiv.org/pdf/2607.19497
+*.pdf
+fulltext.txt
+*.png
