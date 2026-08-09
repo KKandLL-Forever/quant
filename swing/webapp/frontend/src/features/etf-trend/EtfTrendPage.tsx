@@ -1,6 +1,6 @@
 // ETF 趋势跟踪(American 250/20 离散进出):今日买卖点 + 规则说明 + 净值对比 + 历史交易。数据走 /api/etftrend。
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Card, Table, Tag, Statistic, Row, Col, InputNumber, Alert, message } from 'antd'
+import { Button, Card, Table, Tag, Statistic, Row, Col, InputNumber, Alert, Modal, Segmented, Spin, message } from 'antd'
 import ReactECharts from 'echarts-for-react'
 import { Header, PageTitle, SkelStatRow, SkelChart, SkelTable } from '../../shell'
 
@@ -33,14 +33,113 @@ const ACTION_STYLE: Record<string, { color: string; bg: string; tip: string }> =
   '观望': { color: '#8a8377', bg: '#f4f2ec', tip: '空仓,等快线上穿进场线' },
 }
 
+interface Mark { date: string; kind: 'buy' | 'sell'; label: string; price: number; ret: number | null }
+interface Kline {
+  ok: boolean; error?: string; code: string; name: string; date: string
+  ohlc: [string, number, number, number, number, number][]
+  fast: (number | null)[]; slow: (number | null)[]; entry: (number | null)[]; stop: (number | null)[]
+  marks: Mark[]; status: Item
+  params: { slow: number; fast: number; omega: number; stop_p: number }
+}
+
 const fmtDate = (d: string) => (d && d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6)}` : d)
 const pct = (v: number | null | undefined, digits = 2) =>
   v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}%`
+
+function KlineChart({ k }: { k: Kline }) {
+  const option = useMemo(() => {
+    const dates = k.ohlc.map(b => fmtDate(b[0]))
+    const candles = k.ohlc.map(b => [b[1], b[2], b[3], b[4]])
+    const vols = k.ohlc.map(b => ({ value: b[5], itemStyle: { color: b[2] >= b[1] ? '#c0392b' : '#27ae60' } }))
+    const pos = new Map(k.ohlc.map((b, i) => [b[0], i]))
+    const mpts = k.marks.map(m => ({
+      name: m.label, xAxis: pos.get(m.date) ?? 0, yAxis: m.price,
+      value: m.label,
+      symbol: m.kind === 'buy' ? 'triangle' : 'pin',
+      symbolRotate: m.kind === 'buy' ? 0 : 180,
+      symbolSize: m.kind === 'buy' ? 16 : 22,
+      symbolOffset: m.kind === 'buy' ? [0, 16] : [0, -14],
+      itemStyle: { color: m.kind === 'buy' ? '#c0392b' : '#1f8e5a' },
+      label: { show: true, fontSize: 10, color: '#fff', formatter: m.label },
+    }))
+    const lastStop = k.status.held ? k.status.stop : null
+    return {
+      animation: false,
+      axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
+      grid: [{ left: 54, right: 96, top: 30, height: '66%' }, { left: 54, right: 96, top: '80%', height: '14%' }],
+      legend: { data: [`快线${k.params.fast}日`, `慢线${k.params.slow}日`, `进场线(慢线+${k.params.omega}ATR)`, `止损线(${k.params.stop_p}ATR跟踪)`], top: 0, itemWidth: 18, textStyle: { fontSize: 11 } },
+      tooltip: {
+        trigger: 'axis', axisPointer: { type: 'cross' },
+        formatter: (ps: any[]) => {
+          const kk = ps.find(p => p.seriesName === 'K线')
+          let s = ps[0] ? `${ps[0].axisValue}` : ''
+          if (kk) { const a = (kk.data as number[]).slice(1); s += `<br/>开 <b>${a[0]}</b>　收 <b>${a[1]}</b><br/>低 <b>${a[2]}</b>　高 <b>${a[3]}</b>` }
+          ps.filter(p => p.seriesName !== 'K线' && p.seriesName !== '成交量' && p.value != null)
+            .forEach(p => { s += `<br/>${p.marker}${p.seriesName} <b>${p.value}</b>` })
+          return s
+        },
+      },
+      xAxis: [
+        { type: 'category', data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
+        { type: 'category', gridIndex: 1, data: dates, boundaryGap: true, axisLabel: { fontSize: 9, formatter: (v: string) => v.slice(2, 7) } },
+      ],
+      yAxis: [
+        { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+        { gridIndex: 1, scale: true, splitNumber: 2, axisLabel: { show: false }, splitLine: { show: false }, name: '量', nameTextStyle: { fontSize: 9, color: '#999' } },
+      ],
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 2 }],
+      series: [
+        {
+          name: 'K线', type: 'candlestick', data: candles, xAxisIndex: 0, yAxisIndex: 0,
+          itemStyle: { color: '#c0392b', color0: '#27ae60', borderColor: '#c0392b', borderColor0: '#27ae60' },
+          markPoint: mpts.length ? { data: mpts, silent: true } : undefined,
+          markLine: lastStop != null ? {
+            symbol: 'none', silent: true,
+            data: [{ yAxis: lastStop, lineStyle: { color: '#d98324', type: 'dashed', width: 1.4 },
+              label: { show: true, position: 'insideStartTop', formatter: `最新止损 ${lastStop}`, color: '#d98324', fontSize: 11 } }],
+          } : undefined,
+        },
+        { name: `快线${k.params.fast}日`, type: 'line', data: k.fast, showSymbol: false, connectNulls: true, lineStyle: { width: 1.4, color: '#1677ff' }, itemStyle: { color: '#1677ff' }, z: 3 },
+        { name: `慢线${k.params.slow}日`, type: 'line', data: k.slow, showSymbol: false, connectNulls: true, lineStyle: { width: 1.4, color: '#8a8377' }, itemStyle: { color: '#8a8377' }, z: 3 },
+        { name: `进场线(慢线+${k.params.omega}ATR)`, type: 'line', data: k.entry, showSymbol: false, connectNulls: true, lineStyle: { width: 1.2, color: '#c0392b', type: 'dashed' }, itemStyle: { color: '#c0392b' }, z: 3 },
+        { name: `止损线(${k.params.stop_p}ATR跟踪)`, type: 'line', data: k.stop, showSymbol: false, connectNulls: false, step: 'end', lineStyle: { width: 1.6, color: '#d98324' }, itemStyle: { color: '#d98324' }, z: 4 },
+        { name: '成交量', type: 'bar', data: vols, xAxisIndex: 1, yAxisIndex: 1 },
+      ],
+    }
+  }, [k])
+  return <ReactECharts option={option} notMerge style={{ height: 520 }} />
+}
 
 export default function EtfTrendPage() {
   const [capital, setCapital] = useState(250000)
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
+  const [kOpen, setKOpen] = useState(false)
+  const [kCode, setKCode] = useState<string | null>(null)
+  const [kBars, setKBars] = useState(750)
+  const [kline, setKline] = useState<Kline | null>(null)
+  const [kLoading, setKLoading] = useState(false)
+
+  const loadKline = async (code: string, bars: number) => {
+    setKLoading(true)
+    try {
+      const r = await fetch('/api/etftrend_kline', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, bars }),
+      })
+      const j: Kline = await r.json()
+      if (!j.ok) throw new Error(j.error || '请求失败')
+      setKline(j)
+    } catch (e) { message.error((e as Error).message); setKline(null) } finally { setKLoading(false) }
+  }
+
+  const openKline = (code: string) => {
+    setKCode(code); setKline(null); setKOpen(true); loadKline(code, kBars)
+  }
+  const changeBars = (b: number) => {
+    setKBars(b)
+    if (kCode) loadKline(kCode, b)
+  }
 
   const load = async (cap: number) => {
     setLoading(true)
@@ -125,7 +224,8 @@ export default function EtfTrendPage() {
               const st = ACTION_STYLE[it.action] || ACTION_STYLE['观望']
               return (
                 <Col key={it.code} xs={24} sm={12} lg={6}>
-                  <Card size="small" style={{ background: st.bg, borderColor: st.color + '55', height: '100%' }}>
+                  <Card size="small" hoverable onClick={() => openKline(it.code)}
+                    style={{ background: st.bg, borderColor: st.color + '55', height: '100%', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                       <b style={{ fontSize: 15 }}>{it.name}</b>
                       <Tag color={st.color} style={{ marginRight: 0 }}>{it.action}</Tag>
@@ -150,6 +250,7 @@ export default function EtfTrendPage() {
                       <div style={{ opacity: .8 }}>ATR {it.atr_pct}%（决定仓位与止损宽度）</div>
                     </div>
                     <div style={{ fontSize: 11, color: st.color, marginTop: 8, lineHeight: 1.6 }}>{st.tip}</div>
+                    <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 6 }}>点击看 K 线与买卖点 →</div>
                   </Card>
                 </Col>
               )
@@ -199,6 +300,46 @@ export default function EtfTrendPage() {
           </Card>
         </>
       )}
+
+      <Modal open={kOpen} onCancel={() => setKOpen(false)} footer={null} width="min(1400px, 94vw)" destroyOnClose
+        title={kline
+          ? <span>{kline.name} <span style={{ opacity: .55, fontWeight: 400 }}>{kline.code}</span>
+              <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--ink-soft)', marginLeft: 10 }}>
+                前复权 · American {kline.params.slow}/{kline.params.fast} · 数据至 {fmtDate(kline.date)}
+              </span></span>
+          : 'K 线'}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          <Segmented size="small" value={kBars} onChange={v => changeBars(Number(v))}
+            options={[{ label: '近1年', value: 250 }, { label: '近3年', value: 750 }, { label: '全部', value: 0 }]} />
+          {kline && (
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+              <b style={{ color: '#c0392b' }}>▲买</b> / <b style={{ color: '#1f8e5a' }}>▼卖</b>
+              <b style={{ color: '#1677ff' }}>—</b>快线　<b style={{ color: '#8a8377' }}>—</b>慢线
+              <b style={{ color: '#c0392b' }}>--</b>进场线　<b style={{ color: '#d98324' }}>—</b>止损线(仅持仓期间)
+            </span>
+          )}
+        </div>
+
+        {kLoading && <div style={{ height: 520, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin /></div>}
+        {!kLoading && kline && (
+          <>
+            <KlineChart k={kline} />
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 8, lineHeight: 1.8 }}>
+              {kline.status.held ? (
+                <>
+                  当前<b style={{ color: '#0b6e4f' }}>持仓中</b>:{fmtDate(kline.status.entry_date || '')} 以 ¥{kline.status.entry_px} 买入
+                  ({(kline.status.size * 100).toFixed(0)}% 仓位)，浮盈 <b style={{ color: (kline.status.pnl ?? 0) >= 0 ? '#c0392b' : '#1f8e5a' }}>{pct(kline.status.pnl)}</b>，
+                  <b style={{ color: '#d98324' }}>最新止损 ¥{kline.status.stop}</b>(图上橙色虚线)，距止损 {pct(kline.status.stop_gap)}。
+                  {(kline.status.stop_gap ?? 1) < 0 && <b style={{ color: '#d98324' }}>　已跌破止损但快线仍在进场线上方,按规则继续持有。</b>}
+                </>
+              ) : (
+                <>当前<b>空仓</b>:快线 {kline.status.fast} 需上穿进场线 {kline.status.entry_line}(还差 {pct(kline.status.to_entry)})才买入。</>
+              )}
+              <div>止损线只在持仓期间画,<b>只升不降</b>;卖点要求收盘跌破止损线<b>且</b>快线回落到进场线下方,所以图上会看到跌破止损后仍持有的片段。</div>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   )
 }

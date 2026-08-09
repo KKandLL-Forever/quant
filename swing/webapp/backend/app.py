@@ -1016,6 +1016,23 @@ def etftrend(req: EtfTrendReq):
         return {"ok": False, "error": traceback.format_exc()[-1500:]}
 
 
+class EtfTrendKlineReq(BaseModel):
+    code: str
+    bars: int = 750           # 0 = 全部历史
+
+
+@app.post("/api/etftrend_kline")
+def etftrend_kline(req: EtfTrendKlineReq):
+    """单只 ETF 的 K 线 + 快慢线/进场线/止损线 + 历史买卖点,供前端弹窗画图。"""
+    import traceback
+    try:
+        sys.path.insert(0, os.path.join(_ROOT, "etf_trend"))
+        import trend_signal
+        return {"ok": True, **trend_signal.kline_payload(req.code, req.bars or None)}
+    except Exception:
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
 @app.get("/api/stock_search")
 def stock_search(q: str = ""):
     """按代码或名称模糊搜股票(供全站LLM分析悬浮框),返回 [{code,name}]。"""

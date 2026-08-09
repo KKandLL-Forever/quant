@@ -70,7 +70,7 @@ def load_etf(codes, start=START):
     try:
         df = con.execute(
             """
-            SELECT f.ts_code, f.trade_date, f.close, f.high, f.low, a.adj_factor
+            SELECT f.ts_code, f.trade_date, f.open, f.close, f.high, f.low, f.vol, a.adj_factor
             FROM fund_daily f
             JOIN fund_adj a ON f.ts_code = a.ts_code AND f.trade_date = a.trade_date
             WHERE f.ts_code IN ? AND f.trade_date >= ?
@@ -86,7 +86,8 @@ def load_etf(codes, start=START):
         g = g.set_index("trade_date").sort_index()
         adj = g["adj_factor"] / g["adj_factor"].iloc[-1]
         out[code] = pd.DataFrame(
-            {"px": g["close"], "close": g["close"] * adj, "high": g["high"] * adj, "low": g["low"] * adj}
+            {"px": g["close"], "open": g["open"] * adj, "close": g["close"] * adj,
+             "high": g["high"] * adj, "low": g["low"] * adj, "vol": g["vol"]}
         ).dropna()
     return out
 
@@ -101,7 +102,7 @@ def atr(df, span=ATR_SPAN):
 
 
 def run_rules(df):
-    """按式 A.5-A.13 逐日跑规则,返回 (weights, trades, status)。"""
+    """按式 A.5-A.13 逐日跑规则,返回 (weights, trades, status, lines)。"""
     s = df["close"]
     sv = s.ewm(span=SLOW_SPAN, adjust=False).mean().to_numpy()
     fv = s.ewm(span=FAST_SPAN, adjust=False).mean().to_numpy()
@@ -109,6 +110,7 @@ def run_rules(df):
     pv, raw, idx = s.to_numpy(), df["px"].to_numpy(), s.index
 
     w = np.zeros(len(s))
+    stop_line = np.full(len(s), np.nan)
     trades, pos, size, stop, ei = [], 0, 0.0, 0.0, None
     for i in range(len(s)):
         if not np.isfinite(av[i]) or av[i] <= 0:
@@ -119,6 +121,7 @@ def run_rules(df):
                 trades.append({
                     "entry_date": idx[ei], "entry_px": round(float(raw[ei]), 4),
                     "exit_date": idx[i], "exit_px": round(float(raw[i]), 4),
+                    "entry_close": round(float(pv[ei]), 4), "exit_close": round(float(pv[i]), 4),
                     "size": round(float(size), 4), "hold_days": int(i - ei),
                     "ret": round(float(pv[i] / pv[ei] - 1), 4),
                 })
@@ -128,6 +131,8 @@ def run_rules(df):
         if pos == 0 and long_on:
             pos, size, stop, ei = 1, min(RISK_R * pv[i] / av[i], 1.0), pv[i] - STOP_P * av[i], i
         w[i] = size
+        if pos > 0:
+            stop_line[i] = stop
 
     n = len(s) - 1
     entry_line = sv[n] + OMEGA * av[n]
@@ -148,7 +153,8 @@ def run_rules(df):
         "signal_on": bool(fv[n] > entry_line),
     }
     status["action"] = _action(status)
-    return pd.Series(w, index=idx), trades, status
+    lines = {"fast": fv, "slow": sv, "atr": av, "entry": sv + OMEGA * av, "stop": stop_line}
+    return pd.Series(w, index=idx), trades, status, lines
 
 
 def _action(st):
@@ -206,7 +212,7 @@ def to_payload(capital=DEFAULT_CAPITAL, codes=None):
     items, all_trades, curves, bh_curves, cost_sum = [], [], [], [], 0.0
     for code, df in data.items():
         name = UNIVERSE.get(code, code)
-        w, trades, st = run_rules(df)
+        w, trades, st, _ = run_rules(df)
         items.append({"code": code, "name": name, **st})
         for t in trades:
             all_trades.append({"code": code, "name": name, **t})
@@ -253,6 +259,45 @@ def to_payload(capital=DEFAULT_CAPITAL, codes=None):
         "equity": equity,
         "perf": {"strat": _metrics(port, capital), "bh": _metrics(bh, capital),
                  "cost": round(float(cost_sum), 0), "years": round(len(port) / A_TRADING, 1)},
+    }
+
+
+def kline_payload(code, bars=750):
+    """单只 ETF 的 K 线 + 快慢线/进场线/止损线 + 买卖点,供前端弹窗画图(前复权,末日对齐原始价)。"""
+    df = load_etf([code])[code]
+    w, trades, st, ln = run_rules(df)
+    n = len(df)
+    i0 = max(n - bars, 0) if bars else 0
+    idx = [str(d) for d in df.index[i0:]]
+    pos = {d: i for i, d in enumerate(idx)}
+    r3 = lambda v: None if v is None or not np.isfinite(v) else round(float(v), 3)
+
+    ohlc = [[idx[i - i0], r3(df["open"].iloc[i]), r3(df["close"].iloc[i]),
+             r3(df["low"].iloc[i]), r3(df["high"].iloc[i]), r3(float(df["vol"].iloc[i]))]
+            for i in range(i0, n)]
+
+    marks = []
+    for t in trades:
+        for key, kind, label in (("entry_date", "buy", "买"), ("exit_date", "sell", "卖")):
+            d = str(t[key])
+            if d in pos:
+                marks.append({"date": d, "kind": kind, "label": label,
+                              "price": t["entry_close"] if kind == "buy" else t["exit_close"],
+                              "ret": t["ret"]})
+    if st["entry_date"] and str(st["entry_date"]) in pos:
+        marks.append({"date": str(st["entry_date"]), "kind": "buy", "label": "买",
+                      "price": r3(df["close"].loc[st["entry_date"]]), "ret": None})
+
+    return {
+        "code": code, "name": UNIVERSE.get(code, code), "date": str(df.index[-1]),
+        "ohlc": ohlc,
+        "fast": [r3(v) for v in ln["fast"][i0:]],
+        "slow": [r3(v) for v in ln["slow"][i0:]],
+        "entry": [r3(v) for v in ln["entry"][i0:]],
+        "stop": [r3(v) for v in ln["stop"][i0:]],
+        "marks": marks,
+        "status": st,
+        "params": {"slow": SLOW_SPAN, "fast": FAST_SPAN, "omega": OMEGA, "stop_p": STOP_P},
     }
 
 
