@@ -18,6 +18,11 @@
   卖出  收盘 < 昨日止损 **且** 快线 <= 慢线 + 1*ATR（两个条件必须同时成立）
         单看止损会在趋势未变时被震出、次日信号仍亮又要买回，白付两趟手续费（论文脚注 10）
 
+标的（5 只，各分 1/5 资金，默认总资金 25 万）：
+  510300 沪深300 / 588000 科创50 / 159915 创业板 / 510500 中证500 / 513100 纳指
+  513100 是 QDII，与 A 股相关性低、分散效果最好，但有折溢价与额度限购：
+  信号按二级市场收盘价算，实盘遇到高溢价或暂停申购时需自行判断是否执行。
+
 用法：
   python etf_trend/trend_signal.py        打印当前状态与历史交易
   后端 /api/etftrend 调 to_payload()
@@ -52,7 +57,10 @@ UNIVERSE = {
     "588000.SH": "科创50ETF",
     "159915.SZ": "创业板ETF",
     "510500.SH": "中证500ETF",
+    "513100.SH": "纳指ETF",
 }
+
+DEFAULT_CAPITAL = 250000.0
 
 
 def load_etf(codes, start=START):
@@ -189,7 +197,7 @@ def _metrics(curve, capital):
     }
 
 
-def to_payload(capital=200000.0, codes=None):
+def to_payload(capital=DEFAULT_CAPITAL, codes=None):
     """webapp 用:当前状态 + 历史交易 + 组合净值对比,返回可直接 JSON 化的 dict。"""
     codes = list(codes or UNIVERSE)
     data = load_etf(codes)

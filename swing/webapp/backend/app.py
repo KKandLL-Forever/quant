@@ -1001,7 +1001,7 @@ def concept(req: ConceptReq):
 
 
 class EtfTrendReq(BaseModel):
-    capital: float = 200000.0
+    capital: float = 250000.0
 
 
 @app.post("/api/etftrend")

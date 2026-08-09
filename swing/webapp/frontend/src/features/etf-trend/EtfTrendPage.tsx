@@ -38,7 +38,7 @@ const pct = (v: number | null | undefined, digits = 2) =>
   v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(digits)}%`
 
 export default function EtfTrendPage() {
-  const [capital, setCapital] = useState(200000)
+  const [capital, setCapital] = useState(250000)
   const [data, setData] = useState<Payload | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -101,12 +101,12 @@ export default function EtfTrendPage() {
 
       <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 14, flexWrap: 'wrap' }}>
         <span>总资金</span>
-        <InputNumber value={capital} onChange={v => setCapital(v || 200000)} size="small" step={10000} min={10000}
+        <InputNumber value={capital} onChange={v => setCapital(v || 250000)} size="small" step={10000} min={10000}
           style={{ width: 130 }} formatter={v => `¥${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => Number((v || '').replace(/[^\d]/g, ''))} />
         <Button type="primary" size="small" onClick={() => load(capital)} loading={loading}
           style={{ background: 'linear-gradient(135deg,#0b6e4f,#159c70)', border: 'none' }}>▶ 刷新信号</Button>
         {data && <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
-          4 只 ETF 各分 ¥{data.sleeve.toLocaleString()} · 每只独立执行 · 只做多 · 数据至 {fmtDate(data.date)}
+          {data.items.length} 只 ETF 各分 ¥{data.sleeve.toLocaleString()} · 每只独立执行 · 只做多 · 数据至 {fmtDate(data.date)}
         </span>}
       </div>
 
