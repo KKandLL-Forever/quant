@@ -72,7 +72,7 @@ function KlineChart({ k }: { k: Kline }) {
     return {
       animation: false,
       axisPointer: { link: [{ xAxisIndex: 'all' }], label: { backgroundColor: '#777' } },
-      grid: [{ left: 54, right: 96, top: 30, height: '66%' }, { left: 54, right: 96, top: '80%', height: '14%' }],
+      grid: [{ left: 54, right: 96, top: 30, height: '68%' }, { left: 54, right: 96, top: '82%', height: '15%' }],
       legend: { data: [`快线${k.params.fast}日`, `慢线${k.params.slow}日`, `进场线(慢线+${k.params.omega}ATR)`, `止损线(${k.params.stop_p}ATR跟踪)`], top: 0, itemWidth: 18, textStyle: { fontSize: 11 } },
       tooltip: {
         trigger: 'axis', axisPointer: { type: 'cross' },
@@ -93,7 +93,7 @@ function KlineChart({ k }: { k: Kline }) {
         { scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
         { gridIndex: 1, scale: true, splitNumber: 2, axisLabel: { show: false }, splitLine: { show: false }, name: '量', nameTextStyle: { fontSize: 9, color: '#999' } },
       ],
-      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }, { type: 'slider', xAxisIndex: [0, 1], height: 16, bottom: 2 }],
+      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1] }],
       series: [
         {
           name: 'K线', type: 'candlestick', data: candles, xAxisIndex: 0, yAxisIndex: 0,
