@@ -52,16 +52,22 @@ function KlineChart({ k }: { k: Kline }) {
     const candles = k.ohlc.map(b => [b[1], b[2], b[3], b[4]])
     const vols = k.ohlc.map(b => ({ value: b[5], itemStyle: { color: b[2] >= b[1] ? '#c0392b' : '#27ae60' } }))
     const pos = new Map(k.ohlc.map((b, i) => [b[0], i]))
-    const mpts = k.marks.map(m => ({
-      name: m.label, xAxis: pos.get(m.date) ?? 0, yAxis: m.price,
-      value: m.label,
-      symbol: m.kind === 'buy' ? 'triangle' : 'pin',
-      symbolRotate: m.kind === 'buy' ? 0 : 180,
-      symbolSize: m.kind === 'buy' ? 16 : 22,
-      symbolOffset: m.kind === 'buy' ? [0, 16] : [0, -14],
-      itemStyle: { color: m.kind === 'buy' ? '#c0392b' : '#1f8e5a' },
-      label: { show: true, fontSize: 10, color: '#fff', formatter: m.label },
-    }))
+    const mpts = k.marks.map(m => {
+      const buy = m.kind === 'buy'
+      const color = buy ? '#c0392b' : '#1f8e5a'
+      return {
+        name: m.label, xAxis: pos.get(m.date) ?? 0, yAxis: m.price,
+        symbol: 'triangle', symbolRotate: buy ? 0 : 180, symbolSize: 13,
+        symbolOffset: buy ? [0, 24] : [0, -24],
+        itemStyle: { color, borderColor: '#fffdf8', borderWidth: 1 },
+        label: {
+          show: true, position: buy ? 'bottom' : 'top', distance: 5,
+          formatter: m.label, color, fontSize: 14, fontWeight: 700,
+          backgroundColor: 'rgba(255,253,248,.92)', borderColor: color, borderWidth: 1,
+          borderRadius: 3, padding: [2, 5],
+        },
+      }
+    })
     const lastStop = k.status.held ? k.status.stop : null
     return {
       animation: false,
