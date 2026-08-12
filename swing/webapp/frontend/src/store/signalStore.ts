@@ -1,7 +1,7 @@
 // ML 信号页的共享状态(zustand):训练参数 / 组合份数 / payload / 训练动作。
 import { createElement as h } from 'react'
 import { create } from 'zustand'
-import { message, notification } from 'antd'
+import { message, notification, Modal } from 'antd'
 import { TrainPayloadSchema, type TrainPayload } from '../lib/schema'
 
 const _stat = (label: string, value: unknown, color = '#1f2733') =>
@@ -40,7 +40,23 @@ function _trainDesc(mt: Record<string, unknown>) {
     _gapVerdict(tr, auc ?? null, gap, nVal))
 }
 
-interface Params { mode: string; tier: number; start: string; train: boolean }
+interface Params { mode: string; tier: number; start: string; valend: string; train: boolean }
+
+// 后端把脚本 stderr 原样带回,多行且含「→ 把 --valend 提前到 …」这类可执行提示,用弹窗展示不截断。
+function _showTrainError(err: string) {
+  const msg = (err || '').trim()
+  if (!msg) { message.error('训练失败'); return }
+  const hint = /valend|越过打分起点|特征集与当前 FEATS/.test(msg)
+    ? '多半是「验证段末日」没设或设得太晚。脚本已在下方给出最早可用的起始日,按它调整即可。'
+    : ''
+  Modal.error({
+    title: '训练失败', width: 760,
+    content: h('div', null,
+      hint ? h('div', { style: { marginBottom: 10, color: '#c0392b' } }, hint) : null,
+      h('pre', { style: { whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12, lineHeight: 1.6,
+        background: '#f6f8fa', padding: 10, borderRadius: 6, maxHeight: 420, overflow: 'auto' } }, msg)),
+  })
+}
 
 interface SignalState {
   params: Params
@@ -53,7 +69,7 @@ interface SignalState {
 }
 
 export const useSignalStore = create<SignalState>((set, get) => ({
-  params: { mode: 'long', tier: 20, start: '20260529', train: false },
+  params: { mode: 'long', tier: 20, start: '20260529', valend: '20260228', train: false },
   setParams: (p) => set(s => ({ params: { ...s.params, ...p } })),
   parts: 4,
   setParts: (n) => set({ parts: n }),
@@ -67,7 +83,7 @@ export const useSignalStore = create<SignalState>((set, get) => ({
         body: JSON.stringify({ ...get().params, ...extra }),
       })
       const j = await r.json()
-      if (!j.ok) { message.error('训练失败: ' + (j.error || '')); return }
+      if (!j.ok) { _showTrainError(j.error || ''); return }
       const pr = TrainPayloadSchema.safeParse(j)      // zod 软校验:失败则退回原始 j,不阻断
       const p = (pr.success ? pr.data : j) as TrainPayload
       p.signals.forEach((s: Record<string, unknown>) => { s.__latest = p.latest })

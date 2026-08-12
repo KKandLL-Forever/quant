@@ -40,6 +40,7 @@ class TrainReq(BaseModel):
     tier: int = 5
     start: str = "20250101"
     end: str | None = None
+    valend: str | None = None   # 验证段末日(--valend);重训必传,否则越界守卫会拦下
     n: int = 800            # 股票池大小(按流通市值取前 N)
     train: bool = False     # 重新训练模型(--train)
     refresh: bool = False   # 不重训,但绕过缓存重新打分(拿最新行情)
@@ -77,7 +78,8 @@ def _read_cache(path, **kw):
 @app.post("/api/train")
 def train(req: TrainReq):
     """跑 ML 信号管线,返回 {signals, banner, cal, latest, ntrade, ...}。train=True 重训模型。"""
-    ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_n{req.n}_{req.start}_{req.end or 'now'}.json")
+    ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_n{req.n}_{req.start}_"
+                                 f"{req.end or 'now'}_v{req.valend or 'auto'}.json")
     if not req.train and not req.refresh:
         r = _read_cache(ck, parse_constant=lambda *_: None)
         if r is not None:
@@ -88,11 +90,15 @@ def train(req: TrainReq):
            "--n", str(req.n), "--start", req.start, "--json", out]
     if req.end:
         cmd += ["--end", req.end]
+    if req.valend:
+        cmd += ["--valend", req.valend]
     if req.train:
         cmd += ["--train"]
     try:
+        # WHY: Windows 下子进程 stderr 默认走控制台 GBK,按 utf-8 解码会变乱码,报错提示读不出来
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         p = subprocess.run(cmd, cwd=SWING, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=1800)
+                           encoding="utf-8", errors="replace", timeout=1800, env=env)
         if not os.path.exists(out) or os.path.getsize(out) == 0:
             return {"ok": False, "error": "ML 未产出数据。stderr:\n" + (p.stderr or p.stdout or "")[-2000:]}
         with open(out, encoding="utf-8") as f:

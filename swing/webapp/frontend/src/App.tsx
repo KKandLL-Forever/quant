@@ -731,6 +731,17 @@ function MainPage() {
           options={[{ value: 'quick', label: 'quick(小赚)' }, { value: 'long', label: 'long(大赚)' }]} />
         <span>档位top</span><InputNumber min={1} max={100} value={params.tier} onChange={v => setParams({ ...params, tier: v ?? 5 })} />
         <span>起始</span><Input style={{ width: 110 }} value={params.start} onChange={e => setParams({ ...params, start: e.target.value })} />
+        <Popover content={<div style={{ maxWidth: 420, fontSize: 12, lineHeight: 1.7 }}>
+          验证段末日(<code>--valend</code>)。验证段取它往前 12 个月,训练段到验证段起点前 60 个交易日为止。<br />
+          <b>重训必须设它</b>:留空则退回「验证段末日 = 起始日前一天」,验证段的 60 交易日标签窗会探进打分区,
+          脚本的越界守卫会直接报错。<br />
+          设定原则:<b>valend 的标签窗结算日 ≤ 起始日</b>,约等于 valend 要比起始日早 3 个月以上(跨春节更久)。
+          报错信息里会直接给出最早可用的起始日。
+        </div>}>
+          <span style={{ cursor: 'help', borderBottom: '1px dashed #b0a898' }}>验证段末日</span>
+        </Popover>
+        <Input style={{ width: 110 }} value={params.valend} placeholder="留空=旧行为"
+          onChange={e => setParams({ ...params, valend: e.target.value.trim() })} />
         <Checkbox checked={params.train} onChange={e => setParams({ ...params, train: e.target.checked })}>重新训练模型</Checkbox>
         <Button type="primary" loading={loading} onClick={() => train()}>训练模型 / 出信号</Button>
         <Button loading={loading} onClick={() => train({ refresh: true, train: false })}>刷新数据(不重训)</Button>
