@@ -1,0 +1,182 @@
+<title>爆量→缩量沉寂 选股</title>
+<style>
+:root{--bg:#f4f2ec;--surface:#fffdf8;--ink:#191510;--muted:#6f685c;--border:#e4ddcf;
+  --up:#d83a5a;--down:#159a52;--line:#2b6ca3;--chip:#efe9dc;--hi:#fff6d9}
+@media(prefers-color-scheme:dark){:root{--bg:#0d1016;--surface:#151a22;--ink:#e9ebef;--muted:#98a1ad;
+  --border:#252d39;--up:#f5486a;--down:#28c46a;--line:#5b9bd5;--chip:#1e2530;--hi:#2a2718}}
+:root[data-theme=dark]{--bg:#0d1016;--surface:#151a22;--ink:#e9ebef;--muted:#98a1ad;--border:#252d39;
+  --up:#f5486a;--down:#28c46a;--line:#5b9bd5;--chip:#1e2530;--hi:#2a2718}
+:root[data-theme=light]{--bg:#f4f2ec;--surface:#fffdf8;--ink:#191510;--muted:#6f685c;--border:#e4ddcf;
+  --up:#d83a5a;--down:#159a52;--line:#2b6ca3;--chip:#efe9dc;--hi:#fff6d9}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-size:14px;
+  font-family:-apple-system,"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:26px 20px 60px}
+.kick{font-family:ui-monospace,monospace;font-size:10.5px;letter-spacing:2px;text-transform:uppercase;
+  color:var(--line);font-weight:600}
+h1{font-size:21px;margin:2px 0 4px}
+.sub{color:var(--muted);font-size:12.5px;line-height:1.7;max-width:80ch;margin-bottom:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px}
+.stat{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.stat div{flex:1;min-width:130px;background:var(--surface);border:1px solid var(--border);
+  border-radius:10px;padding:10px 13px}
+.stat .l{font-size:11px;color:var(--muted)}
+.stat .v{font-size:19px;font-weight:700;margin-top:2px}
+.ctl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+input,select{background:var(--surface);color:var(--ink);border:1px solid var(--border);
+  border-radius:8px;padding:6px 10px;font-size:13px;font-family:inherit}
+input{min-width:190px}
+.tag{font-size:11.5px;color:var(--muted);padding:5px 9px;border:1px solid var(--border);
+  border-radius:99px;cursor:pointer;user-select:none;background:var(--surface)}
+.tag.on{background:var(--line);border-color:var(--line);color:#fff}
+.tblwrap{overflow-x:auto;background:var(--surface);border:1px solid var(--border);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:13px;white-space:nowrap}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--border)}
+th{position:sticky;top:0;background:var(--surface);font-size:11.5px;color:var(--muted);font-weight:600;
+  cursor:pointer;user-select:none;z-index:1}
+th:hover{color:var(--ink)}
+th.sorted::after{content:" ▾";color:var(--line)}
+th.asc::after{content:" ▴";color:var(--line)}
+td.l,th.l{text-align:left}
+tbody tr:hover{background:var(--hi)}
+.code{font-family:ui-monospace,monospace;font-size:12px;color:var(--muted)}
+.nm{font-weight:600}
+.chip{display:inline-block;font-size:11px;padding:2px 7px;border-radius:99px;background:var(--chip);
+  color:var(--muted)}
+.chip.gold{background:var(--down);color:#fff}
+.chip.soon{background:var(--line);color:#fff}
+.up{color:var(--up)}.down{color:var(--down)}
+.bars{display:inline-flex;gap:2px;align-items:flex-end;height:18px;vertical-align:middle}
+.bars i{width:6px;background:var(--line);opacity:.55;border-radius:1px}
+.note{margin-top:14px;font-size:12px;color:var(--muted);line-height:1.8}
+.note b{color:var(--ink)}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+</style>
+<div class="wrap">
+  <div class="kick">volume burst → dry-up screen</div>
+  <h1>爆量 → 持续缩量沉寂 · 选股结果</h1>
+  <div class="sub" id="sub"></div>
+
+  <div class="stat">
+    <div><div class="l">命中只数</div><div class="v" id="s1"></div></div>
+    <div><div class="l">中位放量倍数</div><div class="v" id="s2"></div></div>
+    <div><div class="l">中位尾量/起爆量</div><div class="v" id="s3"></div></div>
+    <div><div class="l">已金叉 / 即将金叉</div><div class="v" id="s4"></div></div>
+    <div><div class="l">覆盖行业</div><div class="v" id="s5"></div></div>
+  </div>
+
+  <div class="ctl">
+    <input id="q" placeholder="搜索代码 / 名称 / 行业">
+    <select id="ind"></select>
+    <span class="tag on" data-m="all">全部</span>
+    <span class="tag" data-m="gold">已金叉</span>
+    <span class="tag" data-m="soon">即将金叉</span>
+    <span style="margin-left:auto;font-size:12px;color:var(--muted)" id="cnt"></span>
+  </div>
+
+  <div class="tblwrap">
+    <table>
+      <thead><tr id="head"></tr></thead>
+      <tbody id="body"></tbody>
+    </table>
+    <div class="empty" id="empty" style="display:none">没有符合条件的股票</div>
+  </div>
+
+  <div class="note">
+    <b>形态</b>：起爆日在观察日前 <span id="n1"></span> 个交易日内放量（≥ 其前 20 日均量的 <span id="n2"></span> 倍），
+    之后没再出现更大量；起爆日到今天四等分，四段均量逐段递减；最后 <span id="n3"></span> 日成交量缩到起爆量的
+    <span id="n4"></span> 倍以内且低于 20 日均量线。已剔除科创 / 创业 / 北交所 / ST / 退市 / 微盘 / 低流动性。<br>
+    <b>量能四段</b>柱子从左到右是起爆后四段的平均成交量（万手），越靠右越矮 = 萎缩越彻底。<br>
+    <b>起爆以来</b>用未复权收盘价计算，期间除权的票会失真。列头可点击排序。
+  </div>
+</div>
+<script>
+const P = __PAYLOAD__;
+const M = P.meta, ROWS = P.rows;
+
+document.getElementById('sub').textContent =
+  `观察日 ${M.date}（生成于 ${M.generated}）· 起爆日搜索窗口 D0 前 ${M.min_lag}~${M.max_lag} 个交易日 · `
+  + `倍量 ≥${M.burst} · 尾部 ${M.tail_days} 日缩量 ≤${M.shrink}×起爆量 · 总市值 ≥${M.min_mv} 亿 · `
+  + `成交额 ≥${M.min_amt} 万 · MACD ${M.macd}`;
+n1.textContent = `${M.min_lag}~${M.max_lag}`; n2.textContent = M.burst;
+n3.textContent = M.tail_days; n4.textContent = M.shrink;
+
+const med = a => { if(!a.length) return 0; const s=[...a].sort((x,y)=>x-y), h=s.length>>1;
+  return s.length%2 ? s[h] : (s[h-1]+s[h])/2; };
+const isGold = r => (r.macd||'').startsWith('已金叉');
+const isSoon = r => (r.macd||'').startsWith('即将');
+
+s1.textContent = ROWS.length;
+s2.textContent = med(ROWS.map(r=>r.burst_vol_x_ma20)).toFixed(2) + '×';
+s3.textContent = med(ROWS.map(r=>r.tail_vol_x_burst)).toFixed(2) + '×';
+s4.textContent = ROWS.filter(isGold).length + ' / ' + ROWS.filter(isSoon).length;
+s5.textContent = new Set(ROWS.map(r=>r.industry)).size;
+
+const COLS = [
+  {k:'ts_code', t:'代码', l:1, f:r=>`<span class="code">${r.ts_code}</span>`},
+  {k:'name', t:'名称', l:1, f:r=>`<span class="nm">${r.name}</span>`},
+  {k:'industry', t:'行业', l:1, f:r=>r.industry},
+  {k:'total_mv_yi', t:'总市值(亿)', f:r=>r.total_mv_yi.toFixed(1)},
+  {k:'macd', t:'MACD', l:1, f:r=>`<span class="chip ${isGold(r)?'gold':isSoon(r)?'soon':''}">${r.macd||'—'}</span>`},
+  {k:'burst_date', t:'起爆日', l:1, f:r=>r.burst_date},
+  {k:'lag_days', t:'距今', f:r=>r.lag_days},
+  {k:'burst_vol_x_ma20', t:'放量倍数', f:r=>r.burst_vol_x_ma20.toFixed(2)+'×'},
+  {k:'tail_vol_x_burst', t:'尾量/起爆量', f:r=>r.tail_vol_x_burst.toFixed(3)},
+  {k:'tail_vol_x_ma20', t:'尾量/20日均量', f:r=>r.tail_vol_x_ma20.toFixed(2)},
+  {k:'_blk', t:'量能四段', l:1, sort:0, f:r=>bars(r.shrink_blocks)},
+  {k:'amt_tail_avg_wan', t:'尾部均额(万)', f:r=>Math.round(r.amt_tail_avg_wan).toLocaleString()},
+  {k:'ret_since_burst', t:'起爆以来', f:r=>`<span class="${r.ret_since_burst>=0?'up':'down'}">${r.ret_since_burst>=0?'+':''}${r.ret_since_burst.toFixed(1)}%</span>`},
+  {k:'close', t:'收盘', f:r=>r.close.toFixed(2)},
+];
+
+function bars(b){
+  if(!b || !b.length) return '';
+  const mx = Math.max(...b) || 1;
+  return '<span class="bars" title="' + b.map(x=>x.toFixed(1)).join(' > ') + '">'
+    + b.map(x=>`<i style="height:${Math.max(2, x/mx*18).toFixed(1)}px"></i>`).join('') + '</span>';
+}
+
+document.getElementById('head').innerHTML =
+  COLS.map((c,i)=>`<th class="${c.l?'l':''}" data-i="${i}">${c.t}</th>`).join('');
+
+const inds = [...new Set(ROWS.map(r=>r.industry))].sort();
+document.getElementById('ind').innerHTML =
+  '<option value="">全部行业</option>' + inds.map(i=>`<option>${i}</option>`).join('');
+
+let sortKey = 'tail_vol_x_burst', asc = true, mode = 'all';
+
+function view(){
+  const q = document.getElementById('q').value.trim().toLowerCase();
+  const ind = document.getElementById('ind').value;
+  let rs = ROWS.filter(r =>
+    (!ind || r.industry === ind) &&
+    (mode === 'all' || (mode === 'gold' ? isGold(r) : isSoon(r))) &&
+    (!q || (r.ts_code + r.name + r.industry).toLowerCase().includes(q)));
+  rs.sort((a,b)=>{
+    const x = a[sortKey], y = b[sortKey];
+    const c = (typeof x === 'number') ? x - y : String(x).localeCompare(String(y), 'zh');
+    return asc ? c : -c;
+  });
+  document.getElementById('body').innerHTML = rs.map(r =>
+    '<tr>' + COLS.map(c=>`<td class="${c.l?'l':''}">${c.f(r)}</td>`).join('') + '</tr>').join('');
+  document.getElementById('empty').style.display = rs.length ? 'none' : 'block';
+  document.getElementById('cnt').textContent = `显示 ${rs.length} / ${ROWS.length} 只`;
+  [...document.querySelectorAll('th')].forEach((th,i)=>{
+    th.className = (COLS[i].l ? 'l ' : '') + (COLS[i].k === sortKey ? (asc ? 'asc' : 'sorted') : '');
+  });
+}
+
+document.getElementById('head').onclick = e => {
+  const th = e.target.closest('th'); if(!th) return;
+  const c = COLS[+th.dataset.i]; if(c.sort === 0) return;
+  if(sortKey === c.k) asc = !asc; else { sortKey = c.k; asc = true; }
+  view();
+};
+document.getElementById('q').oninput = view;
+document.getElementById('ind').onchange = view;
+document.querySelectorAll('.tag').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tag').forEach(x=>x.classList.remove('on'));
+  t.classList.add('on'); mode = t.dataset.m; view();
+});
+view();
+</script>
