@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import type { DayBoard } from './BoardLineChart'
 
 const fmtDate = (d: string) => (d.length === 8 ? `${d.slice(4, 6)}-${d.slice(6, 8)}` : d)
+const BOARD_COLOR = '#5c8471'
 const TEMP_COLORS = ['#5b9bd5', '#7fd4d0', '#f2d16b', '#e8913a', '#c0392b']
 
 export function MoodChart({ days, temps, onPick, height = 520 }:
@@ -33,12 +34,12 @@ export function MoodChart({ days, temps, onPick, height = 520 }:
       {
         name: '最高连板数', type: 'line', yAxisIndex: 0, symbolSize: 5,
         data: days.map(d => d.maxBoard),
-        lineStyle: { color: '#c0392b', width: 2 }, itemStyle: { color: '#c0392b' },
-        areaStyle: { color: 'rgba(192,57,43,.06)' },
+        lineStyle: { color: BOARD_COLOR, width: 2 }, itemStyle: { color: BOARD_COLOR },
+        areaStyle: { color: 'rgba(109,149,131,.10)' },
         labelLayout: { hideOverlap: true },
         label: {
-          show: true, position: 'top', fontSize: 11, color: '#c0392b', lineHeight: 13,
-          backgroundColor: 'rgba(255,253,248,.92)', borderColor: '#e6d9c8', borderWidth: 1, borderRadius: 3, padding: [2, 4],
+          show: true, position: 'top', fontSize: 11, color: BOARD_COLOR, lineHeight: 13,
+          backgroundColor: 'rgba(255,253,248,.92)', borderColor: '#cfded6', borderWidth: 1, borderRadius: 3, padding: [2, 4],
           formatter: (p: any) => {
             const d = days[p.dataIndex]
             return d.maxBoard >= 3 && d.topName ? `${d.topName}\n${d.maxBoard}板` : ''
