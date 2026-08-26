@@ -28,6 +28,7 @@ SWING = os.path.join(_ROOT, "swing")
 
 PY = sys.executable   # 子进程用跑 uvicorn 的同一解释器,保证依赖环境一致(跨平台)
 POOL_FILE = os.path.join(_ROOT, "xiaoxifu", "leader_pool.json")   # 自定义龙头股票池持久化(非数据库)
+MOOD_FILE = os.path.join(_ROOT, "first10", "mood_temp.json")      # 短线情绪温度(0-100),纯手工录入,无接口无算法
 sys.path.insert(0, SWING)
 sys.path.insert(0, _ROOT)
 
@@ -733,11 +734,61 @@ def boardcal(req: BoardCalReq):
             below = [b for b in boards if b < mx]
             second = max(below) if below else 0
             dragons = sorted([x for x in ss if x[2] >= 6], key=lambda x: (-x[2], -x[3]))
+            top = max(ss, key=lambda x: (x[2], x[3]))
             days.append({
                 "date": d.replace("-", ""), "maxBoard": mx, "secondBoard": second,
+                "topName": top[1], "topCode": top[0], "total": len(ss),
                 "dragons": [{"tsCode": x[0], "name": x[1], "board": x[2]} for x in dragons],
             })
         return {"ok": True, "days": days}
+    except Exception:
+        import traceback
+        return {"ok": False, "error": traceback.format_exc()[-1500:]}
+
+
+class MoodSaveReq(BaseModel):
+    items: dict[str, float | None]
+    replace: bool = False
+
+
+def _load_mood():
+    """读手工录入的情绪温度表({YYYYMMDD: 0-100});文件不存在或损坏都退回空表。"""
+    if not os.path.exists(MOOD_FILE):
+        return {}
+    try:
+        d = json.load(open(MOOD_FILE, encoding="utf-8"))
+        return {str(k): float(v) for k, v in d.items() if v is not None}
+    except Exception:
+        return {}
+
+
+@app.post("/api/mood_temp")
+def mood_temp():
+    """取全部情绪温度。"""
+    return {"ok": True, "items": _load_mood()}
+
+
+@app.post("/api/mood_temp_save")
+def mood_temp_save(req: MoodSaveReq):
+    """写情绪温度:默认按日期增量合并,值为 null 表示删除该日;replace=true 则整表覆盖。"""
+    try:
+        cur = {} if req.replace else _load_mood()
+        bad = []
+        for k, v in req.items.items():
+            k = str(k).replace("-", "").strip()
+            if len(k) != 8 or not k.isdigit():
+                bad.append(k)
+                continue
+            if v is None:
+                cur.pop(k, None)
+            elif 0 <= float(v) <= 100:
+                cur[k] = round(float(v), 1)
+            else:
+                bad.append(k)
+        os.makedirs(os.path.dirname(MOOD_FILE), exist_ok=True)
+        json.dump({k: cur[k] for k in sorted(cur)}, open(MOOD_FILE, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+        return {"ok": True, "n": len(cur), "bad": bad}
     except Exception:
         import traceback
         return {"ok": False, "error": traceback.format_exc()[-1500:]}

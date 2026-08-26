@@ -1,7 +1,7 @@
 // 连板日历折线:最高板/次高板双线 + 牛市区间底色(echarts)。
 import ReactECharts from 'echarts-for-react'
 
-export interface DayBoard { date: string; maxBoard: number; secondBoard: number; dragons: { tsCode: string; name: string; board: number }[] }
+export interface DayBoard { date: string; maxBoard: number; secondBoard: number; topName?: string; topCode?: string; total?: number; dragons: { tsCode: string; name: string; board: number }[] }
 
 const BULL_MARKETS = [
   { start: '20140701', end: '20150630', label: '杠杆牛', color: '#c0392b' },

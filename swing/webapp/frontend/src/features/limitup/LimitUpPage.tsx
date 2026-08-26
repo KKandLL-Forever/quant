@@ -1,4 +1,4 @@
-// 涨停统计:连板梯队 / 连板成功率 / 连板日历 三同级 tab。数据走后端(DuckDB limit_list_d)。
+// 涨停统计:连板梯队 / 连板成功率 / 连板日历 / 情绪温度 四同级 tab。数据走后端(DuckDB limit_list_d);情绪温度为手工录入,存后端 json。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Input, Button, Card, Table, Spin, Tabs, Collapse, Progress, message } from 'antd'
 import { Header, PageTitle, SkelTable } from '../../shell'
@@ -9,6 +9,7 @@ import { useDateZoom, clipByRange, decimate } from '../../lib/useDateZoom'
 import { ZoomBox } from '../../components/ZoomBox'
 import { BoardLineChart, type DayBoard } from './BoardLineChart'
 import { BoardGrid } from './BoardGrid'
+import { MoodPanel } from './MoodPanel'
 
 const boardColor = (d: number) => (d >= 5 ? '#c0392b' : d >= 3 ? '#e07b39' : '#0b6e4f')
 const rateColor = (r: number) => (r >= 0.6 ? '#c0392b' : r >= 0.4 ? '#e07b39' : r >= 0.2 ? '#b8860b' : '#5b554a')
@@ -172,21 +173,22 @@ export default function LimitUpPage() {
   return (
     <div style={{ maxWidth: 'min(2000px, 96vw)', margin: '18px auto', padding: '0 16px' }}>
       <Header />
-      <PageTitle kicker="Limit-up Ladder / Success-rate / Calendar">涨停统计</PageTitle>
+      <PageTitle kicker="Limit-up Ladder / Success-rate / Calendar / Mood">涨停统计</PageTitle>
 
-      {tab !== 'calendar' && (
+      {tab !== 'calendar' && tab !== 'mood' && (
         <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
           <span>起始</span><Input style={{ width: 120 }} value={start} onChange={e => setStart(e.target.value.trim())} onPressEnter={load} />
           <Button type="primary" loading={loading} onClick={load}>加载</Button>
           {data && <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>区间 {data.dates[0]} ~ {data.dates[data.dates.length - 1]} · {data.dates.length} 个交易日</span>}
         </div>
       )}
-      {loading && tab !== 'calendar' && <SkelTable rows={14} />}
+      {loading && tab !== 'calendar' && tab !== 'mood' && <SkelTable rows={14} />}
 
       <Tabs size="large" activeKey={tab} onChange={setTab} items={[
         { key: 'ladder', label: '连板梯队', children: data ? <LadderView data={data} /> : null },
         { key: 'rate', label: '连板成功率', children: data ? <RateView data={data} /> : null },
         { key: 'calendar', label: '连板日历', children: <BoardCalendar /> },
+        { key: 'mood', label: '情绪温度', children: <MoodPanel /> },
       ]} />
     </div>
   )
