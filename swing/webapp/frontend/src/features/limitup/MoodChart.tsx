@@ -10,8 +10,7 @@ export function MoodChart({ days, temps, onPick, height = 480 }:
   const dates = days.map(d => d.date)
   const option = {
     animation: false,
-    grid: { left: 52, right: 58, top: 34, bottom: 34 },
-    legend: { top: 4, data: ['最高连板数', '短线情绪温度'], textStyle: { fontSize: 12 } },
+    grid: { left: 52, right: 58, top: 26, bottom: 34 },
     tooltip: {
       trigger: 'axis',
       formatter: (ps: any[]) => {
