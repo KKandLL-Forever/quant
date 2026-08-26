@@ -5,12 +5,12 @@ import type { DayBoard } from './BoardLineChart'
 const fmtDate = (d: string) => (d.length === 8 ? `${d.slice(4, 6)}-${d.slice(6, 8)}` : d)
 const TEMP_COLORS = ['#5b9bd5', '#7fd4d0', '#f2d16b', '#e8913a', '#c0392b']
 
-export function MoodChart({ days, temps, onPick, height = 480 }:
+export function MoodChart({ days, temps, onPick, height = 520 }:
   { days: DayBoard[]; temps: Record<string, number>; onPick: (date: string) => void; height?: number }) {
   const dates = days.map(d => d.date)
   const option = {
     animation: false,
-    grid: { left: 52, right: 58, top: 26, bottom: 34 },
+    grid: { left: 52, right: 58, top: 46, bottom: 34 },
     tooltip: {
       trigger: 'axis',
       formatter: (ps: any[]) => {
@@ -25,8 +25,8 @@ export function MoodChart({ days, temps, onPick, height = 480 }:
     visualMap: { show: false, seriesIndex: 1, dimension: 1, min: 0, max: 100, inRange: { color: TEMP_COLORS } },
     xAxis: { type: 'category', data: dates, boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
     yAxis: [
-      { type: 'value', name: '连板高度', nameTextStyle: { fontSize: 11, color: '#8a94a6' }, min: 0, minInterval: 1, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
-      { type: 'value', name: '情绪温度 (°)', nameTextStyle: { fontSize: 11, color: '#8a94a6' }, min: 0, max: 100, interval: 20, axisLabel: { fontSize: 10 }, splitLine: { show: false } },
+      { type: 'value', name: '连板高度', nameTextStyle: { fontSize: 11, color: '#8a94a6' }, nameGap: 14, min: 0, minInterval: 1, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
+      { type: 'value', name: '情绪温度 (°)', nameTextStyle: { fontSize: 11, color: '#8a94a6' }, nameGap: 14, min: 0, max: 100, interval: 20, axisLabel: { fontSize: 10 }, splitLine: { show: false } },
     ],
     dataZoom: [{ type: 'inside', xAxisIndex: 0 }],
     series: [
