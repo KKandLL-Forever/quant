@@ -37,7 +37,8 @@ export function MoodChart({ days, temps, onPick, height = 520 }:
         lineStyle: { color: BOARD_COLOR, width: 2 }, itemStyle: { color: BOARD_COLOR },
         areaStyle: {
           color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: 'rgba(178,86,78,.30)' }, { offset: 1, color: 'rgba(255,255,255,0)' }] },
+            colorStops: [{ offset: 0, color: 'rgba(178,86,78,.42)' }, { offset: 0.55, color: 'rgba(178,86,78,.26)' },
+              { offset: 0.85, color: 'rgba(178,86,78,.10)' }, { offset: 1, color: 'rgba(255,255,255,0)' }] },
         },
         labelLayout: { hideOverlap: true },
         label: {
