@@ -3,7 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import type { DayBoard } from './BoardLineChart'
 
 const fmtDate = (d: string) => (d.length === 8 ? `${d.slice(4, 6)}-${d.slice(6, 8)}` : d)
-const BOARD_COLOR = '#5c8471'
+const BOARD_COLOR = '#b2564e'
 const TEMP_COLORS = ['#5b9bd5', '#7fd4d0', '#f2d16b', '#e8913a', '#c0392b']
 
 export function MoodChart({ days, temps, onPick, height = 520 }:
@@ -35,11 +35,14 @@ export function MoodChart({ days, temps, onPick, height = 520 }:
         name: '最高连板数', type: 'line', yAxisIndex: 0, symbolSize: 5,
         data: days.map(d => d.maxBoard),
         lineStyle: { color: BOARD_COLOR, width: 2 }, itemStyle: { color: BOARD_COLOR },
-        areaStyle: { color: 'rgba(109,149,131,.10)' },
+        areaStyle: {
+          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: 'rgba(178,86,78,.30)' }, { offset: 1, color: 'rgba(255,255,255,0)' }] },
+        },
         labelLayout: { hideOverlap: true },
         label: {
           show: true, position: 'top', fontSize: 11, color: BOARD_COLOR, lineHeight: 13,
-          backgroundColor: 'rgba(255,253,248,.92)', borderColor: '#cfded6', borderWidth: 1, borderRadius: 3, padding: [2, 4],
+          backgroundColor: 'rgba(255,253,248,.92)', borderColor: '#e8d5d2', borderWidth: 1, borderRadius: 3, padding: [2, 4],
           formatter: (p: any) => {
             const d = days[p.dataIndex]
             return d.maxBoard >= 3 && d.topName ? `${d.topName}\n${d.maxBoard}板` : ''
@@ -49,7 +52,7 @@ export function MoodChart({ days, temps, onPick, height = 520 }:
       {
         name: '短线情绪温度', type: 'line', yAxisIndex: 1, symbolSize: 5, connectNulls: false,
         data: dates.map(d => (temps[d] == null ? null : temps[d])),
-        lineStyle: { width: 2, type: 'dashed' },
+        lineStyle: { width: 2 },
         labelLayout: { hideOverlap: true },
         label: { show: true, position: 'top', fontSize: 11, formatter: (p: any) => (p.value == null ? '' : `${p.value}°`) },
       },

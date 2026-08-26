@@ -120,7 +120,7 @@ export function MoodPanel() {
         }>
         <MoodChart days={shown} temps={temps} onPick={d => { setPick(d); setDraft(temps[d] ?? null) }} />
         <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 6 }}>
-          实线(绿)=当日最高连板数(左轴,3板以上标龙头名) · 虚线=情绪温度(右轴 0-100,冷蓝→热红) · 未填的日子断开不连
+          红线=当日最高连板数(左轴,3板以上标龙头名) · 彩线=情绪温度(右轴 0-100,冷蓝→热红) · 未填的日子断开不连
         </div>
       </Card>
 
