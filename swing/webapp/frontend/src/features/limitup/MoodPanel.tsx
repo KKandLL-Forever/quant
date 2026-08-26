@@ -1,4 +1,4 @@
-// 情绪温度 tab:最高连板 × 手工情绪温度双轴图 + 三种录入方式(最新日滑杆 / 点图回填 / 表格逐日 / 批量粘贴)。温度存后端 first10/mood_temp.json。
+// 情绪温度 tab:最高连板 × 手工情绪温度双轴图 + 三种录入方式(最新日滑杆 / 点图回填 / 表格逐日 / 批量粘贴)。温度存后端 swing/webapp/mood_temp.json。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card, Table, Slider, InputNumber, Button, Modal, Input, Spin, message, Tag } from 'antd'
 import { MoodChart } from './MoodChart'

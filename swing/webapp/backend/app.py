@@ -28,7 +28,7 @@ SWING = os.path.join(_ROOT, "swing")
 
 PY = sys.executable   # 子进程用跑 uvicorn 的同一解释器,保证依赖环境一致(跨平台)
 POOL_FILE = os.path.join(_ROOT, "xiaoxifu", "leader_pool.json")   # 自定义龙头股票池持久化(非数据库)
-MOOD_FILE = os.path.join(_ROOT, "first10", "mood_temp.json")      # 短线情绪温度(0-100),纯手工录入,无接口无算法
+MOOD_FILE = os.path.join(_ROOT, "swing", "webapp", "mood_temp.json")   # 短线情绪温度(0-100),纯手工录入,无接口无算法
 sys.path.insert(0, SWING)
 sys.path.insert(0, _ROOT)
 
