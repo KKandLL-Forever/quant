@@ -19,7 +19,6 @@ export function MoodChart({ days, temps, onPick, height = 520 }:
         const d = days[i]
         const t = temps[d.date]
         return `${d.date}<br/>最高 <b>${d.maxBoard}板</b>${d.topName ? ` · ${d.topName}` : ''}`
-          + `<br/>涨停 ${d.total ?? '—'} 只`
           + `<br/>情绪温度 <b>${t == null ? '未填' : t + '°'}</b>`
       },
     },
