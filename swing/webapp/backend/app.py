@@ -9,6 +9,7 @@
 """
 
 import json
+import logging
 import os
 import re
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +35,23 @@ POOL_FILE = os.path.join(_ROOT, "xiaoxifu", "leader_pool.json")   # 自定义龙
 MOOD_FILE = os.path.join(_ROOT, "swing", "webapp", "mood_temp.json")   # 短线情绪温度(0-100),纯手工录入,无接口无算法
 sys.path.insert(0, SWING)
 sys.path.insert(0, _ROOT)
+
+def _stamp_logs():
+    """给 uvicorn 控制台日志补上时间戳(它默认不打,排查时看不出先后与耗时)。"""
+    try:
+        from uvicorn.logging import AccessFormatter, DefaultFormatter
+    except ImportError:
+        return
+    for name, cls, fmt in (
+        ("uvicorn", DefaultFormatter, "%(asctime)s %(levelprefix)s %(message)s"),
+        ("uvicorn.access", AccessFormatter,
+         '%(asctime)s %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'),
+    ):
+        for h in logging.getLogger(name).handlers:
+            h.setFormatter(cls(fmt, datefmt="%m-%d %H:%M:%S"))
+
+
+_stamp_logs()
 
 app = FastAPI(title="ML信号 + LLM分析")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
