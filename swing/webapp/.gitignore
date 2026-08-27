@@ -6,3 +6,6 @@ __pycache__/
 
 # 口令页是后端源文件不是产物,要盖掉全局 *.html。
 !backend/login.html
+
+# 外网访问口令(第一行口令、第二行提示),不入库。
+.webpass

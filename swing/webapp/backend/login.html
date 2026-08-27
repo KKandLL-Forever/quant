@@ -15,7 +15,11 @@
           padding:32px 28px; box-shadow:0 12px 40px rgba(23,20,15,.07); }
   .brand { font-size:20px; font-weight:800; letter-spacing:.5px; }
   .kicker { font-size:11px; letter-spacing:3px; color:var(--accent); text-transform:uppercase; margin-top:4px; }
-  .hint { font-size:13px; color:var(--soft); line-height:1.7; margin:20px 0 18px; }
+  .hint { font-size:13px; color:var(--soft); line-height:1.7; margin:18px 0 14px; }
+  .riddle { display:flex; align-items:baseline; justify-content:center; gap:10px; margin:0 0 16px; padding:14px 0;
+            background:var(--paper); border:1px dashed var(--line); border-radius:10px;
+            font-size:26px; font-weight:700; letter-spacing:6px; }
+  .riddle em { font-style:normal; color:var(--soft); letter-spacing:4px; }
   input { width:100%; padding:11px 13px; font-size:15px; border:1px solid var(--line); border-radius:8px;
           background:var(--paper); color:var(--ink); outline:none; }
   input:focus { border-color:var(--accent); }
@@ -30,8 +34,9 @@
   <div class="card">
     <div class="brand">量化策略台</div>
     <div class="kicker">Quant Terminal</div>
-    <div class="hint">{{MSG}}，输入口令后可浏览。口令找站主要。</div>
-    <input id="pw" type="password" placeholder="访问口令" autocomplete="off" autofocus>
+    <div class="hint">{{MSG}}，对上暗号就能进。</div>
+    <div class="riddle" id="riddle"><span>{{HINT}}</span><em>＿＿</em></div>
+    <input id="pw" type="text" placeholder="补齐后两个字" autocomplete="off" autofocus>
     <button id="go">进入</button>
     <div class="err" id="err"></div>
     <div class="foot">
@@ -41,6 +46,8 @@
   </div>
 <script>
   const pw = document.getElementById('pw'), go = document.getElementById('go'), err = document.getElementById('err')
+  const rd = document.getElementById('riddle')
+  if (!rd.querySelector('span').textContent.trim()) { rd.style.display = 'none'; pw.placeholder = '访问口令' }
   async function submit() {
     if (!pw.value) return
     go.disabled = true; err.textContent = ''

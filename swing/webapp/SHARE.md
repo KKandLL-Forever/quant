@@ -9,9 +9,7 @@
 cd swing/webapp/frontend && npm run build
 
 # 2. 起后端(会自动托管 dist,一个端口同时供页面和 API)
-cd ../backend
-set QUART_WEB_PASS=你自己定的口令        # PowerShell: $env:QUART_WEB_PASS="..."
-python -m uvicorn app:app --port 18000
+cd ../backend && python -m uvicorn app:app --port 18000
 
 # 3. 开隧道,把打印出来的 https 链接发给人
 cloudflared tunnel --url http://localhost:18000
