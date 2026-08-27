@@ -3,3 +3,6 @@ dist/
 __pycache__/
 *.pyc
 .analyze_cache/
+
+# 口令页是后端源文件不是产物,要盖掉全局 *.html。
+!backend/login.html
