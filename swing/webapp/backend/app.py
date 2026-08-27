@@ -18,10 +18,13 @@ import subprocess
 import sys
 import tempfile
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+from web_guard import GuardMiddleware
 
 SWING = os.path.join(_ROOT, "swing")
 
@@ -34,6 +37,7 @@ sys.path.insert(0, _ROOT)
 
 app = FastAPI(title="ML信号 + LLM分析")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(GuardMiddleware)   # 外网(隧道)访问才生效:先验口令,再禁掉烧钱/吃CPU/写数据的接口
 
 
 class TrainReq(BaseModel):
@@ -77,15 +81,19 @@ def _read_cache(path, **kw):
 
 
 @app.post("/api/train")
-def train(req: TrainReq):
-    """跑 ML 信号管线,返回 {signals, banner, cal, latest, ntrade, ...}。train=True 重训模型。"""
+def train(req: TrainReq, request: Request):
+    """跑 ML 信号管线,返回 {signals, banner, cal, latest, ntrade, ...}。train=True 重训模型;外网访问只读缓存。"""
     ck = os.path.join(CACHE_DIR, f"train_{req.mode}_{req.tier}_n{req.n}_{req.start}_"
                                  f"{req.end or 'now'}_v{req.valend or 'auto'}.json")
-    if not req.train and not req.refresh:
+    external = getattr(request.state, "external", False)
+    if not req.train and not req.refresh or external:
         r = _read_cache(ck, parse_constant=lambda *_: None)
         if r is not None:
             r["cached"] = True
             return r
+    if external:
+        return {"ok": False, "error": "外网访问只能看站主已经跑好的组合(训练/重新打分会占满 CPU,已停用)。"
+                                      "请把参数改回默认值,或找站主先在本机跑一次。"}
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     cmd = [PY, "run_ml_signals_2026.py", "--mode", req.mode, "--tier", str(req.tier),
            "--n", str(req.n), "--start", req.start, "--json", out]
@@ -1263,5 +1271,11 @@ def lianban_retrain():
 
 
 @app.get("/api/health")
-def health():
-    return {"ok": True}
+def health(request: Request):
+    """探活;external=true 表示这条请求走的是外网隧道(前端可据此隐藏写操作入口)。"""
+    return {"ok": True, "external": getattr(request.state, "external", False)}
+
+
+DIST = os.path.join(_ROOT, "swing", "webapp", "frontend", "dist")
+if os.path.isdir(DIST):
+    app.mount("/", StaticFiles(directory=DIST, html=True), name="webapp")
