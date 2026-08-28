@@ -1200,18 +1200,38 @@ def _lianban_py():
     return _PY312 if os.path.exists(_PY312) else sys.executable
 
 
+def _lianban_latest_date() -> str:
+    """库里实际有行情的最新交易日(与 ml_score_2lb_v5._latest_trade_date 同口径)。"""
+    import duckdb
+    from cache_tushare import DUCKDB_PATH
+    con = duckdb.connect(DUCKDB_PATH, read_only=True)
+    con.execute("SET threads=1")
+    try:
+        return con.execute("SELECT strftime(MAX(trade_date), '%Y%m%d') FROM daily").fetchone()[0] or ""
+    finally:
+        con.close()
+
+
 @app.get("/api/lianban/score")
 def lianban_score(date: str = "", refresh: bool = False):
-    """2进4(到4板)每日打分:按日期缓存,refresh=true 才重跑 ml_score_2lb_v6(约10~20秒)。"""
-    key = date or "latest"
+    """2进4(到4板)每日打分:按交易日缓存,refresh=true 才重跑 ml_score_2lb_v6(约10~20秒)。
+
+    不传 date 时先把「最新交易日」解析成库里实际有数据的那天再当缓存键 —— 用日历上的今天当键,
+    行情没入库前每次进页都会拿到一个空键、白跑一遍打分。
+    """
+    latest = _lianban_latest_date()
+    key = date or latest
+    if latest and key > latest:
+        return {"ok": False, "date": key,
+                "error": f"{key} 的行情还没入库(库里最新到 {latest}),等当天收盘数据抓完再看。"}
     cf = os.path.join(LIANBAN_CACHE, f"score_{key}.json")
     if not refresh and os.path.exists(cf):
         with open(cf, encoding="utf-8") as f:
             return {**json.load(f), "cached": True}
     tmp = os.path.join(LIANBAN_CACHE, f"_tmp_{key}.json")
     cmd = [_lianban_py(), os.path.join(_FIRST10, "ml_score_2lb_v6.py"), "--json-out", tmp]
-    if date:
-        cmd += ["--date", date]
+    if key:
+        cmd += ["--date", key]
     try:
         r = subprocess.run(cmd, cwd=_FIRST10, capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=300)

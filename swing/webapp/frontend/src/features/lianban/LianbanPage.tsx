@@ -47,14 +47,11 @@ export default function LianbanPage() {
       const j: Payload = await (await fetch(`/api/lianban/score?${q}`)).json()
       if (!j.ok) throw new Error(j.error || '打分失败')
       setData(j)
+      if (j.date) setDate(j.date)
     } catch (e) { message.error((e as Error).message) } finally { setLoading(false) }
   }
-  useEffect(() => {   // 进页切到最新交易日并重新打分(不吃旧缓存)
-    fetch('/api/trade_cal').then(r => r.json()).then((j: { latest?: string | null }) => {
-      const latest = j?.latest ? j.latest.replace(/-/g, '') : ''
-      setDate(latest); load(latest, true)
-    }).catch(() => load('', true))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // 进页只吃缓存:交易日由后端按「库里实际有数据的最新一天」解析,数据入库后键会自己变,不必强制重跑
+  useEffect(() => { load('') }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const doRetrain = async () => {
     setRetrain(true)
