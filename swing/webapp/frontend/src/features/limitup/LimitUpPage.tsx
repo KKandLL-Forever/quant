@@ -1,6 +1,6 @@
-// 涨停统计:连板梯队 / 连板成功率 / 连板日历 / 情绪温度 四同级 tab。数据走后端(DuckDB limit_list_d);情绪温度为手工录入,存后端 json。
+// 涨停统计:连板梯队(可选交易日) / 连板成功率 / 连板日历 / 情绪温度 四同级 tab。数据走后端(DuckDB limit_list_d);情绪温度为手工录入,存后端 json。
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Input, Button, Card, Table, Spin, Tabs, Collapse, Progress, message } from 'antd'
+import { Input, Button, Card, Table, Spin, Tabs, Collapse, Progress, Select, message } from 'antd'
 import { Header, PageTitle, SkelTable } from '../../shell'
 import { StockName } from '../../StockInfo'
 import { useAna } from '../../App'
@@ -16,16 +16,30 @@ const rateColor = (r: number) => (r >= 0.6 ? '#c0392b' : r >= 0.4 ? '#e07b39' : 
 const MONTHS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月']
 type RangeData = { dates: string[]; byDate: Map<string, LimitStock[]> }
 
-// ── 连板梯队 ──
+// ── 连板梯队(可选交易日,默认区间内最新一天)──
 function LadderView({ data }: { data: RangeData }) {
-  const latest = data.dates[data.dates.length - 1]
-  const ladder = buildLadder(latest, data.byDate.get(latest) || [])
+  const [day, setDay] = useState('')
+  const dates = data.dates
+  const cur = day && dates.includes(day) ? day : dates[dates.length - 1]
+  const idx = dates.indexOf(cur)
+  const ladder = buildLadder(cur, data.byDate.get(cur) || [])
   const maxBoard = ladder.groups[0]?.days ?? 0
   const analyze = useAna()
+  const opts = useMemo(() => [...dates].reverse().map(d => ({
+    value: d, label: `${d}　${(data.byDate.get(d) || []).length}只`,
+  })), [dates, data])
   return (
     <>
-      <div style={{ fontSize: 14, margin: '4px 0 12px' }}>
-        最新交易日 <b>{latest}</b>:涨停 <b>{ladder.total}</b> 只 · 最高 <b style={{ color: boardColor(maxBoard) }}>{maxBoard} 板</b>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, margin: '4px 0 12px', flexWrap: 'wrap' }}>
+        <span>交易日</span>
+        <Select showSearch style={{ width: 190 }} value={cur} options={opts} onChange={setDay}
+          filterOption={(input, o) => String(o?.value || '').includes(input.replace(/[-/]/g, ''))} />
+        <Button size="small" disabled={idx <= 0} onClick={() => setDay(dates[idx - 1])}>← 前一日</Button>
+        <Button size="small" disabled={idx < 0 || idx >= dates.length - 1} onClick={() => setDay(dates[idx + 1])}>后一日 →</Button>
+        {idx !== dates.length - 1 && <Button size="small" type="link" onClick={() => setDay('')}>回到最新</Button>}
+        <span style={{ marginLeft: 4 }}>
+          涨停 <b>{ladder.total}</b> 只 · 最高 <b style={{ color: boardColor(maxBoard) }}>{maxBoard} 板</b>
+        </span>
       </div>
       <Card size="small" title="连板梯队(高板在上)">
         {ladder.groups.map(g => (
@@ -35,7 +49,7 @@ function LadderView({ data }: { data: RangeData }) {
               {g.stocks.map(s => (
                 <StockName key={s.tsCode} code={s.tsCode}>
                   <span className="hold-chip" style={{ cursor: 'pointer' }} title={`${s.industry} 封单${(s.fdAmount / 1e8).toFixed(2)}亿 炸板${s.openTimes}次 · 点击跑 LLM 分析`}
-                    onClick={() => analyze(s.tsCode, latest, false, s.name)}>
+                    onClick={() => analyze(s.tsCode, cur, false, s.name)}>
                     {s.name}{s.openTimes > 0 && <span className="hold-tag" style={{ background: '#e07b39' }}>炸{s.openTimes}</span>}
                   </span>
                 </StockName>
