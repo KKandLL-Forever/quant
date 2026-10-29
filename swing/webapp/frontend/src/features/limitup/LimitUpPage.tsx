@@ -19,18 +19,30 @@ type RangeData = { dates: string[]; byDate: Map<string, LimitStock[]> }
 // ── 连板梯队(可选交易日,默认区间内最新一天)──
 function LadderView({ data }: { data: RangeData }) {
   const [day, setDay] = useState('')
+  const [areaSel, setAreaSel] = useState<string[] | null>(null) // null=全部选上
   const dates = data.dates
   const cur = day && dates.includes(day) ? day : dates[dates.length - 1]
   const idx = dates.indexOf(cur)
-  const ladder = buildLadder(cur, data.byDate.get(cur) || [])
+  const dayStocks = data.byDate.get(cur) || []
+  // 当日各地域及只数,只数多的在前
+  const areaCounts = new Map<string, number>()
+  for (const s of dayStocks) { const a = s.area || '未知'; areaCounts.set(a, (areaCounts.get(a) || 0) + 1) }
+  const areaList = [...areaCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh'))
+  const activeAreas = areaSel === null ? areaList.map(([a]) => a) : areaSel.filter(a => areaCounts.has(a))
+  const ladder = buildLadder(cur, dayStocks.filter(s => activeAreas.includes(s.area || '未知')))
   const maxBoard = ladder.groups[0]?.days ?? 0
   const analyze = useAna()
+  // 点选切换:默认全部选上,点已选中的地域即取消该地域
+  const toggleArea = (a: string) => {
+    if (activeAreas.includes(a)) setAreaSel(activeAreas.filter(x => x !== a))
+    else setAreaSel([...activeAreas, a])
+  }
   const opts = useMemo(() => [...dates].reverse().map(d => ({
     value: d, label: `${d}　${(data.byDate.get(d) || []).length}只`,
   })), [dates, data])
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, margin: '4px 0 12px', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, margin: '4px 0 10px', flexWrap: 'wrap' }}>
         <span>交易日</span>
         <Select showSearch style={{ width: 190 }} value={cur} options={opts} onChange={setDay}
           filterOption={(input, o) => String(o?.value || '').includes(input.replace(/[-/]/g, ''))} />
@@ -39,9 +51,19 @@ function LadderView({ data }: { data: RangeData }) {
         {idx !== dates.length - 1 && <Button size="small" type="link" onClick={() => setDay('')}>回到最新</Button>}
         <span style={{ marginLeft: 4 }}>
           涨停 <b>{ladder.total}</b> 只 · 最高 <b style={{ color: boardColor(maxBoard) }}>{maxBoard} 板</b>
+          {ladder.total !== dayStocks.length && <span style={{ color: 'var(--ink-soft)' }}>(当日共 {dayStocks.length} 只)</span>}
         </span>
       </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, margin: '0 0 12px', flexWrap: 'wrap' }}>
+        <span>地域</span>
+        {areaList.map(([a, n]) => (
+          <Button key={a} size="small" type={activeAreas.includes(a) ? 'primary' : 'default'}
+            onClick={() => toggleArea(a)}>{a}<span style={{ marginLeft: 4, fontSize: 11, opacity: .65 }}>{n}</span></Button>
+        ))}
+        {!areaList.length && <span style={{ fontSize: 12, color: 'var(--ink-soft)' }}>当日无涨停</span>}
+      </div>
       <Card size="small" title="连板梯队(高板在上)">
+        {dayStocks.length > 0 && !ladder.groups.length && <div style={{ fontSize: 13, color: 'var(--ink-soft)', padding: '6px 0' }}>未选中任何地域</div>}
         {ladder.groups.map(g => (
           <div key={g.days} style={{ display: 'flex', gap: 10, padding: '6px 0', borderTop: '1px solid var(--line)' }}>
             <div style={{ minWidth: 54, fontWeight: 700, color: boardColor(g.days) }}>{g.days}板<span style={{ color: 'var(--ink-soft)', fontWeight: 400, fontSize: 12 }}> ×{g.stocks.length}</span></div>
