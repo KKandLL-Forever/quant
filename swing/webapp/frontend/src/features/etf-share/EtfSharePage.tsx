@@ -34,6 +34,17 @@ function presetStart(k: Preset): string {
 }
 const fmtDate = (d: string) => `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`
 
+// 时间跨度:日/周/月。周取自然周(周一为首日),月取自然月;聚合时每个周期保留该周期内最后一条已知值
+type Gran = 'day' | 'week' | 'month'
+const GRAN_LABEL: Record<Gran, string> = { day: '日', week: '周', month: '月' }
+function bucketKey(d: string, g: Gran): string {
+  if (g === 'day') return d
+  if (g === 'month') return d.slice(0, 6)
+  const t = new Date(Number(d.slice(0, 4)), Number(d.slice(4, 6)) - 1, Number(d.slice(6, 8)))
+  t.setDate(t.getDate() - ((t.getDay() + 6) % 7)) // 回退到本周一
+  return ymd(t)
+}
+
 // 长历史子集:2015-01 起就存在的 5 只宽基(不含 2020后上市的科创50/中证1000SZ/科创100)
 const LONG_CODES = ['510300.SH', '510500.SH', '510050.SH', '159915.SZ', '159919.SZ']
 const LONG_METAS = ETF_LIST.filter(e => LONG_CODES.includes(e.ts_code))
@@ -105,6 +116,7 @@ function flowOption(flowData: FlowRow[], metas: { ts_code: string; name: string;
 
 export default function EtfSharePage() {
   const [preset, setPreset] = useState<Preset | null>(null)
+  const [gran, setGran] = useState<Gran>('day')
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>(() => [dayjs('2015-01-01'), dayjs()])
   const [series, setSeries] = useState<Record<string, { trade_date: string; fdShare: number }[]>>({})
   const [loading, setLoading] = useState(false)
@@ -139,11 +151,25 @@ export default function EtfSharePage() {
     return Object.values(byDate).sort((a, b) => (a.date < b.date ? -1 : 1))
   }, [series])
 
+  // 按所选跨度聚合:同一周/月内各 ETF 取该周期最后一条已知份额,date 记为该周期最后一个交易日
+  const aggChartData = useMemo(() => {
+    if (gran === 'day') return chartData
+    const order: string[] = []
+    const buckets: Record<string, Record<string, number | string>> = {}
+    for (const row of chartData) {
+      const k = bucketKey(row.date as string, gran)
+      if (!buckets[k]) { buckets[k] = { date: row.date }; order.push(k) }
+      for (const e of ETF_LIST) { const v = row[e.ts_code]; if (typeof v === 'number') buckets[k][e.ts_code] = v }
+      buckets[k].date = row.date
+    }
+    return order.map(k => buckets[k])
+  }, [chartData, gran])
+
   // 各 ETF 份额前向填充(某日无更新则沿用上一已知值),仅当全部 ETF 都已有数据才计入,避免早期缺列导致低估;保留各只值供净申赎拆分
   const ffRows = useMemo(() => {
     const last: Record<string, number> = {}
     const out: { date: string; vals: Record<string, number>; total: number }[] = []
-    for (const row of chartData) {
+    for (const row of aggChartData) {
       for (const e of ETF_LIST) { const v = row[e.ts_code]; if (typeof v === 'number') last[e.ts_code] = v }
       if (ETF_LIST.every(e => typeof last[e.ts_code] === 'number')) {
         let sum = 0
@@ -153,7 +179,7 @@ export default function EtfSharePage() {
       }
     }
     return out
-  }, [chartData])
+  }, [aggChartData])
   const totalData = useMemo(() => ffRows.map(r => ({ date: r.date, total: r.total })), [ffRows])
   const totalSummary = useMemo(() => {
     if (totalData.length === 0) return null
@@ -163,8 +189,8 @@ export default function EtfSharePage() {
   }, [totalData])
 
   // 净申赎两口径:全部10只(含晚上市科创100→2022-08起) vs 长历史子集(2015起就有的5只宽基)
-  const flowAll = useMemo(() => computeFlow(chartData, ETF_LIST), [chartData])
-  const flowLong = useMemo(() => computeFlow(chartData, LONG_METAS), [chartData])
+  const flowAll = useMemo(() => computeFlow(aggChartData, ETF_LIST), [aggChartData])
+  const flowLong = useMemo(() => computeFlow(aggChartData, LONG_METAS), [aggChartData])
   const optAll = useMemo(() => flowOption(flowAll, ETF_LIST), [flowAll])
   const optLong = useMemo(() => flowOption(flowLong, LONG_METAS), [flowLong])
 
@@ -173,14 +199,14 @@ export default function EtfSharePage() {
     grid: { left: 52, right: 20, top: 14, bottom: 64 },
     legend: { bottom: 4, type: 'scroll', textStyle: { fontSize: 11 } },
     tooltip: { trigger: 'axis', axisPointer: { type: 'cross' }, valueFormatter: (v: any) => v == null ? '-' : `${v} 亿份` },
-    xAxis: { type: 'category', data: chartData.map(r => r.date as string), boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
+    xAxis: { type: 'category', data: aggChartData.map(r => r.date as string), boundaryGap: false, axisLabel: { fontSize: 10, formatter: fmtDate } },
     yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10 }, splitLine: { lineStyle: { color: '#f0eadc' } } },
     dataZoom: [{ type: 'inside' }],
     series: ETF_LIST.map(e => ({
       name: `${e.name} ${e.ts_code}`, type: 'line', showSymbol: false, connectNulls: true,
-      data: chartData.map(r => (r[e.ts_code] as number) ?? null), lineStyle: { color: e.color, width: 1.6 }, itemStyle: { color: e.color },
+      data: aggChartData.map(r => (r[e.ts_code] as number) ?? null), lineStyle: { color: e.color, width: 1.6 }, itemStyle: { color: e.color },
     })),
-  }), [chartData])
+  }), [aggChartData])
 
   const totalOpt = useMemo(() => ({
     animation: false,
@@ -198,6 +224,10 @@ export default function EtfSharePage() {
       <PageTitle kicker="ETF Share Size · 份额=资金申赎的真实脚印">ETF 份额</PageTitle>
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
+        {(['day', 'week', 'month'] as Gran[]).map(g => (
+          <Button key={g} type={gran === g ? 'primary' : 'default'} size="small"
+            onClick={() => setGran(g)}>{GRAN_LABEL[g]}</Button>
+        ))}
         {PRESETS.map(([k, lbl]) => (
           <Button key={k} type={preset === k ? 'primary' : 'default'} size="small"
             onClick={() => loadPreset(k)}>{lbl}</Button>
@@ -211,8 +241,8 @@ export default function EtfSharePage() {
 
       {!loading && (flowAll.length > 0 || flowLong.length > 0) && (
         <Card size="small"
-          title={<span>全部 ETF 净申赎(份额日变动)
-            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>红=净申购(份额增) · 绿=净赎回(份额减) · 单位亿份 · tushare无毛申赎额,此为净额</span>
+          title={<span>全部 ETF 净申赎(份额{GRAN_LABEL[gran]}变动)
+            <span style={{ marginLeft: 12, fontSize: 12, color: 'var(--ink-soft)' }}>红=净申购(份额增) · 绿=净赎回(份额减) · 单位亿份 · 每根为该{GRAN_LABEL[gran]}内净额 · tushare无毛申赎额</span>
           </span>}>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', margin: '0 0 2px 4px' }}>① 全部 10 只
             <span style={{ fontWeight: 400, color: 'var(--ink-soft)' }}> ——含晚上市的科创100ETF,须全员到齐,故自 2022-08 起</span>
@@ -238,7 +268,7 @@ export default function EtfSharePage() {
             <b style={{ marginLeft: 8, fontSize: 15 }}>{totalSummary.total.toFixed(2)} 亿份</b>
             {totalSummary.delta != null && (
               <span style={{ marginLeft: 8, fontSize: 13, color: totalSummary.delta > 0 ? '#c0392b' : totalSummary.delta < 0 ? '#1f8e5a' : '#5b554a' }}>
-                较昨日{totalSummary.delta >= 0 ? '增加' : '减少'} {Math.abs(totalSummary.delta).toFixed(2)} 亿份
+                较上{GRAN_LABEL[gran]}{totalSummary.delta >= 0 ? '增加' : '减少'} {Math.abs(totalSummary.delta).toFixed(2)} 亿份
               </span>
             )}
           </span>}>
