@@ -38,6 +38,9 @@ __pycache__/
 venv/
 env/
 
+# ===== 项目级第三方包（TradingAgents-CN 等，装在 vendor/，不入库）=====
+vendor/
+
 # ===== qlib 实验记录（mlflow 输出）=====
 mlruns/
 

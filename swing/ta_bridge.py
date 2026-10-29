@@ -8,6 +8,7 @@ TA-CN 自带的 A股数据层(akshare/tushare/baostock)在本环境全线失效(
 覆盖:get_china_stock_info_unified(股票资料)、get_china_stock_data_unified(日线行情报告)。
 情绪/新闻无自有数据源,不在此桥接范围。
 依赖:DuckDB(daily/adj_factor/stock_meta/sw_member);复用 cache_tushare.DUCKDB_PATH。
+TradingAgents-CN 装在仓库 vendor/python(项目级,源码见 vendor/TradingAgents-CN),不再装进全局 site-packages。
 """
 
 import os
@@ -18,6 +19,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, _ROOT)
+
+_VENDOR = os.path.join(_ROOT, "vendor", "python")
+if os.path.isdir(_VENDOR):
+    sys.path.insert(0, _VENDOR)
 
 import duckdb
 import pandas as pd

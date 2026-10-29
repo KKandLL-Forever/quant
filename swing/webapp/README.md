@@ -29,6 +29,10 @@ cd D:\code\quart\swing\webapp\backend
 python -m uvicorn app:app --reload --port 18000
 ```
 
+> `app:app` 里的模块名 `app` 指的是 `swing/webapp/backend/app.py`。**必须在 backend 目录下启动**
+> (或在仓库根用 `python -m uvicorn app:app --port 18000 --app-dir swing/webapp/backend`),
+> 否则报 `Error loading ASGI app. Could not import module "app"`。
+
 **② 前端**
 
 macOS / Linux:

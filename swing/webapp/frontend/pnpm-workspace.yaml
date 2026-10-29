@@ -1,0 +1,3 @@
+# pnpm 11 默认不执行依赖的构建脚本;esbuild 需要 postinstall 装/校验平台二进制
+allowBuilds:
+  esbuild: true

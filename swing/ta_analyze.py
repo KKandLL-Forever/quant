@@ -6,7 +6,7 @@
 环境：.venv312。用法：
   python swing/ta_analyze.py 300903 2026-06-26      # 指定股票+决策日
   python swing/ta_analyze.py 300903                 # 决策日默认最新交易日
-依赖：tradingagents(已装) + ta_bridge + astock_news;DeepSeek key(读 x2 的 .env)、tushare token。
+依赖：tradingagents(装在仓库 vendor/python,项目级;源码见 vendor/TradingAgents-CN) + ta_bridge + astock_news;DeepSeek key(读 .pyenv.local / x2 的 .env)、tushare token。
 """
 
 import os
@@ -17,6 +17,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 sys.path.insert(0, _ROOT)
+
+_VENDOR = os.path.join(_ROOT, "vendor", "python")
+if os.path.isdir(_VENDOR):
+    sys.path.insert(0, _VENDOR)
 
 
 def _load_keys():
