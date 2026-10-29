@@ -713,9 +713,10 @@ def limitup(req: LimitupReq):
         endq = ""
         if req.end:
             endq = " AND trade_date<=?"; args.append(_d(req.end))
-        rows = con.execute(f"""SELECT trade_date,ts_code,name,industry,close,pct_chg,amount,turnover_ratio,
-            open_times,limit_times,fd_amount,up_stat,first_time,last_time
-            FROM limit_list_d WHERE limit_type='U' AND trade_date>=?{endq} ORDER BY trade_date""", args).fetchall()
+        rows = con.execute(f"""SELECT l.trade_date,l.ts_code,l.name,l.industry,l.close,l.pct_chg,l.amount,l.turnover_ratio,
+            l.open_times,l.limit_times,l.fd_amount,l.up_stat,l.first_time,l.last_time,m.area
+            FROM limit_list_d l LEFT JOIN stock_meta m ON m.ts_code=l.ts_code
+            WHERE l.limit_type='U' AND l.trade_date>=?{endq} ORDER BY l.trade_date""", args).fetchall()
         con.close()
         by_date = {}
         for r in rows:
@@ -725,7 +726,7 @@ def limitup(req: LimitupReq):
                 "pctChg": float(r[5] or 0), "amount": float(r[6] or 0), "turnoverRatio": float(r[7] or 0),
                 "openTimes": int(r[8] or 0), "limitTimes": max(1, int(r[9] or 1)), "fdAmount": float(r[10] or 0),
                 "upStat": str(r[11] or ""), "firstTime": str(r[12] or ""), "lastTime": str(r[13] or ""),
-                "limitType": "U", "luDesc": "",
+                "area": str(r[14] or ""), "limitType": "U", "luDesc": "",
             })
         return {"ok": True, "dates": sorted(by_date), "byDate": by_date}
     except Exception:

@@ -3,7 +3,7 @@ export interface LimitStock {
   tsCode: string; name: string; industry: string; close: number; pctChg: number
   amount: number; turnoverRatio: number; openTimes: number; limitTimes: number
   fdAmount: number; upStat: string; firstTime: string; lastTime: string
-  limitType: 'U' | 'D' | 'Z'; luDesc: string
+  area: string; limitType: 'U' | 'D' | 'Z'; luDesc: string
 }
 export interface LadderGroup { days: number; stocks: LimitStock[]; successCount?: number; successRate?: number }
 export interface LimitLadder { tradeDate: string; groups: LadderGroup[]; total: number }

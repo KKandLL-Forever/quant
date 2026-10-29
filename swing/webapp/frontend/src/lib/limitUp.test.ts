@@ -18,6 +18,7 @@ function makeLimitStock(overrides: Partial<LimitStock> & { tsCode: string }): Li
     upStat: '1/1',
     firstTime: '093000',
     lastTime: '150000',
+    area: '广东',
     limitType: 'U',
     luDesc: '',
     ...overrides,

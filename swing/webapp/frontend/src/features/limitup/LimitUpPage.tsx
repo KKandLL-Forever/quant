@@ -48,9 +48,11 @@ function LadderView({ data }: { data: RangeData }) {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {g.stocks.map(s => (
                 <StockName key={s.tsCode} code={s.tsCode}>
-                  <span className="hold-chip" style={{ cursor: 'pointer' }} title={`${s.industry} 封单${(s.fdAmount / 1e8).toFixed(2)}亿 炸板${s.openTimes}次 · 点击跑 LLM 分析`}
+                  <span className="hold-chip" style={{ cursor: 'pointer' }} title={`${s.area || '-'} · ${s.industry} 封单${(s.fdAmount / 1e8).toFixed(2)}亿 炸板${s.openTimes}次 · 点击跑 LLM 分析`}
                     onClick={() => analyze(s.tsCode, cur, false, s.name)}>
-                    {s.name}{s.openTimes > 0 && <span className="hold-tag" style={{ background: '#e07b39' }}>炸{s.openTimes}</span>}
+                    {s.name}
+                    {s.area && <span className="hold-tag" style={{ background: '#9b958a' }}>{s.area}</span>}
+                    {s.openTimes > 0 && <span className="hold-tag" style={{ background: '#e07b39' }}>炸{s.openTimes}</span>}
                   </span>
                 </StockName>
               ))}
